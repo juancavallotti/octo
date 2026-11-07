@@ -16,8 +16,11 @@ import (
 const apiKeyColumns = "id, user_id, name, prefix, last4, roles, environment, created_at, expires_at, last_used_at, revoked_at"
 
 const (
-	// pgForeignKeyViolation is raised when user_id references no user.
+	// pgForeignKeyViolation is raised when user_id references no user, or the
+	// environment no environment; environmentForeignKey tells the two apart.
 	pgForeignKeyViolation = "23503"
+	// environmentForeignKey is the constraint on api_keys.environment.
+	environmentForeignKey = "api_keys_environment_fkey"
 	// pgInvalidTextRepresentation is raised when a non-UUID is passed where a uuid
 	// is expected (e.g. a malformed user id in the path).
 	pgInvalidTextRepresentation = "22P02"
@@ -34,7 +37,8 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 }
 
 // Insert stores a new key for k.UserID under the given hash, returning the
-// persisted row. An unknown (or malformed) user id surfaces as ErrUserNotFound.
+// persisted row. An unknown (or malformed) user id surfaces as ErrUserNotFound,
+// and an environment deleted since it was checked as ErrUnknownEnvironment.
 func (r *Repo) Insert(ctx context.Context, k APIKey, keyHash string) (APIKey, error) {
 	row := r.pool.QueryRow(ctx,
 		`INSERT INTO api_keys (user_id, name, key_hash, prefix, last4, roles, environment, expires_at)
@@ -44,6 +48,10 @@ func (r *Repo) Insert(ctx context.Context, k APIKey, keyHash string) (APIKey, er
 	)
 	out, err := scanAPIKey(row)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation && pgErr.ConstraintName == environmentForeignKey {
+			return APIKey{}, ErrUnknownEnvironment
+		}
 		switch pgErrorCode(err) {
 		case pgForeignKeyViolation, pgInvalidTextRepresentation:
 			return APIKey{}, ErrUserNotFound

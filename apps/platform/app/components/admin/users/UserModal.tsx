@@ -51,6 +51,10 @@ export default function UserModal({
   const [name, setName] = useState(person?.name ?? "");
   const [roles, setRoles] = useState<string[]>(person?.roles ?? []);
   const [envRoles, setEnvRoles] = useState<Record<string, string[]>>(person?.envRoles ?? {});
+  // What is persisted, as the last answer said. Each grant and revoke answers with
+  // the whole user, so after a save that failed part way a retry compares against
+  // what took effect, not what the dialog opened with.
+  const [saved, setSaved] = useState<PlatformUser | undefined>(person);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,21 +71,26 @@ export default function UserModal({
     if (busy) return;
     setBusy(true);
     setError(null);
+    let base = saved;
     try {
-      if (person) {
-        await updateUser(person.id, { email: email.trim(), name: name.trim() });
+      if (base) {
+        const id = base.id;
+        const changes = environmentRoleChanges(base.envRoles ?? {}, envRoles);
+        const before = base.roles;
+        base = await updateUser(id, { email: email.trim(), name: name.trim() });
         // One at a time, and each answers with the whole user: two in flight
         // together can land out of order and leave the row showing a set nobody
         // asked for.
-        for (const role of roles.filter((r) => !person.roles.includes(r))) {
-          await grantRole(person.id, role);
+        for (const role of roles.filter((r) => !before.includes(r))) {
+          base = await grantRole(id, role);
         }
-        for (const role of person.roles.filter((r) => !roles.includes(r))) {
-          await revokeRole(person.id, role);
+        for (const role of before.filter((r) => !roles.includes(r))) {
+          base = await revokeRole(id, role);
         }
-        for (const change of environmentRoleChanges(person.envRoles ?? {}, envRoles)) {
-          if (change.grant) await grantRole(person.id, change.role, change.environment);
-          else await revokeRole(person.id, change.role, change.environment);
+        for (const change of changes) {
+          base = change.grant
+            ? await grantRole(id, change.role, change.environment)
+            : await revokeRole(id, change.role, change.environment);
         }
       } else {
         await createUser({ email: email.trim(), name: name.trim(), roles });
@@ -89,8 +98,11 @@ export default function UserModal({
       onSaved();
       onClose();
     } catch (err) {
+      setSaved(base);
       setError((err as Error).message);
       setBusy(false);
+      // The list shows what persisted, whatever this dialog could not finish.
+      onSaved();
     }
   };
 

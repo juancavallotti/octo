@@ -164,9 +164,9 @@ var selfAuthenticated = []string{
 	"devruns/*/expire",
 }
 
-// exempt reports whether path is served without a platform token — either
+// Exempt reports whether path is served without a platform token — either
 // because it is open, or because it authenticates itself.
-func exempt(path string) bool {
+func Exempt(path string) bool {
 	if _, ok := bypass[strings.TrimSuffix(path, "/")]; ok {
 		return true
 	}

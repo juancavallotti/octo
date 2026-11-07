@@ -35,9 +35,19 @@ export function rolesIn(
 ): string[] {
   const name = normalizeEnvironment(environment);
   if (name === "") return roles;
-  const held = [...(envRoles?.[name] ?? [])];
+  const held = [...heldIn(envRoles, name)];
   if (roles.includes(ADMIN) && !held.includes(ADMIN)) held.push(ADMIN);
   return held;
+}
+
+/**
+ * The roles granted in one environment, read as the map's own entry only. An
+ * environment may be named "constructor" — a valid DNS label — and the selection
+ * cookie is the caller's to set, so a lookup through the prototype would hand
+ * back a function where a list of roles belongs.
+ */
+export function heldIn(envRoles: Record<string, string[]> | undefined, environment: string): string[] {
+  return envRoles && Object.hasOwn(envRoles, environment) ? envRoles[environment] : [];
 }
 
 /** Whether a person holds anything at all in `environment`. */

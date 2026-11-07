@@ -617,7 +617,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			}
 			environmentSvc.WithRegistry(kubeClient)
 			kubeClient.ResolveEnvironmentsWith(environmentSvc.Namespace)
-			if err := environmentSvc.Register(ctx); err != nil {
+			if err := environmentSvc.Resync(ctx); err != nil {
 				slog.Error("register environments with the cluster client", "error", err)
 			}
 		}
@@ -909,7 +909,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// roles in it, and checked after, so an unauthenticated caller cannot use the
 	// header to learn which environments exist.
 	// Confine then refuses a request naming a row in another environment.
-	return caller.Middleware(current.Parse(guard(current.Require(environments,
+	return caller.Middleware(current.Parse(guard(current.Require(environments, authz.Exempt,
 		current.Confine(owners, mux))))), nil
 }
 
@@ -1118,6 +1118,10 @@ func startTestRunSweeper(ctx context.Context, svc *testrun.Service, environments
 //
 // Every replica runs its own, and that needs no coordination: two replicas agreeing
 // that a row is orphaned produce one delete and one no-op.
+// cacheSyncTimeout bounds how long the reconciler waits for the informer caches
+// before sweeping with whichever have loaded.
+const cacheSyncTimeout = 2 * time.Minute
+
 func startReconciler(
 	ctx context.Context,
 	deployments *deployment.Service,
@@ -1127,9 +1131,18 @@ func startReconciler(
 	environments environmentLister,
 ) {
 	go func() {
-		if !synced(ctx) {
-			slog.Warn("reconciler: informer caches did not sync; not sweeping")
+		// Bounded, so one environment whose informers never sync — a RoleBinding
+		// lost in its namespace — does not stop the sweep in every other. A
+		// namespace still unsynced is read from the API server instead, which
+		// answers authoritatively or fails; it never reads as an empty cluster.
+		waitCtx, cancel := context.WithTimeout(ctx, cacheSyncTimeout)
+		ok := synced(waitCtx)
+		cancel()
+		if ctx.Err() != nil {
 			return
+		}
+		if !ok {
+			slog.Warn("reconciler: some informer caches have not synced; those namespaces are read from the API server")
 		}
 		reconcileOnce(ctx, deployments, agents, secrets, environments)
 
@@ -1164,6 +1177,12 @@ func reconcileOnce(
 ) {
 	sweep, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
+
+	// First, so the sweeps below compare each environment's rows against the
+	// namespace it has now, not one another replica moved it from.
+	if err := environments.Resync(sweep); err != nil {
+		slog.Error("resync environments", "error", err)
+	}
 
 	// Each environment is its own namespace and its own rows, so the deployment
 	// and secret sweeps compare them one environment at a time.
@@ -1200,6 +1219,7 @@ func reconcileOnce(
 // *environment.Service satisfies it.
 type environmentLister interface {
 	List(ctx context.Context) ([]environment.Environment, error)
+	Resync(ctx context.Context) error
 }
 
 // forEachEnvironment runs fn once per environment, with ctx acting in it, so a

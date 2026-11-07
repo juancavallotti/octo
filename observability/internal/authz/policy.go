@@ -81,8 +81,8 @@ var bypass = map[string]struct{}{
 	"/openapi/operations": {},
 }
 
-// exempt reports whether path is served without a platform token.
-func exempt(path string) bool {
+// Exempt reports whether path is served without a platform token.
+func Exempt(path string) bool {
 	_, ok := bypass[strings.TrimSuffix(path, "/")]
 	return ok
 }

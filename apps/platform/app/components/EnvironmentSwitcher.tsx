@@ -27,6 +27,7 @@ export default function EnvironmentSwitcher() {
   const pathname = usePathname();
   const [options, setOptions] = useState<EnvironmentOption[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
     if (!context) return;
@@ -50,14 +51,19 @@ export default function EnvironmentSwitcher() {
 
   if (!context || options === null) return null;
   const current = context.environment;
-  if (options.length <= 1 && current === "") return null;
+  // Hidden only when there is nowhere else to go: the one environment offered, or
+  // none, is the one already in use. A person whose only role is in staging starts
+  // in the default and must still be shown the way there.
+  if (options.every((o) => o.name === current) && (options.length > 0 || current === "")) return null;
 
   const choose = async (name: string) => {
     setBusy(true);
+    setFailed(null);
     try {
       await selectEnvironment(name);
       reloadAt(landingAfterSwitch(pathname));
-    } catch {
+    } catch (err) {
+      setFailed((err as Error).message);
       setBusy(false);
     }
   };
@@ -67,6 +73,7 @@ export default function EnvironmentSwitcher() {
       options={options}
       current={current}
       busy={busy}
+      error={failed}
       manageHref={context.roles.includes("platform:admin") ? "/platform/admin/environments" : undefined}
       onChoose={choose}
     />

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -30,11 +31,18 @@ func TestConfine(t *testing.T) {
 		{"its own environment", "staging", "/integrations/" + stagingIntegration + "/files", http.StatusNoContent},
 		{"another environment's integration", "staging", "/integrations/" + prodIntegration, http.StatusNotFound},
 		{"the default reaching into staging", "", "/integrations/" + stagingIntegration + "/resources", http.StatusNotFound},
-		{"a missing row is the handler's to report", "staging", "/deployments/" + missing, http.StatusNoContent},
+		{"a missing row is the handler's to report", "staging", "/integrations/" + missing, http.StatusNoContent},
+		{"a missing deployment is refused, its stores have no owner", "staging", "/deployments/" + missing + "/kv/user/k", http.StatusNotFound},
 		{"a non-id segment", "staging", "/integrations/bundle", http.StatusNoContent},
 		{"both ids checked", "staging", "/folders/" + stagingFolder + "/integrations/" + prodIntegration, http.StatusNotFound},
 		{"both ids in the environment", "staging", "/folders/" + stagingFolder + "/integrations/" + stagingIntegration, http.StatusNoContent},
 		{"a collection", "staging", "/integrations", http.StatusNoContent},
+		// Spellings Postgres reads as the same uuid; each is checked as that row.
+		{"an id without hyphens", "staging", "/integrations/" + strings.ReplaceAll(prodIntegration, "-", ""), http.StatusNotFound},
+		{"an id in braces", "staging", "/integrations/{" + prodIntegration + "}", http.StatusNotFound},
+		{"an id in capitals", "staging", "/integrations/" + strings.ToUpper(prodIntegration), http.StatusNotFound},
+		{"an id hyphenated elsewhere", "staging", "/snapshots/" + regroup(prodIntegration), http.StatusNotFound},
+		{"its own id without hyphens", "staging", "/integrations/" + strings.ReplaceAll(stagingIntegration, "-", ""), http.StatusNoContent},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -50,4 +58,15 @@ func TestConfine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// regroup writes a uuid with a hyphen after every fourth digit, a spelling
+// Postgres accepts.
+func regroup(id string) string {
+	hex := strings.ReplaceAll(id, "-", "")
+	var ret []string
+	for i := 0; i < len(hex); i += 4 {
+		ret = append(ret, hex[i:i+4])
+	}
+	return strings.Join(ret, "-")
 }

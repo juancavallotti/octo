@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { ROLE_LABELS } from "@/app/auth/roles";
+import Callout from "@/app/components/ui/Callout";
+import { heldIn } from "@/app/lib/environment";
 import { listEnvironments, type Environment } from "@/app/model/environments";
 import type { RoleOption } from "@/app/model/users";
 
@@ -30,17 +32,23 @@ export default function EnvironmentRoles({
   onChange: (next: Record<string, string[]>) => void;
 }) {
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     listEnvironments().then(
       (all) => live && setEnvironments(all.filter((e) => !e.default)),
-      () => {},
+      (err) => live && setFailed((err as Error).message),
     );
     return () => {
       live = false;
     };
   }, []);
 
+  // Said rather than left blank: "no other environments" and "they could not be
+  // read" look the same otherwise, and the second hides grants this person holds.
+  if (failed) {
+    return <Callout>Couldn&rsquo;t load the environments ({failed}). Close and reopen to try again.</Callout>;
+  }
   if (environments.length === 0) return null;
   if (isAdmin) {
     return (
@@ -52,7 +60,7 @@ export default function EnvironmentRoles({
 
   const roles = catalogue.filter((r) => r.role !== ADMIN);
   const toggle = (environment: string, role: string, on: boolean) => {
-    const current = held[environment] ?? [];
+    const current = heldIn(held, environment);
     onChange({
       ...held,
       [environment]: on ? [...current, role] : current.filter((r) => r !== role),
@@ -74,7 +82,7 @@ export default function EnvironmentRoles({
               <label key={role} className="flex items-center gap-1.5 text-sm">
                 <input
                   type="checkbox"
-                  checked={(held[e.name] ?? []).includes(role)}
+                  checked={heldIn(held, e.name).includes(role)}
                   onChange={(ev) => toggle(e.name, role, ev.target.checked)}
                   className="accent-sky-500"
                 />
@@ -95,8 +103,8 @@ export function environmentRoleChanges(
 ): { environment: string; role: string; grant: boolean }[] {
   const out: { environment: string; role: string; grant: boolean }[] = [];
   for (const environment of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    const was = before[environment] ?? [];
-    const now = after[environment] ?? [];
+    const was = heldIn(before, environment);
+    const now = heldIn(after, environment);
     for (const role of now.filter((r) => !was.includes(r))) out.push({ environment, role, grant: true });
     for (const role of was.filter((r) => !now.includes(r))) out.push({ environment, role, grant: false });
   }
