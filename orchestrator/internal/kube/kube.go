@@ -384,6 +384,11 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		c.orchestratorURL = cfg.RuntimeServices.OrchestratorURL
 	}
 	if cfg.EndpointAPI == EndpointAPIGateway {
+		// The documented default, made explicit: routes now live in environment
+		// namespaces, where an empty parent namespace would mean their own.
+		if cfg.Gateway.Namespace == "" {
+			cfg.Gateway.Namespace = cfg.Namespace
+		}
 		c.endpoints = &routePublisher{client: gwcs, ns: c.ns, gateway: cfg.Gateway}
 	} else {
 		c.wildcardTLSSecret = cfg.WildcardTLSSecret
