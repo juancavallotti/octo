@@ -3862,7 +3862,7 @@
         },
         "/environments": {
             "get": {
-                "description": "The default environment first, then every created one by name.",
+                "description": "The default environment first, then every created one by name — those the\ncaller holds a role in: an environment-bound token sees its own.",
                 "responses": {
                     "200": {
                         "content": {

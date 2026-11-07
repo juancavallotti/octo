@@ -78,7 +78,8 @@ type updateRequest struct {
 // list godoc
 //
 //	@Summary		List environments
-//	@Description	The default environment first, then every created one by name.
+//	@Description	The default environment first, then every created one by name — those the
+//	@Description	caller holds a role in: an environment-bound token sees its own.
 //	@Tags			environments
 //	@Produce		json
 //	@Success		200	{array}	environmentResponse
@@ -94,9 +95,21 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]environmentResponse, 0, len(items))
 	for _, e := range items {
-		out = append(out, toResponse(e))
+		if reaches(ctx, e.Name) {
+			out = append(out, toResponse(e))
+		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// reaches reports whether the caller holds a role in environment: one an
+// environment-bound token was minted for, one a person was granted a role in, or
+// any, for an administrator. A caller is shown only those, so a key bound to one
+// environment is never offered another to pick and be refused in. Without a
+// verified caller — enforcement off — every environment is reachable.
+func reaches(ctx context.Context, environment string) bool {
+	p, ok := authz.FromContext(ctx)
+	return !ok || len(p.RolesIn(environment)) > 0
 }
 
 // get godoc
@@ -113,6 +126,9 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	e, err := h.svc.Get(ctx, r.PathValue("name"))
+	if err == nil && !reaches(ctx, e.Name) {
+		err = ErrNotFound
+	}
 	if err != nil {
 		h.writeError(w, err)
 		return

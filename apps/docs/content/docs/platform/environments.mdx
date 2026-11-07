@@ -64,7 +64,8 @@ The orchestrator, the observability service and the [public API](/platform/publi
 - **Roles are checked in that environment.** A person holds their default roles in `octo`, and the roles granted per environment elsewhere. `platform:admin` applies in every environment.
 - **Unknown names are refused** with `404 unknown environment`. The check runs after authentication, so a caller without a token cannot probe which environments exist.
 - **Bound tokens stay in their environment.** A deployment's own token and a token from an environment-bound API key act in their environment when no header is sent. Naming any other environment is refused with `403`.
-- **The `/environments` routes ignore the header.** A client with a stale selection can always list what exists.
+- **The `/environments` routes ignore the header.** A client with a stale selection can always list what it can use.
+- **You see the environments you can act in.** A token bound to one environment lists only that one, and a person lists the environments they hold a role in; an administrator lists every one. Any other answers `404`, so a client is never offered an environment it would be refused in.
 
 ## Create an environment
 
@@ -120,8 +121,8 @@ With it off, environments are still listed but cannot be created or deleted. The
 
 | Method | Path | Who |
 | --- | --- | --- |
-| `GET` | `/environments` | Any signed-in role. The default environment comes first. |
-| `GET` | `/environments/{name}` | Any signed-in role |
+| `GET` | `/environments` | Any signed-in role, listing the environments the caller holds a role in. The default environment comes first. |
+| `GET` | `/environments/{name}` | Any signed-in role, for an environment the caller holds a role in |
 | `POST` | `/environments` | `platform:admin` |
 | `PATCH` | `/environments/{name}` | `platform:admin`. Changes `displayName` and `description` only. |
 | `DELETE` | `/environments/{name}` | `platform:admin` |
