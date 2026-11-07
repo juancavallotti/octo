@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest, ProxyConfig } from "next/server";
 import { auth } from "@/auth";
 import { hostSet, isIntegrationHost } from "@/app/gateway-error/hostGuard";
+import {
+  ENVIRONMENT_COOKIE,
+  ENVIRONMENT_COOKIE_MAX_AGE,
+  ENVIRONMENT_PARAM,
+  selectionFromLink,
+} from "@/app/lib/environment";
 
 /**
  * The part of a request these helpers read. Structural rather than NextRequest so
@@ -63,7 +69,8 @@ function isPublic(pathname: string): boolean {
 const gate = auth((req) => {
   const { pathname, search } = req.nextUrl;
   if (onIntegrationHost(req)) return errorPageOnly(req);
-  if (req.auth || isPublic(pathname)) return NextResponse.next();
+  if (req.auth) return selectFromLink(req, req.auth.user.roles ?? [], req.auth.user.envRoles);
+  if (isPublic(pathname)) return NextResponse.next();
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
@@ -73,6 +80,39 @@ const gate = auth((req) => {
   url.searchParams.set("callbackUrl", `${pathname}${search}`);
   return NextResponse.redirect(url);
 });
+
+/**
+ * selectFromLink makes a link's `?env=` the person's choice of environment before
+ * the page renders: on the request, so this page is already in it, and on the
+ * response, so it stays chosen. One they hold no role in is ignored, as the
+ * switcher would refuse it, and the page then says where it really is.
+ */
+function selectFromLink(
+  req: Pick<NextRequest, "nextUrl" | "cookies" | "headers">,
+  roles: string[],
+  envRoles: Record<string, string[]> | undefined,
+): NextResponse {
+  const wanted = selectionFromLink(
+    req.nextUrl.searchParams.get(ENVIRONMENT_PARAM),
+    req.cookies.get(ENVIRONMENT_COOKIE)?.value,
+    roles,
+    envRoles,
+  );
+  if (wanted === null) return NextResponse.next();
+  if (wanted === "") req.cookies.delete(ENVIRONMENT_COOKIE);
+  else req.cookies.set(ENVIRONMENT_COOKIE, wanted);
+  const res = NextResponse.next({ request: { headers: req.headers } });
+  if (wanted === "") res.cookies.delete(ENVIRONMENT_COOKIE);
+  else {
+    res.cookies.set(ENVIRONMENT_COOKIE, wanted, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: ENVIRONMENT_COOKIE_MAX_AGE,
+    });
+  }
+  return res;
+}
 
 /**
  * errorPageOnly collapses everything on an integration hostname onto the error

@@ -1,3 +1,4 @@
+import { Fragment, Suspense } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { RolesProvider } from "@/app/auth/RolesContext";
@@ -6,6 +7,7 @@ import { callerEnvironment } from "@/app/auth/callerEnvironment";
 import { rolesIn } from "@/app/lib/environment";
 import { writeRoles } from "@/app/auth/guard";
 import AgentChatLauncher from "@/app/components/agent/AgentChatLauncher";
+import EnvironmentInUrl from "@/app/components/EnvironmentInUrl";
 
 /**
  * Render every signed-in route per request. The account tile (UserMenu) reads the
@@ -43,11 +45,19 @@ export default async function SessionLayout({
   const effective = rolesIn(roles, envRoles, environment);
   return (
     <EnvironmentProvider value={{ environment, roles, envRoles }}>
+      {/* Reads the address's query, which Next renders behind a boundary. */}
+      <Suspense fallback={null}>
+        <EnvironmentInUrl />
+      </Suspense>
       <RolesProvider
         roles={effective}
         mayWrite={effective.some((role) => writeRoles.includes(role))}
       >
-        <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>
+        <AgentChatLauncher userKey={userKey}>
+          {/* A page moved into another environment starts over, rather than
+              keeping what it read in the last one; the chat beside it carries on. */}
+          <Fragment key={environment}>{children}</Fragment>
+        </AgentChatLauncher>
       </RolesProvider>
     </EnvironmentProvider>
   );
