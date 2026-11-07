@@ -13,7 +13,12 @@ import type {
   EnvironmentPatch,
 } from "@/app/model/environments";
 import { cookies } from "next/headers";
-import { ENVIRONMENT_COOKIE, normalizeEnvironment, rolesIn } from "@/app/lib/environment";
+import {
+  ENVIRONMENT_COOKIE,
+  ENVIRONMENT_COOKIE_MAX_AGE,
+  normalizeEnvironment,
+  rolesIn,
+} from "@/app/lib/environment";
 import { withAdmin, withRead } from "./_auth";
 import * as client from "./_client";
 import type { ActionResult } from "./_client";
@@ -38,9 +43,6 @@ export async function updateEnvironment(
 export async function deleteEnvironment(name: string): Promise<ActionResult<void>> {
   return withAdmin(() => client.deleteEnvironment(name));
 }
-
-/** A year: the choice is a preference, kept until it is changed. */
-const ENVIRONMENT_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
 /**
  * Work in `name` from now on ("" or "octo" for the default). Refused for an
