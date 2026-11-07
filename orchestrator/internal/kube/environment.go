@@ -12,9 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// labelEnvironment marks a namespace as an environment's, naming which one. It
-// is what DeleteNamespace checks before deleting anything, so a namespace this
-// orchestrator did not create is never one it removes.
+// labelEnvironment marks a namespace as an environment's, naming which one.
+// Together with labelRelease it is what adoption and DeleteNamespace check (see
+// owns), so a namespace this installation did not create is never one it takes
+// over or removes.
 const labelEnvironment = "octo.dev/environment"
 
 // labelRelease marks a namespace as belonging to the installation whose release
@@ -32,9 +33,9 @@ const (
 )
 
 // ErrNamespaceTaken is returned when the namespace an environment asks for
-// already exists and is not that environment's: adopting it would hand octo a
-// namespace somebody else owns, and deleting the environment later would
-// delete their namespace.
+// already exists and is not this installation's environment's: adopting it would
+// hand octo a namespace somebody else owns — another installation's same-named
+// environment included — and deleting the environment later would delete theirs.
 var ErrNamespaceTaken = errors.New("kube: namespace exists and is not this environment's")
 
 // EnvironmentRBAC is what an environment's namespace is wired with. The chart
@@ -146,7 +147,7 @@ func (c *Client) createNamespace(ctx context.Context, environment, namespace str
 	if err != nil {
 		return fmt.Errorf("kube: get namespace %s: %w", namespace, err)
 	}
-	if existing.Labels[labelEnvironment] != environment {
+	if !c.owns(existing, environment) {
 		return ErrNamespaceTaken
 	}
 	return nil
@@ -215,7 +216,7 @@ func (c *Client) DeleteNamespace(ctx context.Context, environment, namespace str
 	if err != nil {
 		return fmt.Errorf("kube: get namespace %s: %w", namespace, err)
 	}
-	if existing.Labels[labelEnvironment] != environment {
+	if !c.owns(existing, environment) {
 		return ErrNamespaceTaken
 	}
 	if err := namespaces.Delete(ctx, namespace, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
@@ -252,4 +253,12 @@ func createIgnoringExisting(create func() error) error {
 		return err
 	}
 	return nil
+}
+
+// owns reports whether ns is this installation's namespace for environment:
+// labelled for that environment, and by this installation's release namespace.
+// Two installations on one cluster both name an environment's namespace
+// octo-<name>, so the environment alone does not say whose it is.
+func (c *Client) owns(ns *corev1.Namespace, environment string) bool {
+	return ns.Labels[labelEnvironment] == environment && ns.Labels[labelRelease] == c.namespace
 }

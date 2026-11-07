@@ -85,6 +85,27 @@ func TestEnsureNamespaceRefusesSomebodyElsesNamespace(t *testing.T) {
 	}
 }
 
+// Two installations on one cluster both name staging's namespace octo-staging;
+// one labelled for another installation's staging is not this one's to adopt or
+// delete.
+func TestAnotherInstallationsNamespaceIsTaken(t *testing.T) {
+	ctx := context.Background()
+	theirs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "octo-staging",
+		Labels: map[string]string{labelEnvironment: "staging", labelRelease: "other-install"},
+	}}
+	c := environmentClient(theirs)
+	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); !errors.Is(err, ErrNamespaceTaken) {
+		t.Errorf("adopting: err = %v, want ErrNamespaceTaken", err)
+	}
+	if err := c.DeleteNamespace(ctx, "staging", "octo-staging"); !errors.Is(err, ErrNamespaceTaken) {
+		t.Errorf("deleting: err = %v, want ErrNamespaceTaken", err)
+	}
+	if _, err := c.clientset.CoreV1().Namespaces().Get(ctx, "octo-staging", metav1.GetOptions{}); err != nil {
+		t.Errorf("the other installation's namespace is gone: %v", err)
+	}
+}
+
 func TestDeleteNamespaceOnlyDeletesItsOwn(t *testing.T) {
 	ctx := context.Background()
 	foreign := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}
