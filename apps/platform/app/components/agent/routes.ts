@@ -90,8 +90,9 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
       "Any page above, in a different environment from the one the user is in: " +
       "add ?env= and the environment's name to its path, e.g. " +
       "/platform/metrics?env=staging for the metrics of an environment named " +
-      "staging. The default environment's name is the one your context gives " +
-      "for it. The user then works in that environment. A path without " +
+      "staging. For the default environment leave the name empty, as in " +
+      '"/platform/metrics?env=". The user then works in that environment. ' +
+      "A path without " +
       "?env= stays in the current environment, so asked for a page in another " +
       "one, always add it.",
   },
