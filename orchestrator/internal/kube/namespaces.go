@@ -138,8 +138,12 @@ type informerSet struct {
 // cache returns the synced informer cache for the namespace ctx acts in, or nil
 // when there is none yet — the caller then reads the API server directly.
 func (c *Client) cache(ctx context.Context) *watched {
+	// Resolved before the lock: resolving an environment this replica has not
+	// seen registers it, which starts watching it under the same lock, and a
+	// read lock cannot be upgraded.
+	ns := c.ns(ctx)
 	c.informers.mu.RLock()
-	w := c.informers.byNS[c.ns(ctx)]
+	w := c.informers.byNS[ns]
 	c.informers.mu.RUnlock()
 	if w == nil || !w.synced() {
 		return nil

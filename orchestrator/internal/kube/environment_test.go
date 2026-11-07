@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -168,6 +169,30 @@ func TestNamespaceFollowsTheEnvironmentOnTheContext(t *testing.T) {
 	c.ForgetEnvironment("staging")
 	if got := c.ns(current.With(ctx, "staging", true)); got != unresolvedNamespace {
 		t.Errorf("after forgetting, ns(staging) = %q", got)
+	}
+}
+
+// The first read of an environment another replica created resolves and starts
+// watching it, under the informers' lock; doing that while holding the lock to
+// read the cache would hang the request for good.
+func TestCacheResolvesAnEnvironmentWithoutDeadlocking(t *testing.T) {
+	c := environmentClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.StartInformers(ctx, func(string) {})
+	c.ResolveEnvironmentsWith(func(context.Context, string) (string, bool, error) {
+		return "octo-elsewhere", true, nil
+	})
+
+	done := make(chan struct{})
+	go func() {
+		c.cache(current.With(ctx, "elsewhere", true))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading the cache for a newly resolved environment deadlocked")
 	}
 }
 
