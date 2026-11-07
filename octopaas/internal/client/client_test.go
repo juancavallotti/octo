@@ -148,8 +148,7 @@ func TestReadEvents(t *testing.T) {
 	}
 }
 
-// Every request names the environment; the default names none, which the
-// platform reads the same way.
+// Every request names the environment it was given, and none when given none.
 func TestTheEnvironmentTravelsWithEveryRequest(t *testing.T) {
 
 	var got []string

@@ -100,6 +100,17 @@ func Resolve(f *File, o Overrides, getenv func(string) string) (Resolved, error)
 	return ret, nil
 }
 
+// EnvironmentHeader is what a request names as its environment: nothing when
+// none was named, so a key bound to one environment acts in its own, and the
+// default spelled out when it was named, so that key is refused rather than
+// quietly acting in its own.
+func (r Resolved) EnvironmentHeader() string {
+	if r.EnvironmentSource == FromDefault {
+		return ""
+	}
+	return DisplayEnvironment(r.Environment)
+}
+
 // NormalizeEnvironment spells the default environment as the empty string,
 // whichever way it was named.
 func NormalizeEnvironment(environment string) string {
