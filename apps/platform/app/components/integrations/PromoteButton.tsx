@@ -65,7 +65,13 @@ export default function PromoteButton({ snapshot, busy }: { snapshot: Snapshot |
   // every list on the page was read in the environment being left, and only a
   // fresh load is sure to drop all of them.
   const openThere = async (p: Promotion) => {
-    await selectEnvironment(p.environment);
+    setError(null);
+    try {
+      await selectEnvironment(p.environment);
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    }
     reloadAt(`/platform/integrations/i/${encodeURIComponent(p.integrationId)}`);
   };
 
