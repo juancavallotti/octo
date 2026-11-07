@@ -402,7 +402,7 @@
                         "type": "string"
                     },
                     "slug": {
-                        "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique across\ndeployments; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
+                        "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique among the\ndeployments of its environment; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
                         "type": "string"
                     },
                     "snapshotId": {
