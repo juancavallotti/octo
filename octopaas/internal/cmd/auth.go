@@ -332,8 +332,9 @@ func (a *App) statusCommand(use, path string) *cobra.Command {
 it acts as, with your roles. With an API key, the roles are the ones the key
 carries that you may still give it, which is all it may do.
 
-It says where each came from (a flag, the environment or the config), which is
-the quickest way to find out why octopaas is talking to the platform it is.`,
+It says where each came from (a flag, the environment or the config, or for an
+environment nobody named, the API key it is bound to), which is the quickest way
+to find out why octopaas is talking to the platform it is.`,
 		Example: `  octopaas ` + path + `
   octopaas ` + path + ` -o json | jq -r .user.email
   OCTOPAAS_PROFILE=local octopaas ` + path,
@@ -350,9 +351,10 @@ func (a *App) status(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	environment, environmentSource := a.actsIn(ctx, r)
 	report := statusReport{
 		Profile: r.Profile, ProfileSource: string(r.ProfileSource), URL: r.URL, URLSource: string(r.URLSource),
-		Environment: config.DisplayEnvironment(r.Environment), EnvironmentSource: string(r.EnvironmentSource),
+		Environment: environment, EnvironmentSource: string(environmentSource),
 	}
 
 	if r.APIKey != "" {
@@ -405,7 +407,7 @@ func (a *App) status(ctx context.Context) error {
 		pairs := [][2]string{
 			{"Profile", fmt.Sprintf("%s %s", r.Profile, a.ui.Dim("("+string(r.ProfileSource)+")"))},
 			{"Platform", fmt.Sprintf("%s %s", r.URL, a.ui.Dim("("+string(r.URLSource)+")"))},
-			{"Environment", fmt.Sprintf("%s %s", config.DisplayEnvironment(r.Environment), a.ui.Dim("("+string(r.EnvironmentSource)+")"))},
+			{"Environment", fmt.Sprintf("%s %s", report.Environment, a.ui.Dim("("+report.EnvironmentSource+")"))},
 			{"Credential", credential},
 		}
 		if report.User != nil {
