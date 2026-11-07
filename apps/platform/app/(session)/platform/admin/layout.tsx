@@ -7,7 +7,8 @@ import AdminNav from "./AdminNav";
 
 /**
  * The shell every admin page shares: the header, the section switcher, and the
- * full-height frame.
+ * full-height frame. The admin section is installation-wide, so its header has no
+ * environment switcher.
  *
  * A layout rather than a component each page mounts, so the bar cannot go missing
  * from a page somebody adds later — which is what happened to the settings pages
@@ -30,7 +31,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
   return (
     <div className="flex h-full flex-col">
-      <AppHeader userMenu={<UserMenu />}>
+      <AppHeader userMenu={<UserMenu />} environmentAgnostic>
         <AdminNav />
       </AppHeader>
       <div className="min-h-0 flex-1">{children}</div>
