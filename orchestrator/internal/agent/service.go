@@ -12,6 +12,7 @@ import (
 
 	agentapp "github.com/juancavallotti/octo/orchestrator/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
@@ -160,6 +161,7 @@ func NewService(
 // and no provider key are all *states*, reported in Blocked, because a page that
 // 500s cannot tell you to go and configure the thing.
 func (s *Service) Status(ctx context.Context) (Status, error) {
+	ctx = home(ctx)
 	cur, err := s.repo.Get(ctx)
 	if err != nil {
 		return Status{}, err
@@ -321,6 +323,7 @@ func (s *Service) liveDigest(ctx context.Context, integrationID string) (string,
 // already exists is reused, and a tag that already exists is not recreated — so
 // pressing Install twice is not an error and does not produce a second agent.
 func (s *Service) Install(ctx context.Context, actorID string) (Status, error) {
+	ctx = home(ctx)
 	if s.deployments == nil || s.secrets == nil {
 		return Status{}, ErrClusterUnavailable
 	}
@@ -750,6 +753,7 @@ func (s *Service) webSearchKey(ctx context.Context) (deployment.EnvBinding, erro
 // is in the integration now: a roll-out replaces local edits with the shipped agent,
 // which is what Status reports as Edited beforehand.
 func (s *Service) Rollout(ctx context.Context, actorID string) (Status, error) {
+	ctx = home(ctx)
 	if s.deployments == nil || s.secrets == nil {
 		return Status{}, ErrClusterUnavailable
 	}
@@ -914,6 +918,7 @@ func (s *Service) rollout(ctx context.Context, cur stored, actorID string) (stor
 // It is a roll-out because OCTO_TRACING is read at pod startup, so the setting only
 // reaches it by replacing the pods. Nothing else changes: same tag, same env.
 func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
+	ctx = home(ctx)
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
 	}
@@ -948,6 +953,7 @@ func (s *Service) SetTracing(ctx context.Context, on bool) (Status, error) {
 // Zero is not "no turns" but "no override", and is the only way back to the
 // definition's own default once one has been set.
 func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status, error) {
+	ctx = home(ctx)
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
 	}
@@ -1001,6 +1007,7 @@ func (s *Service) SetMaxIterations(ctx context.Context, iterations int) (Status,
 func (s *Service) SetDeploymentSettings(
 	ctx context.Context, iterations *int, autoFix *bool,
 ) (Status, error) {
+	ctx = home(ctx)
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
 	}
@@ -1056,6 +1063,7 @@ func (s *Service) SetDeploymentSettings(
 // changes what an unattended alert may do to a live installation — from sending an
 // email to rolling out a definition — which is worth its own audit point.
 func (s *Service) SetAutoFix(ctx context.Context, on bool) (Status, error) {
+	ctx = home(ctx)
 	if s.deployments == nil {
 		return Status{}, ErrClusterUnavailable
 	}
@@ -1098,6 +1106,7 @@ func (s *Service) SetAutoFix(ctx context.Context, on bool) (Status, error) {
 // unreadable deployment is a failure to look rather than an absent deployment —
 // clearing on that would offer a deploy against an agent that is running fine.
 func (s *Service) Repair(ctx context.Context) (bool, error) {
+	ctx = home(ctx)
 	if s.deployments == nil {
 		return false, nil
 	}
@@ -1137,6 +1146,7 @@ func (s *Service) Repair(ctx context.Context) (bool, error) {
 // may have edited, and undeploying is the reversible half. purge is the one that
 // throws the work away.
 func (s *Service) Uninstall(ctx context.Context, purge bool) error {
+	ctx = home(ctx)
 	return s.repo.Mutate(ctx, func(cur stored) (stored, error) {
 		if cur.IntegrationID == "" {
 			return cur, ErrNotInstalled
@@ -1210,4 +1220,12 @@ func ConnectorTypeFor(provider string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// home pins ctx to the default environment. Dr. Octo is installation-wide: his
+// integration, version, deployment, secrets and token all belong to the
+// default environment, whichever one the caller had selected, so every entry
+// point acts there.
+func home(ctx context.Context) context.Context {
+	return current.With(ctx, "", false)
 }
