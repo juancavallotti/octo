@@ -1115,6 +1115,10 @@ func startTestRunSweeper(ctx context.Context, svc *testrun.Service, environments
 //
 // Every replica runs its own, and that needs no coordination: two replicas agreeing
 // that a row is orphaned produce one delete and one no-op.
+// cacheSyncTimeout bounds how long the reconciler waits for the informer caches
+// before sweeping with whichever have loaded.
+const cacheSyncTimeout = 2 * time.Minute
+
 func startReconciler(
 	ctx context.Context,
 	deployments *deployment.Service,
@@ -1124,9 +1128,18 @@ func startReconciler(
 	environments environmentLister,
 ) {
 	go func() {
-		if !synced(ctx) {
-			slog.Warn("reconciler: informer caches did not sync; not sweeping")
+		// Bounded, so one environment whose informers never sync — a RoleBinding
+		// lost in its namespace — does not stop the sweep in every other. A
+		// namespace still unsynced is read from the API server instead, which
+		// answers authoritatively or fails; it never reads as an empty cluster.
+		waitCtx, cancel := context.WithTimeout(ctx, cacheSyncTimeout)
+		ok := synced(waitCtx)
+		cancel()
+		if ctx.Err() != nil {
 			return
+		}
+		if !ok {
+			slog.Warn("reconciler: some informer caches have not synced; those namespaces are read from the API server")
 		}
 		reconcileOnce(ctx, deployments, agents, secrets, environments)
 

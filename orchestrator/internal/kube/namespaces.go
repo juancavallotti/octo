@@ -259,11 +259,10 @@ func (s *informerSet) allSynced() bool {
 // WaitForCacheSync blocks until every watched namespace's informer caches have
 // loaded, or ctx ends.
 //
-// It exists for callers that must not act on an empty cache — the reconciler
-// decides what to delete, and an unloaded cache and an empty cluster look
-// identical. Everything else here treats an unsynced cache as a reason to read
-// the API server directly, which is fine when the question is about one named
-// object and not fine when it is "what is there".
+// It exists so the reconciler starts from loaded caches where it can. It does not
+// guard against acting on an empty cache: every read here, the reconciler's
+// listing included, treats an unsynced cache as a reason to read the API server
+// directly, which answers authoritatively or fails.
 //
 // False means the caches never synced: informers were not started, or ctx ended
 // first. Both mean the same thing to a caller — do not act.
