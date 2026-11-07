@@ -53,3 +53,16 @@ func TestEnvironmentHeader(t *testing.T) {
 		})
 	}
 }
+
+// A profile that chose the default names it, so the choice reaches the platform
+// rather than reading as no choice at all.
+func TestAProfileThatChoseTheDefaultNamesIt(t *testing.T) {
+	f := &File{Current: "p", Profiles: map[string]Profile{"p": {URL: "https://a", Environment: DefaultEnvironment}}}
+	r, err := Resolve(f, Overrides{}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Environment != "" || r.EnvironmentSource != FromConfig || r.EnvironmentHeader() != DefaultEnvironment {
+		t.Errorf("resolved %q (%s), header %q; want the default, named from the config", r.Environment, r.EnvironmentSource, r.EnvironmentHeader())
+	}
+}

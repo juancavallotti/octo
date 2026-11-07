@@ -155,7 +155,7 @@ never lands in your shell history.`,
 				return usageError{fmt.Errorf("a new profile needs --url")}
 			}
 			if environment != "" {
-				p.Environment = config.NormalizeEnvironment(environment)
+				p.Environment = config.DisplayEnvironment(config.NormalizeEnvironment(environment))
 			}
 			if withKey {
 				key, err := a.readSecret("API key for " + name)
