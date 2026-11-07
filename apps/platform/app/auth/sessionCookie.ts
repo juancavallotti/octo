@@ -20,10 +20,24 @@ import type { OctoTokenFields } from "./octoToken";
  * decrypt.
  */
 export async function currentOctoToken(): Promise<string | undefined> {
+  let incoming: Headers;
+  try {
+    incoming = await headers();
+  } catch {
+    // Outside a request there is no cookie, so no token.
+    return undefined;
+  }
+  return octoTokenFrom(incoming);
+}
+
+/**
+ * The platform token in the session cookie among `incoming`, for code that holds
+ * a request's headers rather than running inside one, such as the proxy.
+ */
+export async function octoTokenFrom(incoming: Headers): Promise<string | undefined> {
   const secret = process.env.AUTH_SECRET;
   if (!secret) return undefined;
   try {
-    const incoming = await headers();
     const jwt = await getToken({
       req: { headers: incoming },
       secret,
