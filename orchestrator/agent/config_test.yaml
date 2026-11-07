@@ -278,7 +278,7 @@ cases:
       vars:
         environment: ""
         environmentContext: >-
-          You are working in the default environment, "octo". Every platform call
+          You are working in the default environment. Every platform call
           acts there, and integrations, versions and deployments of other
           environments are invisible from it.
 
