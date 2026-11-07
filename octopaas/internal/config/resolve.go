@@ -15,6 +15,9 @@ const (
 	FromEnv     Source = "env"
 	FromConfig  Source = "config"
 	FromDefault Source = "default"
+	// FromKey is an environment no flag, variable or profile named, which the API
+	// key in use is bound to: every key acts in exactly one.
+	FromKey Source = "key"
 )
 
 // Overrides are what the command line asked for. Empty means not asked.
