@@ -444,7 +444,7 @@ flows:
               value: >-
                 "You are working in the " +
                   (vars.environment == ""
-                    ? "default environment, \"octo\""
+                    ? "default environment"
                     : "\"" + vars.environment + "\" environment") +
                   ". Every platform call acts there, and integrations, versions" +
                   " and deployments of other environments are invisible from it."
@@ -2292,7 +2292,7 @@ flows:
             # fired lives.
             - setVar: environmentContext
               value: >-
-                "You are working in the default environment, \"octo\": the one" +
+                "You are working in the default environment: the one" +
                   " you run in and the watch that fired belongs to. Every platform" +
                   " call acts there."
             - setVar: reportTo

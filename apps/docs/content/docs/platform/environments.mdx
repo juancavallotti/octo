@@ -44,7 +44,7 @@ Picking one reloads the page in that environment. The integration manager, dashb
 
 Outside the default, every page's address ends in `?env=<name>`, so you can bookmark or share it and it opens in that environment. Opening such a link picks that environment for you, as the picker would. A link to an environment you hold no role in is ignored, and the address changes to say where you really are.
 
-Dr. Octo's chat follows the same choice: he works in the environment you have picked, and every question reaches him saying which one that is. When he takes you to a page in another environment, he does it with the same `?env=` address, and that environment becomes your choice. Over [MCP](/ai/platform-mcp#environments), `list_environments` lists them and every tool takes an optional `environment` argument.
+Dr. Octo's chat follows the same choice: he works in the environment you have picked, and every question reaches him saying which one that is. When he takes you to a page in another environment, he does it with the same `?env=` address, and that environment becomes your choice. Over [MCP](/ai/platform-mcp#environments), `list_environments` lists them, and every tool that reads or changes the installation's data takes an optional `environment` argument. Leaving it out acts in the default environment, not the one picked in the platform. `evaluate_cel` and the documentation tools read nothing of the installation's, so they take none.
 
 ## Promote a version
 
