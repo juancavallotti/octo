@@ -112,7 +112,9 @@ rather than a refusal on every later command.`,
 					return usageError{fmt.Errorf("there is no environment %q on %s; see `octopaas environments list`", name, r.URL)}
 				}
 			}
-			p.Environment = name
+			//the default is saved by its name rather than as nothing: an empty one names
+			//no environment, and a key bound to another would quietly act in its own.
+			p.Environment = config.DisplayEnvironment(name)
 			a.cfg.Profiles[r.Profile] = p
 			if err := a.cfg.Save(a.home); err != nil {
 				return err
