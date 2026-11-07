@@ -180,7 +180,15 @@ func (a *App) versionsPullCommand() *cobra.Command {
 			if len(args) > 2 {
 				dir = args[2]
 			}
-			return a.save(buf.Bytes(), args[0], dir, zipFile, force)
+			id, err := a.integration(ctx, api, args[0])
+			if err != nil {
+				return err
+			}
+			r, err := a.resolve()
+			if err != nil {
+				return err
+			}
+			return a.save(buf.Bytes(), args[0], dir, zipFile, force, originOf(r, id, args[0]))
 		},
 	}
 	cmd.Flags().StringVar(&zipFile, "zip", "", "save the bundle as this .zip instead of unpacking it")
