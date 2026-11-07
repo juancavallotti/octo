@@ -1142,8 +1142,12 @@ func slugify(name string) string {
 
 // applyRefresh refreshes d's live status from the cluster in place: it sets the
 // coarse cached Status (persisting it when it changed) and the live Detail.
+//
+// The live status is read in d's own environment rather than the caller's: the
+// row knows where its workload runs, and a caller acting in no environment, or
+// another one, would look for it in the wrong namespace and cache it as failed.
 func (s *Service) applyRefresh(ctx context.Context, d *Deployment) {
-	st := s.refresh(ctx, d.ID, d.Status)
+	st := s.refresh(current.With(ctx, d.Environment, current.Explicit(ctx)), d.ID, d.Status)
 	d.Status = st.Phase
 	d.Detail = st
 }
