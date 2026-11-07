@@ -28,7 +28,9 @@ type environmentRow struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
 	Namespace   string `json:"namespace"`
-	Current     bool   `json:"current"`
+	// Default marks the environment every platform has, whatever it is named.
+	Default bool `json:"default"`
+	Current bool `json:"current"`
 }
 
 func (a *App) environmentsListCommand() *cobra.Command {
@@ -53,7 +55,7 @@ func (a *App) environmentsListCommand() *cobra.Command {
 			rows := make([]environmentRow, 0, len(environments))
 			for _, e := range environments {
 				rows = append(rows, environmentRow{
-					Name: e.Name, DisplayName: e.DisplayName, Namespace: e.Namespace, Current: e.Name == current,
+					Name: e.Name, DisplayName: e.DisplayName, Namespace: e.Namespace, Default: e.Default, Current: e.Name == current,
 				})
 			}
 			return a.emit(rows, func() {
@@ -95,26 +97,27 @@ rather than a refusal on every later command.`,
 			if !ok {
 				return usageError{fmt.Errorf("profile %q is not in your config, so there is nothing to save the environment on", r.Profile)}
 			}
-			if name != "" {
-				api, err := a.client()
-				if err != nil {
-					return err
-				}
-				environments, err := api.ListEnvironments(cmd.Context())
-				if err != nil {
-					return err
-				}
-				found := false
-				for _, e := range environments {
-					found = found || e.Name == name
-				}
-				if !found {
-					return usageError{fmt.Errorf("there is no environment %q on %s; see `octopaas environments list`", name, r.URL)}
+			api, err := a.client()
+			if err != nil {
+				return err
+			}
+			environments, err := api.ListEnvironments(cmd.Context())
+			if err != nil {
+				return err
+			}
+			//the default is saved under the name the platform gives it rather than as
+			//nothing: an empty one names no environment, and a key bound to another
+			//would quietly act in its own.
+			saved := ""
+			for _, e := range environments {
+				if e.Name == name || (name == "" && e.Default) {
+					saved = e.Name
 				}
 			}
-			//the default is saved by its name rather than as nothing: an empty one names
-			//no environment, and a key bound to another would quietly act in its own.
-			p.Environment = config.DisplayEnvironment(name)
+			if saved == "" {
+				return usageError{fmt.Errorf("there is no environment %q on %s; see `octopaas environments list`", args[0], r.URL)}
+			}
+			p.Environment = saved
 			a.cfg.Profiles[r.Profile] = p
 			if err := a.cfg.Save(a.home); err != nil {
 				return err
