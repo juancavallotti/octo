@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, CircleCheck, Download, Workflow } from
 import type { PickerGroup, PickerItem, PickerRowAction } from "@octo/editor";
 import { resolveIcon } from "@octo/editor/runtime";
 import { paasBridge } from "../desktop";
-import EnvironmentChoice from "./EnvironmentChoice";
+import CloudProfileHeading from "./CloudProfileHeading";
 import type { IntegrationSummary, PaasBridge, PlatformState, SyncState } from "../platform/types";
 
 /** An integration's id in the picker, kept apart from the folder paths beside it. */
@@ -21,28 +21,6 @@ interface Remote {
   scope: string;
   list: IntegrationSummary[] | null;
   error?: string;
-}
-
-/**
- * A cloud profile's mark. Drawn here rather than taken from lucide, whose cloud is
- * lopsided enough to read as a smudge at heading size.
- */
-function CloudMark({ size = 13 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <path d="M6.5 19.5h11a4.25 4.25 0 0 0 .55-8.46A6.25 6.25 0 0 0 6.1 9.6 4.98 4.98 0 0 0 6.5 19.5Z" />
-    </svg>
-  );
 }
 
 /**
@@ -195,24 +173,19 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
     group: {
       id: profile,
       label: (
-        <>
-          <CloudMark />
-          <span className="min-w-0 truncate">
-            <b className="font-semibold text-zinc-700 dark:text-zinc-200">{profile}</b> cloud profile
-            <EnvironmentChoice
-              current={installation.environment || "octo"}
-              environments={installation.environments}
-              disabled={busy}
-              onPick={(environment) => {
-                fetchOnScope.current = true;
-                void paas.useEnvironment(profile, environment).catch(() => {
-                  fetchOnScope.current = false;
-                });
-              }}
-            />
-            {stale}
-          </span>
-        </>
+        <CloudProfileHeading
+          profile={profile}
+          environment={installation.environment || "octo"}
+          environments={installation.environments}
+          note={stale}
+          disabled={busy}
+          onPick={(environment) => {
+            fetchOnScope.current = true;
+            void paas.useEnvironment(profile, environment).catch(() => {
+              fetchOnScope.current = false;
+            });
+          }}
+        />
       ),
       items,
       emptyLabel,
