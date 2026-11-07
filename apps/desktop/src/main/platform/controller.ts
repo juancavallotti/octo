@@ -42,7 +42,7 @@ export interface ProfileView {
   /** The environment the profile acts in; "octo" is the default. */
   environment: string;
   /** The environments the installation has, by name; null until it has answered. */
-  environments: string[] | null;
+  environments: EnvironmentView[] | null;
   identity:
     | { state: "checking" }
     | { state: "signed-out" }
@@ -219,11 +219,24 @@ async function check(name: string): Promise<void> {
   publish();
 }
 
+/**
+ * An environment an installation can act in, as the platform names it. The
+ * default is marked rather than recognised by name: what it is called is the
+ * platform's to say.
+ */
+export interface EnvironmentView {
+  name: string;
+  default: boolean;
+}
+
 /** The environments an installation has; null when it could not say. */
-async function environmentsOf(name: string): Promise<string[] | null> {
+async function environmentsOf(name: string): Promise<EnvironmentView[] | null> {
   try {
-    const rows = await list<{ name: string }>(["environments", "list"], { profile: name, signal: AbortSignal.timeout(15000) });
-    return rows.map((r) => r.name);
+    const rows = await list<{ name: string; default?: boolean }>(["environments", "list"], {
+      profile: name,
+      signal: AbortSignal.timeout(15000),
+    });
+    return rows.map((r) => ({ name: r.name, default: r.default === true }));
   } catch {
     return null;
   }

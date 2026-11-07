@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Layers } from "lucide-react";
+import DefaultPill from "../platform/components/DefaultPill";
+import type { EnvironmentView } from "../platform/types";
 
 /**
  * A cloud profile's mark. Drawn here rather than taken from lucide, whose cloud is
@@ -32,7 +34,8 @@ function CloudMark({ size = 13 }: { size?: number }) {
  * The environment is the Platform window's chip, the same icon and look, but its
  * choices unfold under the heading instead of in a menu of their own: the heading
  * lives inside the folder menu's scrolling list, which would clip a second popover.
- * A single environment is said, not offered.
+ * A single environment is said, not offered. The default is marked as the platform
+ * marks it, never recognised by its name.
  */
 export default function CloudProfileHeading({
   profile,
@@ -44,7 +47,7 @@ export default function CloudProfileHeading({
 }: {
   profile: string;
   environment: string;
-  environments: string[] | null;
+  environments: EnvironmentView[] | null;
   /** Said after the name, such as why the list on show is not a fresh one. */
   note: string;
   disabled: boolean;
@@ -52,6 +55,7 @@ export default function CloudProfileHeading({
 }) {
   const [open, setOpen] = useState(false);
   const choice = (environments?.length ?? 0) > 1;
+  const isDefault = (name: string) => environments?.some((e) => e.name === name && e.default) ?? false;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -59,9 +63,10 @@ export default function CloudProfileHeading({
         <CloudMark />
         <span className="min-w-0 truncate">
           <b className="font-semibold text-zinc-700 dark:text-zinc-200">{profile}</b> cloud profile
-          {!choice && environment !== "octo" ? ` · ${environment}` : ""}
+          {!choice && ` · ${environment}`}
           {note}
         </span>
+        {!choice && isDefault(environment) && <DefaultPill />}
         {choice && (
           <button
             type="button"
@@ -77,33 +82,36 @@ export default function CloudProfileHeading({
           >
             <Layers size={14} className="shrink-0 text-zinc-400" />
             <span className="min-w-0 max-w-[10rem] truncate">{environment}</span>
+            {isDefault(environment) && <DefaultPill />}
           </button>
         )}
       </div>
       {choice && open && (
         <ul role="listbox" aria-label="Environments" className="-mx-3 mt-1 border-y border-black/5 dark:border-white/5">
           {(environments ?? []).map((e) =>
-            e === environment ? (
+            e.name === environment ? (
               <li
-                key={e}
+                key={e.name}
                 role="option"
                 aria-selected
-                className="bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-700 dark:text-sky-300"
+                className="flex items-center gap-2 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-700 dark:text-sky-300"
               >
-                {e}
+                <span className="flex-1 truncate">{e.name}</span>
+                {e.default && <DefaultPill />}
               </li>
             ) : (
-              <li key={e} role="option" aria-selected={false}>
+              <li key={e.name} role="option" aria-selected={false}>
                 <button
                   type="button"
                   onMouseDown={(ev) => ev.stopPropagation()}
                   onClick={() => {
                     setOpen(false);
-                    onPick(e);
+                    onPick(e.name);
                   }}
-                  className="flex w-full items-center px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-black/[0.04] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-black/[0.04] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
                 >
-                  {e}
+                  <span className="flex-1 truncate">{e.name}</span>
+                  {e.default && <DefaultPill />}
                 </button>
               </li>
             ),

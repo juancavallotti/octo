@@ -11,6 +11,12 @@ export type Identity =
   | { state: "signed-in"; credential: "apiKey" | "oauth"; name: string; email: string; roles: string[] }
   | { state: "error"; message: string };
 
+/** An environment, as the platform names it; the default is marked, not guessed. */
+export interface EnvironmentView {
+  name: string;
+  default: boolean;
+}
+
 /** One installation of the platform: an octopaas profile. */
 export interface Installation {
   name: string;
@@ -21,8 +27,8 @@ export interface Installation {
   auth: string;
   /** The environment it acts in; "octo" is the default. */
   environment: string;
-  /** The environments the installation has; null until it has answered. */
-  environments: string[] | null;
+  /** The environments the installation can act in; null until it has answered. */
+  environments: EnvironmentView[] | null;
   identity: Identity;
 }
 
