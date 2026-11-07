@@ -111,3 +111,17 @@ func TestCachedAsksOncePerTTL(t *testing.T) {
 		t.Errorf("asked %d times after the ttl, want 2", inner.calls)
 	}
 }
+
+// A name that does not exist is the caller's to choose, so it is not remembered:
+// the memory stays bounded by the real environments.
+func TestCachedForgetsNamesThatDoNotExist(t *testing.T) {
+	c := Cached(&counting{known: known{"staging": true}}, time.Minute).(*cached)
+	for _, name := range []string{"a", "b", "c"} {
+		if ok, _ := c.Exists(context.Background(), name); ok {
+			t.Fatalf("%s reported to exist", name)
+		}
+	}
+	if len(c.answers) != 0 {
+		t.Errorf("remembered %d unknown names, want none", len(c.answers))
+	}
+}

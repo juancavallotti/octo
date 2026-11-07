@@ -47,24 +47,23 @@ func isEnvironmentsRoute(path string) bool {
 	return path == "/environments" || strings.HasPrefix(path, "/environments/")
 }
 
-// Cached wraps lookup with a short-lived memory of its answers, so a burst of
-// requests in one environment asks the database once. A deleted environment is
-// still accepted for up to ttl, which is harmless: its namespace and rows are
-// already gone, so a request there finds nothing to act on.
+// Cached wraps lookup with a short-lived memory of the environments that exist,
+// so a burst of requests in one environment asks the database once. A deleted
+// environment is still accepted for up to ttl, which is harmless: its namespace
+// and rows are already gone, so a request there finds nothing to act on.
+//
+// A name that does not exist is not remembered: the header that carries it is
+// the caller's to choose, so remembering every refusal would let anyone grow
+// this memory without bound. The memory is bounded by the real environments.
 func Cached(lookup Lookup, ttl time.Duration) Lookup {
-	return &cached{lookup: lookup, ttl: ttl, answers: map[string]answer{}}
-}
-
-type answer struct {
-	exists bool
-	at     time.Time
+	return &cached{lookup: lookup, ttl: ttl, answers: map[string]time.Time{}}
 }
 
 type cached struct {
 	lookup  Lookup
 	ttl     time.Duration
 	mu      sync.Mutex
-	answers map[string]answer
+	answers map[string]time.Time
 	now     func() time.Time
 }
 
@@ -74,17 +73,21 @@ func (c *cached) Exists(ctx context.Context, name string) (bool, error) {
 		now = c.now()
 	}
 	c.mu.Lock()
-	a, ok := c.answers[name]
+	at, ok := c.answers[name]
 	c.mu.Unlock()
-	if ok && now.Sub(a.at) < c.ttl {
-		return a.exists, nil
+	if ok && now.Sub(at) < c.ttl {
+		return true, nil
 	}
 	exists, err := c.lookup.Exists(ctx, name)
 	if err != nil {
 		return false, err
 	}
 	c.mu.Lock()
-	c.answers[name] = answer{exists: exists, at: now}
+	if exists {
+		c.answers[name] = now
+	} else {
+		delete(c.answers, name)
+	}
 	c.mu.Unlock()
 	return exists, nil
 }
