@@ -389,7 +389,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrSameEnvironment), errors.Is(err, ErrUnknownEnvironment):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, ErrNameTaken):
+	case errors.Is(err, ErrNameTaken), errors.Is(err, ErrTagInTarget):
 		httpx.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrMayNotBuild):
 		httpx.WriteError(w, http.StatusForbidden, err.Error())

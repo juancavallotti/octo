@@ -82,7 +82,7 @@ func TestPromoteAgainstPostgres(t *testing.T) {
 		t.Errorf("the promoted version's env file = %q, want the target's own", env)
 	}
 
-	if _, err := repo.Promote(ctx, v2.ID, "promotest", ""); !errors.Is(err, ErrTagExists) {
-		t.Errorf("promoting the same version twice: err = %v, want ErrTagExists", err)
+	if _, err := repo.Promote(ctx, v2.ID, "promotest", ""); !errors.Is(err, ErrTagInTarget) {
+		t.Errorf("promoting the same version twice: err = %v, want ErrTagInTarget", err)
 	}
 }

@@ -19,6 +19,10 @@ var ErrSameEnvironment = errors.New("the version is already in that environment"
 // target environment under a name another integration there already has.
 var ErrNameTaken = errors.New("an unrelated integration in that environment has the same name")
 
+// ErrTagInTarget is returned when the target environment's integration already
+// has a version under the promoted tag. Tags never change once made.
+var ErrTagInTarget = errors.New("that environment already has a version with this tag")
+
 // ErrUnknownEnvironment is returned when the target is not an environment.
 var ErrUnknownEnvironment = errors.New("unknown environment")
 
@@ -123,7 +127,7 @@ func (r *Repo) Promote(ctx context.Context, snapshotID, target, actorID string) 
 	).Scan(&out.Snapshot.ID, &out.Snapshot.IntegrationID, &out.Snapshot.Tag, &out.Snapshot.CreatedAt)
 	if err != nil {
 		if pgErrorCode(err) == pgUniqueViolation {
-			return Promotion{}, ErrTagExists
+			return Promotion{}, ErrTagInTarget
 		}
 		return Promotion{}, fmt.Errorf("snapshot repo: promote: create the version: %w", err)
 	}
