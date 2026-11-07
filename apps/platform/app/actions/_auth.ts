@@ -18,6 +18,7 @@ import {
   writeRoles,
 } from "@/app/auth/guard";
 import { PLATFORM_ADMIN } from "@/app/auth/roles";
+import { runWithEnvironment } from "@/app/auth/callerEnvironment";
 import type { Session } from "next-auth";
 import type { ActionResult } from "@octo/http";
 
@@ -67,12 +68,16 @@ export async function withWrite<T>(
  *
  * Unlike withWrite it does not read AUTH_WRITE_ROLES: which roles may write is an
  * operator's decision, and who may change the installation's own settings is not.
+ *
+ * What the admin section manages belongs to the installation, not to an
+ * environment, so `fn` acts in the default one whichever the caller has
+ * selected: no call it makes names the switcher's choice.
  */
 export async function withAdmin<T>(
   fn: (session: Session) => Promise<ActionResult<T>>,
 ): Promise<ActionResult<T>> {
   const g = await gate([PLATFORM_ADMIN]);
-  return "session" in g ? fn(g.session) : g;
+  return "session" in g ? runWithEnvironment("", () => fn(g.session)) : g;
 }
 
 /**
@@ -118,12 +123,14 @@ export function withUser<T>(
 /**
  * {@link withAdmin}, for an admin operation the orchestrator attributes to whoever
  * performed it — installing or rolling out the platform agent, which it records
- * an actor for.
+ * an actor for. Like withAdmin, it acts in the default environment.
  */
 export function withAdminUser<T>(
   fn: (userId: string, session: Session) => Promise<ActionResult<T>>,
 ): Promise<ActionResult<T>> {
-  return gateUser([PLATFORM_ADMIN], fn);
+  return gateUser([PLATFORM_ADMIN], (userId, session) =>
+    runWithEnvironment("", () => fn(userId, session)),
+  );
 }
 
 /** {@link withUser}, for an operation that also spends cluster resources. */
