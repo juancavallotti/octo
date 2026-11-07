@@ -43,7 +43,9 @@ const DefaultEnvironment = "octo"
 type Profile struct {
 	URL    string `yaml:"url" json:"url"`
 	APIKey string `yaml:"apiKey,omitempty" json:"apiKey,omitempty"`
-	// Environment is the one the profile acts in; empty is the default.
+	// Environment is the one the profile acts in. Empty names none, which is the
+	// default for a person and the bound environment for a key bound to one;
+	// "octo" names the default, so such a key is refused there.
 	Environment string `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
