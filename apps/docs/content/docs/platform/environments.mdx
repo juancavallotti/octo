@@ -88,9 +88,11 @@ Provisioning namespaces is the one thing the chart grants beyond the release nam
 
 | Object | Grants |
 | --- | --- |
-| ClusterRole `<release>-orchestrator-environments` | Create, list and delete namespaces. Create RoleBindings. Bind only the two ClusterRoles below. |
-| ClusterRole `<release>-orchestrator-environment-workload` | The orchestrator's usual namespaced rules, bound into each environment's namespace. |
-| ClusterRole `<release>-orchestrator-environment-runtime` | The runtime's Lease rules, bound to the runtime account in each environment's namespace. |
+| ClusterRole `<release>-orchestrator-<namespace>-environments` | Create, list and delete namespaces. Create RoleBindings. Bind only the two ClusterRoles below. |
+| ClusterRole `<release>-orchestrator-<namespace>-environment-workload` | The orchestrator's usual namespaced rules, bound into each environment's namespace. |
+| ClusterRole `<release>-orchestrator-<namespace>-environment-runtime` | The runtime's Lease rules, bound to the runtime account in each environment's namespace. |
+
+The names carry the release namespace, so two releases of the same name in different namespaces do not collide. Each RoleBinding in an environment's namespace is named after the ClusterRole it grants.
 
 Kubernetes refuses a RoleBinding to any role its writer neither holds nor may bind. So an environment's namespace receives nothing beyond what the release namespace already has.
 
