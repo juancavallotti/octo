@@ -7,8 +7,12 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func environmentClient(objects ...runtime.Object) *Client {
@@ -107,7 +111,7 @@ func TestDeleteNamespaceOnlyDeletesItsOwn(t *testing.T) {
 func TestNamespaceInUseSeesManagedWorkloadsOnly(t *testing.T) {
 	ctx := context.Background()
 	unmanaged := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "octo-staging"}}
-	c := environmentClient(unmanaged)
+	c := environmentClient(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "octo-staging"}}, unmanaged)
 
 	used, err := c.NamespaceInUse(ctx, "octo-staging")
 	if err != nil || used {
@@ -127,6 +131,29 @@ func TestNamespaceInUseSeesManagedWorkloadsOnly(t *testing.T) {
 	}
 }
 
+// A namespace that is gone or terminating protects nothing, and the orchestrator
+// may no longer list in it; asking must not stop the environment's delete.
+func TestNamespaceInUseIsFalseForAGoneOrTerminatingNamespace(t *testing.T) {
+	ctx := context.Background()
+	c := environmentClient()
+	c.clientset.(*fake.Clientset).PrependReactor("list", "*", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{}, "", errors.New("no rights here"))
+	})
+	if used, err := c.NamespaceInUse(ctx, "octo-gone"); err != nil || used {
+		t.Errorf("a missing namespace: used = %v, err = %v; want not in use", used, err)
+	}
+
+	now := metav1.Now()
+	terminating := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "octo-ending", DeletionTimestamp: &now}}
+	c = environmentClient(terminating)
+	c.clientset.(*fake.Clientset).PrependReactor("list", "*", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{}, "", errors.New("no rights here"))
+	})
+	if used, err := c.NamespaceInUse(ctx, "octo-ending"); err != nil || used {
+		t.Errorf("a terminating namespace: used = %v, err = %v; want not in use", used, err)
+	}
+}
+
 func TestEnvironmentsEnabledNeedsEveryPart(t *testing.T) {
 	if !environmentClient().EnvironmentsEnabled() {
 		t.Error("fully configured client reports environments disabled")
@@ -135,5 +162,30 @@ func TestEnvironmentsEnabledNeedsEveryPart(t *testing.T) {
 	cfg.Environments = EnvironmentRBAC{OrchestratorServiceAccount: "octo-orchestrator"}
 	if testClientFor(cfg).EnvironmentsEnabled() {
 		t.Error("partly configured client reports environments enabled")
+	}
+}
+
+// A binding left from an earlier ClusterRole name grants a role that no longer
+// exists; bringing the namespace up to date replaces it.
+func TestEnsureNamespaceReplacesABindingToAnotherRole(t *testing.T) {
+	ctx := context.Background()
+	c := environmentClient()
+	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
+		t.Fatal(err)
+	}
+	stale := c.roleBinding(orchestratorBinding, "an-old-name", c.environments.OrchestratorServiceAccount, c.namespace)
+	bindings := c.clientset.RbacV1().RoleBindings("octo-staging")
+	if err := bindings.Delete(ctx, orchestratorBinding, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bindings.Create(ctx, stale, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := bindings.Get(ctx, orchestratorBinding, metav1.GetOptions{})
+	if err != nil || got.RoleRef.Name != c.environments.WorkloadClusterRole {
+		t.Errorf("binding = %v, %v; want it to grant %s", got, err, c.environments.WorkloadClusterRole)
 	}
 }
