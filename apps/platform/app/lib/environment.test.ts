@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { heldIn, leavesEnvironment, normalizeEnvironment, rolesIn, selectionFromLink } from "./environment";
+import {
+  heldIn,
+  leavesEnvironment,
+  normalizeEnvironment,
+  rolesIn,
+  selectionFromLink,
+  withEnvironment,
+} from "./environment";
 
 describe("rolesIn", () => {
   const roles = ["platform:monitor"];
@@ -61,5 +68,16 @@ describe("leavesEnvironment", () => {
     expect(leavesEnvironment("/platform/metrics?env=staging", "staging")).toBe(false);
     expect(leavesEnvironment("/platform?env=octo", "")).toBe(false);
     expect(leavesEnvironment("/platform/metrics", "staging")).toBe(false);
+  });
+});
+
+describe("withEnvironment", () => {
+  it("names the environment beside a page's own query", () => {
+    expect(withEnvironment("level=error", "staging")).toBe("level=error&env=staging");
+    expect(withEnvironment("", "staging")).toBe("env=staging");
+  });
+  it("names none in the default", () => {
+    expect(withEnvironment("level=error&env=staging", "")).toBe("level=error");
+    expect(withEnvironment("", "octo")).toBe("");
   });
 });
