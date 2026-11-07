@@ -245,7 +245,9 @@ func (a *App) integrationsPullCommand() *cobra.Command {
 		Long: `Download an integration, definition and resources, and unpack it into a folder
 (by default one named after it). The folder must be empty unless you add
 --force, which overwrites the files the bundle carries and leaves the rest.
-The bundle's manifest goes in .octo/octo-bundle.json, where push finds it.
+The bundle's manifest goes in .octo/octo-bundle.json, where push finds it, and
+.octo/pulled-from.json records which integration it came from, in which
+environment, so push takes it back there.
 
 With --zip, the bundle is saved as it came instead.`,
 		Example: `  octopaas integrations pull billing
@@ -276,7 +278,11 @@ With --zip, the bundle is saved as it came instead.`,
 			if len(args) > 1 {
 				dir = args[1]
 			}
-			return a.save(buf.Bytes(), args[0], dir, zipFile, force)
+			r, err := a.resolve()
+			if err != nil {
+				return err
+			}
+			return a.save(buf.Bytes(), args[0], dir, zipFile, force, originOf(r, id, args[0]))
 		},
 	}
 	cmd.Flags().StringVar(&zipFile, "zip", "", "save the bundle as this .zip instead of unpacking it")
@@ -285,8 +291,8 @@ With --zip, the bundle is saved as it came instead.`,
 }
 
 // save writes a pulled bundle of integration where the person asked: a zip, or
-// dir.
-func (a *App) save(data []byte, integration, dir, zipFile string, force bool) error {
+// dir, which also records where the bundle came from so push can take it back.
+func (a *App) save(data []byte, integration, dir, zipFile string, force bool, from origin) error {
 
 	if zipFile != "" {
 		if err := os.WriteFile(zipFile, data, 0o644); err != nil {
@@ -301,6 +307,9 @@ func (a *App) save(data []byte, integration, dir, zipFile string, force bool) er
 	}
 	n, err := unpack(data, dir)
 	if err != nil {
+		return err
+	}
+	if err := writeOrigin(dir, from); err != nil {
 		return err
 	}
 	a.ui.Box("Pulled "+integration, fmt.Sprintf("%d files into %s/", n, dir), "", "Push it back when you are done:", "  octopaas integrations push "+integration+" "+dir)
@@ -319,7 +328,11 @@ deployments; running deployments are untouched until you roll them out.
 Hidden files and folders, such as .git and .env, are never pushed, unless the
 platform sent them: a folder you pulled pushes back the hidden resources it came
 with. The manifest pull keeps in .octo/octo-bundle.json is rewritten to match
-the folder, so files you added are pushed and files you deleted are removed.`,
+the folder, so files you added are pushed and files you deleted are removed.
+
+A folder pulled from another integration is refused, which is what the same
+name is in another environment: push it back with --environment, or remove
+.octo/pulled-from.json to push it here.`,
 		Example: `  octopaas integrations push billing
   octopaas integrations push billing ./work/billing
   octopaas integrations push billing billing.zip`,
@@ -342,6 +355,21 @@ the folder, so files you added are pushed and files you deleted are removed.`,
 			id, err := a.integration(ctx, api, args[0])
 			if err != nil {
 				return err
+			}
+			//a folder knows where it was pulled from; a zip carries no record, and
+			//goes wherever it is sent.
+			if info, statErr := os.Stat(source); statErr == nil && info.IsDir() {
+				from, err := readOrigin(source)
+				if err != nil {
+					return err
+				}
+				r, err := a.resolve()
+				if err != nil {
+					return err
+				}
+				if err := checkOrigin(from, r, id, args[0]); err != nil {
+					return err
+				}
 			}
 
 			var in client.Integration
