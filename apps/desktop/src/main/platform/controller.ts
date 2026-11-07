@@ -210,12 +210,25 @@ async function identityOf(name: string): Promise<ProfileView["identity"]> {
 }
 
 /** Ask one installation who the user is there, and show the answer when it comes. */
+/** Each installation's latest check, so an older one that lands late writes nothing. */
+const checks = new Map<string, number>();
+
 async function check(name: string): Promise<void> {
+  const generation = (checks.get(name) ?? 0) + 1;
+  checks.set(name, generation);
   profiles = profiles.map((p) => (p.name === name ? { ...p, identity: { state: "checking" } } : p));
   publish();
   const identity = await identityOf(name);
-  const environments = identity.state === "signed-in" ? await environmentsOf(name) : null;
-  profiles = profiles.map((p) => (p.name === name ? { ...p, identity, environments } : p));
+  const listed = identity.state === "signed-in" ? await environmentsOf(name) : null;
+  // A newer check of this installation started meanwhile; its answer is the one to show.
+  if (checks.get(name) !== generation) return;
+  // The environments belong to the installation, not to one answer: a list that
+  // failed to come back keeps the last one, while the installation stays signed in.
+  profiles = profiles.map((p) =>
+    p.name === name
+      ? { ...p, identity, environments: identity.state === "signed-in" ? (listed ?? p.environments) : null }
+      : p,
+  );
   publish();
 }
 
@@ -407,8 +420,10 @@ function environmentOf(profileName: string): string {
 /** What an installation lists now. Each answer is kept, for `cachedIntegrations`. */
 export async function integrations(name: unknown): Promise<IntegrationView[]> {
   const n = profile(name);
-  const rows = await list<CachedIntegration>(["integrations", "list"], { profile: n });
   await loaded();
+  // In the environment the window shows, which the cache key below names too, so
+  // the list, its cache and the versions of a row all come from one place.
+  const rows = await list<CachedIntegration>(["integrations", "list"], { profile: n, environment: environmentOf(n) });
   const url = profiles.find((p) => p.name === n)?.url;
   if (url) {
     storeRows(
@@ -485,7 +500,12 @@ export interface VersionView {
 }
 
 export async function versions(name: unknown, integrationId: unknown): Promise<VersionView[]> {
-  return list<VersionView>(["versions", "list", id(integrationId, "The integration")], { profile: profile(name) });
+  const n = profile(name);
+  await loaded();
+  return list<VersionView>(["versions", "list", id(integrationId, "The integration")], {
+    profile: n,
+    environment: environmentOf(n),
+  });
 }
 
 /** Ask where a pull goes, starting from the Projects folder. Null when cancelled. */
@@ -523,11 +543,12 @@ export async function pull(
   const version = tag === null || tag === undefined || tag === "" ? null : word(tag, "The version");
   await loaded();
   known(n);
+  // Pulled from the environment the installation acts in now, unless a folder
+  // pinned one; the link records it, so the folder goes back there. Read before
+  // the dialog, which can stay open across a switch made anywhere else.
+  const where: Target = { profile: n, environment: pinned ?? environmentOf(n) };
   const target = await pickTarget(version ? `${label}-${version}` : label, n);
   if (!target) return false;
-  // Pulled from the environment the installation acts in now, unless a folder
-  // pinned one; the link records it, so the folder goes back there.
-  const where: Target = { profile: n, environment: pinned ?? environmentOf(n) };
 
   // Before the pull: a push landing in between then reads as the platform being
   // ahead, rather than as a folder in step that is not. Without it the folder still
@@ -606,6 +627,9 @@ export async function importVault(name: unknown, integrationName: unknown): Prom
   const n = profile(name);
   await loaded();
   known(n);
+  // Read once: the link must name the environment the integration was created in,
+  // even if the installation switches while the import runs.
+  const environment = environmentOf(n);
   const vault = openVault();
   if (!vault) throw new Error("No folder is open");
   if (readLink(vault.path)) throw new Error(`${vault.name} is already on a platform`);
@@ -617,7 +641,7 @@ export async function importVault(name: unknown, integrationName: unknown): Prom
     await saved();
     return run<{ id: string; name: string; lastUpdated: string }>(["integrations", "import", vault.path, `--name=${wanted}`], {
       profile: n,
-      environment: environmentOf(n),
+      environment,
       signal,
     });
   });
@@ -627,7 +651,7 @@ export async function importVault(name: unknown, integrationName: unknown): Prom
     url: known(n).url,
     integrationId: created.id,
     integrationName: created.name,
-    environment: environmentOf(n),
+    environment,
     linkedAt: Date.now(),
   };
   writeLink(vault.path, link);
