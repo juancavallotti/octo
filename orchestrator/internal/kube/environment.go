@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -16,14 +15,6 @@ import (
 // is what DeleteNamespace checks before deleting anything, so a namespace this
 // orchestrator did not create is never one it removes.
 const labelEnvironment = "octo.dev/environment"
-
-// environmentBinding names the RoleBindings provisioning writes into an
-// environment's namespace. One name for both, since each lives in its own
-// namespace and they are told apart by subject.
-const (
-	orchestratorBinding = "octo-orchestrator"
-	runtimeBinding      = "octo-runtime"
-)
 
 // ErrNamespaceTaken is returned when the namespace an environment asks for
 // already exists and is not that environment's: adopting it would hand octo a
@@ -68,7 +59,7 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 	if err := c.createNamespace(ctx, environment, namespace); err != nil {
 		return err
 	}
-	if err := c.ensureBinding(ctx, namespace, c.roleBinding(orchestratorBinding, c.environments.WorkloadClusterRole,
+	if err := c.ensureBinding(ctx, namespace, c.roleBinding(c.environments.WorkloadClusterRole,
 		c.environments.OrchestratorServiceAccount, c.namespace)); err != nil {
 		return fmt.Errorf("kube: bind orchestrator in %s: %w", namespace, err)
 	}
@@ -82,7 +73,7 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 		}); err != nil {
 			return fmt.Errorf("kube: runtime service account in %s: %w", namespace, err)
 		}
-		if err := c.ensureBinding(ctx, namespace, c.roleBinding(runtimeBinding, c.environments.RuntimeClusterRole,
+		if err := c.ensureBinding(ctx, namespace, c.roleBinding(c.environments.RuntimeClusterRole,
 			sa, namespace)); err != nil {
 			return fmt.Errorf("kube: bind runtime in %s: %w", namespace, err)
 		}
@@ -216,9 +207,9 @@ func (c *Client) environmentLabels(environment string) map[string]string {
 
 // roleBinding binds the ServiceAccount account (in accountNamespace) to the
 // ClusterRole clusterRole, within whichever namespace the binding is created in.
-func (c *Client) roleBinding(name, clusterRole, account, accountNamespace string) *rbacv1.RoleBinding {
+func (c *Client) roleBinding(clusterRole, account, accountNamespace string) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{labelManagedBy: managedByValue}},
+		ObjectMeta: metav1.ObjectMeta{Name: clusterRole, Labels: map[string]string{labelManagedBy: managedByValue}},
 		Subjects: []rbacv1.Subject{{
 			Kind:      rbacv1.ServiceAccountKind,
 			Name:      account,
@@ -228,26 +219,14 @@ func (c *Client) roleBinding(name, clusterRole, account, accountNamespace string
 	}
 }
 
-// ensureBinding creates want in namespace, or replaces a binding of that name
-// that grants something else. A RoleBinding's role cannot be changed in place, and
-// the ClusterRoles it points at are named by the chart, so a binding left from an
-// earlier name would grant a role that no longer exists.
+// ensureBinding creates want in namespace unless it is already there. A binding
+// is named after the ClusterRole it grants, because its role cannot change in
+// place and the orchestrator may create bindings but not delete them: a role the
+// chart renames gets a binding of its own, and the old one is left granting a
+// role that no longer exists, which is nothing.
 func (c *Client) ensureBinding(ctx context.Context, namespace string, want *rbacv1.RoleBinding) error {
-	bindings := c.clientset.RbacV1().RoleBindings(namespace)
-	have, err := bindings.Get(ctx, want.Name, metav1.GetOptions{})
-	switch {
-	case apierrors.IsNotFound(err):
-	case err != nil:
-		return err
-	case have.RoleRef == want.RoleRef && reflect.DeepEqual(have.Subjects, want.Subjects):
-		return nil
-	default:
-		if err := bindings.Delete(ctx, want.Name, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
-			return err
-		}
-	}
 	return createIgnoringExisting(func() error {
-		_, err := bindings.Create(ctx, want, metav1.CreateOptions{})
+		_, err := c.clientset.RbacV1().RoleBindings(namespace).Create(ctx, want, metav1.CreateOptions{})
 		return err
 	})
 }

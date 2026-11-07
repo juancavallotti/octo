@@ -50,7 +50,7 @@ func TestEnsureNamespaceProvisionsEverythingAndIsRepeatable(t *testing.T) {
 		t.Errorf("namespace label = %q, want staging", ns.Labels[labelEnvironment])
 	}
 
-	orch, err := c.clientset.RbacV1().RoleBindings("octo-staging").Get(ctx, orchestratorBinding, metav1.GetOptions{})
+	orch, err := c.clientset.RbacV1().RoleBindings("octo-staging").Get(ctx, c.environments.WorkloadClusterRole, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("orchestrator binding: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestEnsureNamespaceProvisionsEverythingAndIsRepeatable(t *testing.T) {
 		orch.Subjects[0].Name != "octo-orchestrator" || orch.Subjects[0].Namespace != testNamespace {
 		t.Errorf("orchestrator binding = %+v", orch)
 	}
-	rt, err := c.clientset.RbacV1().RoleBindings("octo-staging").Get(ctx, runtimeBinding, metav1.GetOptions{})
+	rt, err := c.clientset.RbacV1().RoleBindings("octo-staging").Get(ctx, c.environments.RuntimeClusterRole, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("runtime binding: %v", err)
 	}
@@ -165,27 +165,20 @@ func TestEnvironmentsEnabledNeedsEveryPart(t *testing.T) {
 	}
 }
 
-// A binding left from an earlier ClusterRole name grants a role that no longer
-// exists; bringing the namespace up to date replaces it.
-func TestEnsureNamespaceReplacesABindingToAnotherRole(t *testing.T) {
+// A role the chart renames gets a binding of its own: a binding's role cannot
+// change in place, and the orchestrator may create bindings but not delete them.
+func TestARenamedRoleGetsItsOwnBinding(t *testing.T) {
 	ctx := context.Background()
 	c := environmentClient()
 	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
 		t.Fatal(err)
 	}
-	stale := c.roleBinding(orchestratorBinding, "an-old-name", c.environments.OrchestratorServiceAccount, c.namespace)
-	bindings := c.clientset.RbacV1().RoleBindings("octo-staging")
-	if err := bindings.Delete(ctx, orchestratorBinding, metav1.DeleteOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bindings.Create(ctx, stale, metav1.CreateOptions{}); err != nil {
-		t.Fatal(err)
-	}
+	c.environments.WorkloadClusterRole = "octo-orchestrator-renamed-workload"
 	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := bindings.Get(ctx, orchestratorBinding, metav1.GetOptions{})
-	if err != nil || got.RoleRef.Name != c.environments.WorkloadClusterRole {
-		t.Errorf("binding = %v, %v; want it to grant %s", got, err, c.environments.WorkloadClusterRole)
+	got, err := c.clientset.RbacV1().RoleBindings("octo-staging").Get(ctx, "octo-orchestrator-renamed-workload", metav1.GetOptions{})
+	if err != nil || got.RoleRef.Name != "octo-orchestrator-renamed-workload" {
+		t.Errorf("binding = %v, %v; want one granting the renamed role", got, err)
 	}
 }
