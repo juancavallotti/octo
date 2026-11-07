@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useReplaceQuery } from "@/app/components/useReplaceQuery";
 import { Waypoints } from "lucide-react";
 import AppHeader from "@/app/components/AppHeader";
 import ManagementNav from "@/app/components/ManagementNav";
@@ -40,6 +41,7 @@ export default function TracesManager({
 } = {}) {
   const router = useRouter();
   const pathname = usePathname();
+  const replaceQuery = useReplaceQuery();
   const searchParams = useSearchParams();
   const selection = useMemo(() => parsePathname(pathname), [pathname]);
 
@@ -52,10 +54,9 @@ export default function TracesManager({
   );
   const setFilters = useCallback(
     (next: TraceFilterValues) => {
-      const qs = writeFilters(next);
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      replaceQuery(writeFilters(next));
     },
-    [router, pathname],
+    [replaceQuery],
   );
 
   // The window is resolved to absolute bounds once per change, not per render: a
