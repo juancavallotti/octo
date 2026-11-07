@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heldIn, normalizeEnvironment, rolesIn, selectionFromLink } from "./environment";
+import { heldIn, normalizeEnvironment, rolesIn, selectionFromLink, withEnvironment } from "./environment";
 
 describe("rolesIn", () => {
   const roles = ["platform:monitor"];
@@ -49,5 +49,16 @@ describe("selectionFromLink", () => {
   });
   it("ignores an environment the person holds no role in", () => {
     expect(selectionFromLink("prod", undefined, [], staging)).toBeNull();
+  });
+});
+
+describe("withEnvironment", () => {
+  it("names the environment beside a page's own query", () => {
+    expect(withEnvironment("level=error", "staging")).toBe("level=error&env=staging");
+    expect(withEnvironment("", "staging")).toBe("env=staging");
+  });
+  it("names none in the default", () => {
+    expect(withEnvironment("level=error&env=staging", "")).toBe("level=error");
+    expect(withEnvironment("", "octo")).toBe("");
   });
 });
