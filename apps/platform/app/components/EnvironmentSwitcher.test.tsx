@@ -78,6 +78,27 @@ describe("EnvironmentSwitcher", () => {
     expect(screen.queryByRole("button", { name: "Environment" })).toBeNull();
   });
 
+  it("shows the way to the one environment somebody holds a role in, from the default", async () => {
+    renderIn({ environment: "", roles: [], envRoles: { staging: ["platform:developer"] } });
+    await userEvent.click(await screen.findByRole("button", { name: "Environment" }));
+    expect(screen.getByRole("menuitemradio", { name: /Staging/ })).toBeTruthy();
+  });
+
+  it("names the chosen environment when the list cannot be read", async () => {
+    listEnvironments.mockRejectedValue(new Error("down"));
+    renderIn({ environment: "staging", roles: ["platform:developer"], envRoles: { staging: ["platform:developer"] } });
+    expect((await screen.findByRole("button", { name: "Environment" })).textContent).toContain("staging");
+  });
+
+  it("says a refused switch was refused", async () => {
+    selectEnvironment.mockRejectedValue(new Error("environment not found"));
+    renderIn({ environment: "", roles: ["platform:admin"], envRoles: {} });
+    await userEvent.click(await screen.findByRole("button", { name: "Environment" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Staging/ }));
+    expect((await screen.findByRole("alert")).getAttribute("title")).toBe("environment not found");
+    expect(assign).not.toHaveBeenCalled();
+  });
+
   it("puts a deleted choice back to the default", async () => {
     renderIn({ environment: "gone", roles: ["platform:admin"], envRoles: {} });
     await waitFor(() => expect(selectEnvironment).toHaveBeenCalledWith(""));
