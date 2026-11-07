@@ -87,3 +87,12 @@ export function holdsAnyIn(
 ): boolean {
   return rolesIn(roles, envRoles, environment).length > 0;
 }
+
+/** `query` with the environment named in it, as every page outside the default is. */
+export function withEnvironment(query: string, environment: string): string {
+  const params = new URLSearchParams(query);
+  const name = normalizeEnvironment(environment);
+  if (name === "") params.delete(ENVIRONMENT_PARAM);
+  else params.set(ENVIRONMENT_PARAM, name);
+  return params.toString();
+}

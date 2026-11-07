@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useReplaceQuery } from "@/app/components/useReplaceQuery";
 import { Gauge } from "lucide-react";
 import { EmptyState } from "@/app/(session)/platform/DashboardTiles";
 import LineChart, { type PodSeries } from "@/app/components/stats/chart/LineChart";
@@ -47,8 +48,7 @@ export default function MetricsMonitor({
   deploymentId: string;
   title?: string;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const replaceQuery = useReplaceQuery();
   const params = useSearchParams();
   const view = readView(new URLSearchParams(params.toString()));
 
@@ -71,8 +71,7 @@ export default function MetricsMonitor({
   const catalogue = useDeploymentCatalogue(deploymentId, view, gridNow);
 
   const setView = (next: View) => {
-    const qs = writeView(next);
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replaceQuery(writeView(next));
   };
 
   const { cpu, memory } = useMemo(() => split(series), [series]);

@@ -8,7 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useReplaceQuery } from "@/app/components/useReplaceQuery";
 import {
   listAllDeployments,
   type DeploymentWithIntegration,
@@ -47,8 +48,7 @@ export function useObjects({
     danger?: boolean;
   }) => Promise<boolean>;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const replaceQuery = useReplaceQuery();
   const searchParams = useSearchParams();
 
   const [deployments, setDeployments] = useState<
@@ -86,10 +86,9 @@ export function useObjects({
       if (dep) p.set("deployment", dep);
       if (ns && ns !== DEFAULT_NAMESPACE) p.set("ns", ns);
       if (key) p.set("key", key);
-      const qs = p.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      replaceQuery(p.toString());
     },
-    [pathname, router],
+    [replaceQuery],
   );
 
   // Load the deployment list once the orchestrator is reachable.
