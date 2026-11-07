@@ -94,10 +94,14 @@ func (r *Repo) Promote(ctx context.Context, snapshotID, target, actorID string) 
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var tag, name, icon, root string
+	// The source version is locked for the transaction: a delete committing in
+	// between would cascade its files away, and the copy below would take nothing
+	// and still report a promotion.
 	err = tx.QueryRow(ctx,
 		`SELECT s.tag, i.name, i.icon, COALESCE(i.promoted_from, i.id)::text
 		   FROM integration_snapshots s JOIN integrations i ON i.id = s.integration_id
-		  WHERE s.id = $1`, snapshotID).Scan(&tag, &name, &icon, &root)
+		  WHERE s.id = $1
+		  FOR SHARE OF s`, snapshotID).Scan(&tag, &name, &icon, &root)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Promotion{}, ErrNotFound
 	}
