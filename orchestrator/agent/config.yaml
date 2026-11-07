@@ -437,6 +437,17 @@ flows:
               value: >-
                 "X-Agent-Environment" in vars
                   ? vars["X-Agent-Environment"] : ""
+            # The same environment, said to the model. Every input below carries
+            # it, so neither he nor a specialist has to guess where he is from the
+            # hostnames he happens to read.
+            - setVar: environmentContext
+              value: >-
+                "You are working in the " +
+                  (vars.environment == ""
+                    ? "default environment, \"octo\""
+                    : "\"" + vars.environment + "\" environment") +
+                  ". Every platform call acts there, and integrations, versions" +
+                  " and deployments of other environments are invisible from it."
 
       # The agent's input, stated rather than inherited. The email is dropped — it
       # identifies a real person to an external provider and nothing in the prompt
@@ -466,12 +477,13 @@ flows:
         # catalogue is sent once per run, not once per message: a follow-up joins a
         # conversation that already holds it.
         input: >-
-          size(body.routes) > 0
-            ? body.message +
-              "\n\n---\nContext, not part of the question. The user is on page " +
-              body.page + ". Pages you may navigate to, and who is asking:\n" +
-              toJson({"routes": body.routes, "user": body.user})
-            : body.message
+          body.message +
+            "\n\n---\nContext, not part of the question. " + vars.environmentContext +
+            (size(body.routes) > 0
+              ? " The user is on page " + body.page +
+                ". Pages you may navigate to, and who is asking:\n" +
+                toJson({"routes": body.routes, "user": body.user})
+              : "")
 
         # The files somebody pasted, dropped or picked in the chat window.
         #
@@ -619,6 +631,12 @@ flows:
           You are also, literally, an Octo App — a flow definition with an ai-agent
           block, deployed by the orchestrator exactly like the integrations you help
           build. Mention that only if someone asks; it is a fact, not a personality.
+
+
+          The installation is split into environments, each with its own
+          integrations, versions, deployments and secrets, and the context under each
+          question says which one this conversation is in. When the answer depends on
+          it, say which environment you mean; never infer it from a hostname.
 
 
           You are talking to a signed-in user of this platform. Their name arrives in
@@ -1284,9 +1302,13 @@ flows:
         # to relay as if it were one.
         maxIterations: 40
         input: >-
-          body.task + (has(body.context) && body.context != ""
-            ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
-            : "")
+          body.task +
+            (vars.?environmentContext.orValue("") != ""
+              ? "\n\n---\n" + vars.environmentContext
+              : "") +
+            (has(body.context) && body.context != ""
+              ? "\n\nContext you cannot see, from the conversation:\n" + body.context
+              : "")
         emit: [tool_call, tool_result]
         events:
           process:
@@ -1711,9 +1733,13 @@ flows:
         history: off
         maxIterations: 32
         input: >-
-          body.task + (has(body.context) && body.context != ""
-            ? "\n\n---\nContext you cannot see, from the conversation:\n" + body.context
-            : "")
+          body.task +
+            (vars.?environmentContext.orValue("") != ""
+              ? "\n\n---\n" + vars.environmentContext
+              : "") +
+            (has(body.context) && body.context != ""
+              ? "\n\nContext you cannot see, from the conversation:\n" + body.context
+              : "")
         emit: [tool_call, tool_result]
         events:
           process:
@@ -2261,6 +2287,14 @@ flows:
             # refused. So this flow names none.
             - setVar: environment
               value: '""'
+            # Said to the model all the same, as the chat flow says it: the
+            # default is where this deployment runs, and so where the watch that
+            # fired lives.
+            - setVar: environmentContext
+              value: >-
+                "You are working in the default environment, \"octo\": the one" +
+                  " you run in and the watch that fired belongs to. Every platform" +
+                  " call acts there."
             - setVar: reportTo
               value: 'has(body.reportTo) ? body.reportTo : []'
             - setVar: watchName
@@ -2347,6 +2381,7 @@ flows:
         # "fix it" the fourth, and an agent that had to go and ask for the
         # difference would sometimes not ask.
         input: >-
+          vars.environmentContext + "\n\n" +
           "An alert has fired. Here it is, verbatim:\n\n" + toJson(body) +
           "\n\nWhat this same watch has done before, oldest first — each entry is a" +
           " separate episode, with what you concluded at the time:\n\n" +
