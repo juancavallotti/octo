@@ -87,3 +87,13 @@ export function holdsAnyIn(
 ): boolean {
   return rolesIn(roles, envRoles, environment).length > 0;
 }
+
+/**
+ * Whether opening `path` (an address on this site) moves the page from `current`
+ * into another environment: true when it names one with `?env=` that is not
+ * `current`. An address that names none stays where the page is.
+ */
+export function leavesEnvironment(path: string, current: string): boolean {
+  const named = new URL(path, "http://site").searchParams.get(ENVIRONMENT_PARAM);
+  return named !== null && normalizeEnvironment(named) !== normalizeEnvironment(current);
+}

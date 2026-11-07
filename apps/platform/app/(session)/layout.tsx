@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Fragment, Suspense } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { RolesProvider } from "@/app/auth/RolesContext";
@@ -53,7 +53,11 @@ export default async function SessionLayout({
         roles={effective}
         mayWrite={effective.some((role) => writeRoles.includes(role))}
       >
-        <AgentChatLauncher userKey={userKey}>{children}</AgentChatLauncher>
+        <AgentChatLauncher userKey={userKey}>
+          {/* A page moved into another environment starts over, rather than
+              keeping what it read in the last one; the chat beside it carries on. */}
+          <Fragment key={environment}>{children}</Fragment>
+        </AgentChatLauncher>
       </RolesProvider>
     </EnvironmentProvider>
   );

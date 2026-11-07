@@ -13,6 +13,8 @@ import WorkingStatus from "./WorkingStatus";
 import { useAgentChat } from "./useAgentChat";
 import { useStickToBottom } from "./useStickToBottom";
 import { MAX_WIDTH, MIN_WIDTH } from "./panelPrefs";
+import { useEnvironment } from "@/app/auth/EnvironmentContext";
+import { leavesEnvironment } from "@/app/lib/environment";
 
 /** How far one arrow key nudges the panel edge. */
 const KEY_STEP = 16;
@@ -55,6 +57,7 @@ export default function AgentDrawer({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const environment = useEnvironment()?.environment ?? "";
   const [draft, setDraft] = useState("");
   const files = useAttachments(accepted);
 
@@ -63,6 +66,9 @@ export default function AgentDrawer({
     // parsed; router.push keeps it a client-side navigation, so the drawer and the
     // conversation in it survive the move.
     router.push(target.path);
+    // Into another environment: the proxy chooses it on the way, but the layouts
+    // around the page were rendered for this one, and only a refresh redraws them.
+    if (leavesEnvironment(target.path, environment)) router.refresh();
   });
 
   // The panel is hidden, not unmounted, when it is closed, so this keeps arriving.

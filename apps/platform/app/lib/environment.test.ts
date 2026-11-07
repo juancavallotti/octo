@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heldIn, normalizeEnvironment, rolesIn, selectionFromLink } from "./environment";
+import { heldIn, leavesEnvironment, normalizeEnvironment, rolesIn, selectionFromLink } from "./environment";
 
 describe("rolesIn", () => {
   const roles = ["platform:monitor"];
@@ -49,5 +49,17 @@ describe("selectionFromLink", () => {
   });
   it("ignores an environment the person holds no role in", () => {
     expect(selectionFromLink("prod", undefined, [], staging)).toBeNull();
+  });
+});
+
+describe("leavesEnvironment", () => {
+  it("is true for an address naming another environment", () => {
+    expect(leavesEnvironment("/platform/metrics?env=staging", "")).toBe(true);
+    expect(leavesEnvironment("/platform?env=octo", "staging")).toBe(true);
+  });
+  it("is false for one naming this environment, or none", () => {
+    expect(leavesEnvironment("/platform/metrics?env=staging", "staging")).toBe(false);
+    expect(leavesEnvironment("/platform?env=octo", "")).toBe(false);
+    expect(leavesEnvironment("/platform/metrics", "staging")).toBe(false);
   });
 });
