@@ -6,6 +6,7 @@ import { useEnvironment } from "@/app/auth/EnvironmentContext";
 import { listEnvironments, selectEnvironment } from "@/app/model/environments";
 import { promoteSnapshot, type Promotion, type Snapshot } from "@/app/model/orchestrator";
 import { reloadAt } from "@/app/components/environmentSwitch";
+import Callout from "@/app/components/ui/Callout";
 import { promoteTargets, type PromoteTarget } from "./promoteTargets";
 
 /**
@@ -131,9 +132,9 @@ export default function PromoteButton({ snapshot, busy }: { snapshot: Snapshot |
             </ul>
           )}
           {error && (
-            <p role="alert" className="border-t border-black/5 px-3 py-2 text-xs text-red-600 dark:border-white/5 dark:text-red-400">
-              {error}
-            </p>
+            <div role="alert" className="border-t border-black/5 dark:border-white/5">
+              <Callout flush>{error}</Callout>
+            </div>
           )}
           <p className="border-t border-black/5 px-3 py-2 text-[11px] text-zinc-400 dark:border-white/5">
             Flows and templates are copied; env files stay the target&rsquo;s own.
