@@ -10,6 +10,7 @@ import (
 
 	agentapp "github.com/juancavallotti/octo/orchestrator/agent"
 	"github.com/juancavallotti/octo/orchestrator/internal/deployment"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/llm"
@@ -203,6 +204,8 @@ type fakeDeployments struct {
 	// agentic runner image. Off by default, so every existing test describes the
 	// ordinary install where Dr. Octo has the image he needs.
 	noAgenticRunner bool
+	// environments is the environment each Deploy and Rollout ran in.
+	environments []string
 }
 
 func (f *fakeDeployments) RunnerAvailable(runner string) bool {
@@ -212,8 +215,9 @@ func (f *fakeDeployments) RunnerAvailable(runner string) bool {
 	return true
 }
 
-func (f *fakeDeployments) Deploy(_ context.Context, integrationID string, s deployment.Settings) (deployment.Deployment, error) {
+func (f *fakeDeployments) Deploy(ctx context.Context, integrationID string, s deployment.Settings) (deployment.Deployment, error) {
 	f.deployed = append(f.deployed, s)
+	f.environments = append(f.environments, current.From(ctx))
 	meta, _ := json.Marshal(deployment.Metadata{
 		Name: agentapp.Name, Slug: "dr-octo", InternalURL: "http://octo-int-dr-octo.octo:8080",
 	})
@@ -221,8 +225,9 @@ func (f *fakeDeployments) Deploy(_ context.Context, integrationID string, s depl
 }
 
 func (f *fakeDeployments) Rollout(
-	_ context.Context, id string, change deployment.RolloutChange,
+	ctx context.Context, id string, change deployment.RolloutChange,
 ) (deployment.Deployment, error) {
+	f.environments = append(f.environments, current.From(ctx))
 	f.rollouts = append(f.rollouts, rolloutCall{id, change.SnapshotID, change.Env, change.Tracing, change.Runner})
 	meta, _ := json.Marshal(deployment.Metadata{InternalURL: "http://octo-int-dr-octo.octo:8080"})
 	return deployment.Deployment{ID: id, Metadata: meta}, nil
@@ -489,6 +494,30 @@ func TestInstallCreatesTheIntegrationItsSkillsATagAndADeployment(t *testing.T) {
 
 // The version tag names the release, so re-installing the same binary finds the
 // version it already published rather than failing on an immutable tag.
+// TestInstallAndRolloutActInTheDefaultEnvironment keeps Dr. Octo where his
+// integration lives. Installed from a session with staging selected, he was
+// deployed into staging's namespace with a staging token, which the guard then
+// refused his own skills.
+func TestInstallAndRolloutActInTheDefaultEnvironment(t *testing.T) {
+	h := newHarness(t, true)
+	stage := current.With(context.Background(), "stage", true)
+
+	if _, err := h.svc.Install(stage, "user-1"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := h.svc.SetTracing(stage, true); err != nil {
+		t.Fatalf("SetTracing: %v", err)
+	}
+	if len(h.deployments.environments) < 2 {
+		t.Fatalf("deploy calls = %v, want an install and a roll-out", h.deployments.environments)
+	}
+	for i, env := range h.deployments.environments {
+		if env != "" {
+			t.Errorf("call %d ran in %q, want the default environment", i, env)
+		}
+	}
+}
+
 func TestInstallIsIdempotent(t *testing.T) {
 	h := newHarness(t, true)
 	ctx := context.Background()
