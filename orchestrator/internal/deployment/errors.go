@@ -35,7 +35,7 @@ var (
 	// form.
 	ErrInvalidSlug = errors.New("invalid deployment slug")
 	// ErrSlugTaken is returned when a user-supplied slug is already claimed by an
-	// existing deployment (slugs are unique across deployments).
+	// existing deployment of the environment (slugs are unique within one).
 	ErrSlugTaken = errors.New("deployment slug already in use")
 	// ErrSlugExhausted is returned when no free internal slug could be allocated
 	// after exhausting the numeric suffix range (practically unreachable).

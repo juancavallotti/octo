@@ -328,9 +328,10 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		return Deployment{}, fmt.Errorf("%w: %s", ErrMissingRequiredEnv, strings.Join(missing, ", "))
 	}
 
-	// A networked deployment gets a slug unique across all deployments, so its
+	// A networked deployment gets a slug unique within its environment, so its
 	// internal Service (octo-int-{slug}) — and thus its internal URL — never
-	// collides with another deployment's, even another of the same integration.
+	// collides with another deployment's in that namespace, even another of the
+	// same integration.
 	// The user picks the slug (a free default is suggested up front); an empty slug
 	// asks the orchestrator to allocate one.
 	slug := ""
@@ -729,7 +730,7 @@ func (s *Service) addressFree(ctx context.Context, slug string, external bool) (
 	return !found, nil
 }
 
-// allocateSlug returns a DNS-1123 slug unique across all deployments, used to name
+// allocateSlug returns a DNS-1123 slug unique within the environment, used to name
 // the per-deployment internal Service (octo-int-{slug}) so each deployment has its
 // own internal URL. It starts from base (the integration name slug) and appends a
 // -NNN suffix, scanning until it finds a value no deployment already claims.

@@ -19,7 +19,7 @@ Every installation has the **default environment**, `octo`. It is the namespace 
 | Cluster secrets (each namespace has its own `octo-secrets`) | Model prices |
 | Logs, traces, pod stats and alert watches | |
 
-Names are unique within an environment, so `staging` and the default environment can each have an integration called `orders`.
+Names and deployment slugs are unique within an environment, so `staging` and the default environment can each have an integration called `orders`, each deployed at `octo-int-orders` in its own namespace.
 
 An integration, deployment, version or folder from one environment is invisible from another. Asking for one by ID from the wrong environment answers `404`, exactly as if it did not exist. Every row written before environments existed belongs to the default environment.
 
