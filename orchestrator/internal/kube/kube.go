@@ -143,6 +143,10 @@ type Client struct {
 	// carry credentials — and anything else mirrors what the chart puts on its own
 	// workloads, since a mirrored registry holds every octo image, not four of five.
 	imagePullSecrets []string
+	// wildcardTLSSecret is the pre-issued *.{baseDomain} certificate Ingresses
+	// reference when one is configured. An Ingress names its TLS Secret in its own
+	// namespace, so every environment's namespace gets a copy.
+	wildcardTLSSecret string
 	// runtimeServices is the env the orchestrator injects so deployed runtime pods
 	// can reach leader election + the KV API. Zero value disables injection.
 	runtimeServices RuntimeServices
@@ -382,6 +386,7 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 	if cfg.EndpointAPI == EndpointAPIGateway {
 		c.endpoints = &routePublisher{client: gwcs, ns: c.ns, gateway: cfg.Gateway}
 	} else {
+		c.wildcardTLSSecret = cfg.WildcardTLSSecret
 		c.endpoints = &ingressPublisher{
 			clientset:         cs,
 			ns:                c.ns,

@@ -253,3 +253,42 @@ func TestTheReleaseNamespaceAndEnvironmentsShareTheReleaseLabel(t *testing.T) {
 		}
 	}
 }
+
+// An Ingress names its TLS Secret in its own namespace, so the shared wildcard
+// certificate is copied into each environment's, and a renewal in the release
+// namespace reaches the copy the next time the namespace is brought up to date.
+func TestEnsureNamespaceCopiesAndRefreshesTheWildcardCertificate(t *testing.T) {
+	ctx := context.Background()
+	cert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "wildcard-tls", Namespace: testNamespace},
+		Type:       corev1.SecretTypeTLS,
+		Data:       map[string][]byte{"tls.crt": []byte("v1")},
+	}
+	cfg := testConfig("")
+	cfg.WildcardTLSSecret = "wildcard-tls"
+	cfg.Environments = EnvironmentRBAC{
+		OrchestratorServiceAccount: "octo-orchestrator",
+		WorkloadClusterRole:        "octo-orchestrator-environment",
+		RuntimeClusterRole:         "octo-runtime-environment",
+	}
+	c := testClientFor(cfg, cert)
+	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := c.clientset.CoreV1().Secrets("octo-staging").Get(ctx, "wildcard-tls", metav1.GetOptions{})
+	if err != nil || string(copied.Data["tls.crt"]) != "v1" {
+		t.Fatalf("copy = %v, %v; want the certificate", copied, err)
+	}
+
+	cert.Data["tls.crt"] = []byte("v2")
+	if _, err := c.clientset.CoreV1().Secrets(testNamespace).Update(ctx, cert, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EnsureNamespace(ctx, "staging", "octo-staging"); err != nil {
+		t.Fatal(err)
+	}
+	copied, _ = c.clientset.CoreV1().Secrets("octo-staging").Get(ctx, "wildcard-tls", metav1.GetOptions{})
+	if string(copied.Data["tls.crt"]) != "v2" {
+		t.Errorf("after a renewal the copy holds %q, want v2", copied.Data["tls.crt"])
+	}
+}

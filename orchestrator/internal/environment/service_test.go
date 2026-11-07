@@ -336,6 +336,13 @@ func (r recordingRegistry) RegisterEnvironment(environment, namespace string) {
 	r[environment] = namespace
 }
 func (r recordingRegistry) ForgetEnvironment(environment string) { delete(r, environment) }
+func (r recordingRegistry) RegisteredEnvironments() []string {
+	var ret []string
+	for name := range r {
+		ret = append(ret, name)
+	}
+	return ret
+}
 
 func TestTheRegistryFollowsEnvironments(t *testing.T) {
 	svc, repo, _ := newTestService()
@@ -344,7 +351,7 @@ func TestTheRegistryFollowsEnvironments(t *testing.T) {
 	reg := recordingRegistry{}
 	svc.WithRegistry(reg)
 
-	if err := svc.Register(ctx); err != nil {
+	if err := svc.Resync(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if reg["existing"] != "octo-existing" {
@@ -369,5 +376,28 @@ func TestTheRegistryFollowsEnvironments(t *testing.T) {
 	}
 	if _, ok, _ := svc.Namespace(ctx, "missing"); ok {
 		t.Error("Namespace found a missing environment")
+	}
+}
+
+// Each replica keeps its own registry and each namespace its own copies of the
+// release namespace's secrets; a resync brings both back to what is stored.
+func TestResyncFollowsTheDatabase(t *testing.T) {
+	svc, repo, k := newTestService()
+	ctx := context.Background()
+	repo.rows["staging"] = Environment{Name: "staging", Namespace: "octo-staging-2"}
+	reg := recordingRegistry{"staging": "octo-staging", "gone": "octo-gone"}
+	svc.WithRegistry(reg)
+
+	if err := svc.Resync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if reg["staging"] != "octo-staging-2" {
+		t.Errorf("a moved environment still points at %q", reg["staging"])
+	}
+	if _, ok := reg["gone"]; ok {
+		t.Error("an environment deleted elsewhere is still registered")
+	}
+	if k.provisioned["octo-staging-2"] != "staging" {
+		t.Error("the stored environment's namespace was not brought up to date")
 	}
 }

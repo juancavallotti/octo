@@ -617,7 +617,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			}
 			environmentSvc.WithRegistry(kubeClient)
 			kubeClient.ResolveEnvironmentsWith(environmentSvc.Namespace)
-			if err := environmentSvc.Register(ctx); err != nil {
+			if err := environmentSvc.Resync(ctx); err != nil {
 				slog.Error("register environments with the cluster client", "error", err)
 			}
 		}
@@ -1162,6 +1162,12 @@ func reconcileOnce(
 	sweep, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
+	// First, so the sweeps below compare each environment's rows against the
+	// namespace it has now, not one another replica moved it from.
+	if err := environments.Resync(sweep); err != nil {
+		slog.Error("resync environments", "error", err)
+	}
+
 	// Each environment is its own namespace and its own rows, so the deployment
 	// and secret sweeps compare them one environment at a time.
 	forEachEnvironment(sweep, environments, func(sweep context.Context) {
@@ -1197,6 +1203,7 @@ func reconcileOnce(
 // *environment.Service satisfies it.
 type environmentLister interface {
 	List(ctx context.Context) ([]environment.Environment, error)
+	Resync(ctx context.Context) error
 }
 
 // forEachEnvironment runs fn once per environment, with ctx acting in it, so a

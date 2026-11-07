@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -107,6 +108,11 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 			return err
 		}
 	}
+	if c.wildcardTLSSecret != "" {
+		if err := c.copySecret(ctx, c.wildcardTLSSecret, namespace, environment); err != nil {
+			return err
+		}
+	}
 	// A managed Redis URL is referenced from the pod rather than written into it,
 	// and a reference resolves only within the pod's own namespace.
 	if ref := c.runtimeServices.RedisSecret; ref.set() {
@@ -153,10 +159,11 @@ func (c *Client) createNamespace(ctx context.Context, environment, namespace str
 	return nil
 }
 
-// copySecret copies one Secret from the release namespace into namespace,
-// leaving a copy that is already there alone. A pull secret the release
-// namespace does not have is skipped rather than fatal: the pods it was meant
-// for would fail the same way in the release namespace.
+// copySecret copies one Secret from the release namespace into namespace, and
+// brings a copy already there up to date: a certificate is renewed and a
+// credential rotated in the release namespace, and the copies have to follow. A
+// Secret the release namespace does not have is skipped rather than fatal: the
+// pods it was meant for would fail the same way in the release namespace.
 func (c *Client) copySecret(ctx context.Context, name, namespace, environment string) error {
 	src, err := c.clientset.CoreV1().Secrets(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -165,15 +172,30 @@ func (c *Client) copySecret(ctx context.Context, name, namespace, environment st
 	if err != nil {
 		return fmt.Errorf("kube: read secret %s: %w", name, err)
 	}
-	if err := createIgnoringExisting(func() error {
-		_, err := c.clientset.CoreV1().Secrets(namespace).Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Labels: c.environmentLabels(environment)},
-			Type:       src.Type,
-			Data:       src.Data,
-		}, metav1.CreateOptions{})
-		return err
-	}); err != nil {
-		return fmt.Errorf("kube: copy secret %s into %s: %w", name, namespace, err)
+	secrets := c.clientset.CoreV1().Secrets(namespace)
+	dst, err := secrets.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		if err := createIgnoringExisting(func() error {
+			_, err := secrets.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Labels: c.environmentLabels(environment)},
+				Type:       src.Type,
+				Data:       src.Data,
+			}, metav1.CreateOptions{})
+			return err
+		}); err != nil {
+			return fmt.Errorf("kube: copy secret %s into %s: %w", name, namespace, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("kube: read the copy of %s in %s: %w", name, namespace, err)
+	}
+	if dst.Type == src.Type && reflect.DeepEqual(dst.Data, src.Data) {
+		return nil
+	}
+	dst.Type, dst.Data = src.Type, src.Data
+	if _, err := secrets.Update(ctx, dst, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: update the copy of %s in %s: %w", name, namespace, err)
 	}
 	return nil
 }

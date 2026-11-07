@@ -33,6 +33,7 @@ type namespaces interface {
 type registry interface {
 	RegisterEnvironment(environment, namespace string)
 	ForgetEnvironment(environment string)
+	RegisteredEnvironments() []string
 }
 
 // Service holds environment lifecycle logic: it records environments in the
@@ -59,8 +60,16 @@ func (s *Service) WithRegistry(r registry) *Service {
 	return s
 }
 
-// Register tells the registry about every stored environment.
-func (s *Service) Register(ctx context.Context) error {
+// Resync brings this replica's view of the environments in line with the
+// database, and every environment's namespace in line with the release
+// namespace. Each replica keeps its own registry, so one that did not see an
+// environment deleted and re-created elsewhere would otherwise keep using the
+// old namespace; and the secrets copied into each namespace — a renewed
+// certificate, a rotated credential — have to follow their originals.
+//
+// It is run at startup and at the start of every reconcile pass. One
+// environment failing is reported and the rest carry on.
+func (s *Service) Resync(ctx context.Context) error {
 	if s.registry == nil {
 		return nil
 	}
@@ -68,8 +77,22 @@ func (s *Service) Register(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	kept := make(map[string]bool, len(stored))
 	for _, e := range stored {
+		kept[e.Name] = true
 		s.registry.RegisterEnvironment(e.Name, e.Namespace)
+		if s.kube == nil {
+			continue
+		}
+		if err := s.kube.EnsureNamespace(ctx, e.Name, e.Namespace); err != nil {
+			slog.Warn("environment resync: could not bring the namespace up to date",
+				"environment", e.Name, "namespace", e.Namespace, "error", err)
+		}
+	}
+	for _, name := range s.registry.RegisteredEnvironments() {
+		if !kept[name] {
+			s.registry.ForgetEnvironment(name)
+		}
 	}
 	return nil
 }
