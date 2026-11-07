@@ -22,6 +22,8 @@ type Deployment struct {
 	Settings      json.RawMessage
 	Metadata      json.RawMessage
 	LastUpdated   time.Time
+	// Environment is the environment the deployment runs in, "" for the default.
+	Environment string
 	// Detail is the live cluster status populated on read (replicas, pods,
 	// failure reason). Not persisted; the coarse Status string is the cached value.
 	Detail kube.Status
