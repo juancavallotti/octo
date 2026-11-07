@@ -89,7 +89,7 @@ export default function EnvironmentMenu({
         <div
           role="menu"
           aria-label="Environments"
-          className="absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-lg border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900"
+          className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-zinc-900"
         >
           <p className="border-b border-black/5 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-zinc-400 dark:border-white/5">
             Environment
