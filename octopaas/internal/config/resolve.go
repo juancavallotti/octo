@@ -86,10 +86,12 @@ func Resolve(f *File, o Overrides, getenv func(string) string) (Resolved, error)
 		ret.APIKey, ret.KeySource = p.APIKey, FromConfig
 	}
 
+	//a blank value names nothing: it must not outrank the profile and then trim
+	//down to the default.
 	switch {
-	case o.Environment != "":
+	case strings.TrimSpace(o.Environment) != "":
 		ret.Environment, ret.EnvironmentSource = o.Environment, FromFlag
-	case getenv(EnvEnvironment) != "":
+	case strings.TrimSpace(getenv(EnvEnvironment)) != "":
 		ret.Environment, ret.EnvironmentSource = getenv(EnvEnvironment), FromEnv
 	case p.Environment != "":
 		ret.Environment, ret.EnvironmentSource = p.Environment, FromConfig

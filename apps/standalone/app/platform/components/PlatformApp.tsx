@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { TriangleAlert } from "lucide-react";
 import { paasBridge } from "../../desktop";
 import { tabFor, type PlatformTab } from "../types";
+import { cleanMessage } from "../useAction";
 import { usePlatformState } from "../usePlatformState";
 import DeploymentsTab from "./DeploymentsTab";
 import FolderTab from "./FolderTab";
@@ -25,6 +27,9 @@ export default function PlatformApp({ focus }: { focus?: string }) {
   const desktop = useSyncExternalStore(subscribe, hasBridge, () => true);
   const state = usePlatformState();
   const [tab, setTab] = useState<PlatformTab>(tabFor(focus));
+  // Why the last switch of installation or environment was refused. These calls do
+  // not run as operations, so the output drawer would say nothing of them.
+  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
     const paas = paasBridge();
@@ -42,9 +47,16 @@ export default function PlatformApp({ focus }: { focus?: string }) {
   }
 
   const profile = state?.profiles.find((p) => p.current)?.name ?? state?.profiles[0]?.name ?? null;
-  const use = (name: string) => void paasBridge()?.useProfile(name).catch(() => {});
-  const useEnvironment = (environment: string) =>
-    profile && void paasBridge()?.useEnvironment(profile, environment).catch(() => {});
+  const report = (err: unknown) => setFailure(cleanMessage(err instanceof Error ? err.message : String(err)));
+  const use = (name: string) => {
+    setFailure(null);
+    void paasBridge()?.useProfile(name).catch(report);
+  };
+  const useEnvironment = (environment: string) => {
+    if (!profile) return;
+    setFailure(null);
+    void paasBridge()?.useEnvironment(profile, environment).catch(report);
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -62,6 +74,15 @@ export default function PlatformApp({ focus }: { focus?: string }) {
             <p role="alert" className="rounded-lg bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">
               octopaas could not be run: {state.cliError}. Check its path in Settings.
             </p>
+          )}
+          {failure && (
+            <div
+              role="alert"
+              className="flex gap-2 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-xs text-zinc-700 dark:text-zinc-300"
+            >
+              <TriangleAlert size={14} className="mt-px shrink-0 text-amber-600 dark:text-amber-500" aria-hidden />
+              <span>{failure}</span>
+            </div>
           )}
           {state && tab === "integrations" && (
             <IntegrationsTab state={state} profile={profile} onManage={() => setTab("settings")} />

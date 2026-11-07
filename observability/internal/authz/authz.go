@@ -35,7 +35,7 @@ type checker interface {
 // routes nobody wrote a rule for — see required.
 func Wrap(v checker, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if exempt(r.URL.Path) {
+		if Exempt(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

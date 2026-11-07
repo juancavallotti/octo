@@ -39,6 +39,11 @@ func TestInScopesDelegation(t *testing.T) {
 	if dev.MayDelegate(RoleOperator) {
 		t.Error("operator in staging may delegate operator in the default environment")
 	}
+	for _, env := range []string{"", DefaultEnvironment} {
+		if dev.In(env).EnvRoles != nil {
+			t.Errorf("In(%q) still carries other environments' roles", env)
+		}
+	}
 	if !dev.In("staging").MayDelegate(RoleOperator) {
 		t.Error("operator in staging may not delegate operator there")
 	}

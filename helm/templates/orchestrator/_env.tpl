@@ -108,7 +108,7 @@
        environments unmanageable rather than failing at the first create. */}}
 {{- $orch := fromYaml (include "octo-common.componentConfig" (dict "root" . "component" "orchestrator")) }}
 {{- if and (ne (toString ($orch.rbac | default dict).create) "false") (ne (toString ($orch.environments | default dict).enabled) "false") }}
-{{- $orchName := include "octo-common.componentName" (dict "root" . "component" "orchestrator") }}
+{{- $orchName := include "octo.orchestrator.clusterScopedName" . }}
 - name: ORCHESTRATOR_SERVICE_ACCOUNT
   value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "orchestrator") | quote }}
 - name: ENVIRONMENT_WORKLOAD_CLUSTER_ROLE
@@ -248,4 +248,12 @@
   value: {{ . | toJson | quote }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{- /* The orchestrator's name for cluster-scoped objects: its component name and
+       the release namespace. Namespaced objects take the namespace from where
+       they live; cluster-scoped ones share one space across the cluster, so two
+       releases of the same name in different namespaces would collide. */}}
+{{- define "octo.orchestrator.clusterScopedName" -}}
+{{- printf "%s-%s" (include "octo-common.componentName" (dict "root" . "component" "orchestrator")) .Release.Namespace -}}
 {{- end }}

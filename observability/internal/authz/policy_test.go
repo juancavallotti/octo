@@ -57,12 +57,12 @@ func TestAnUnknownRouteIsAdminOnly(t *testing.T) {
 // Exemptions are exact, so nothing under an open path is opened with it.
 func TestExemptionsAreExact(t *testing.T) {
 	for _, path := range []string{"/healthz", "/openapi.json", "/openapi/operations"} {
-		if !exempt(path) {
+		if !Exempt(path) {
 			t.Errorf("%s is not exempt and must be", path)
 		}
 	}
 	for _, path := range []string{"/settings", "/settings/retention", "/healthzz", "/openapi"} {
-		if exempt(path) {
+		if Exempt(path) {
 			t.Errorf("%s is exempt and must not be", path)
 		}
 	}
@@ -88,7 +88,7 @@ func TestEveryRegisteredRouteIsCoveredByARuleOrAnExemption(t *testing.T) {
 		}
 		for _, m := range handleFunc.FindAllStringSubmatch(string(src), -1) {
 			route := strings.ReplaceAll(m[2], "...", "")
-			if exempt(route) || matchedByARule(route) {
+			if Exempt(route) || matchedByARule(route) {
 				continue
 			}
 			uncovered = append(uncovered, m[1]+" "+route)
