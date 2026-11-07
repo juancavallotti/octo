@@ -2,8 +2,11 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/juancavallotti/octo/observability/internal/alerting"
 	"github.com/juancavallotti/octo/observability/internal/podstats"
@@ -53,9 +56,16 @@ func (f *Fetcher) fetchPodStats(ctx context.Context, q alerting.Query) (alerting
 		err := f.pool.QueryRow(ctx,
 			`SELECT COALESCE(environment, '') FROM integration_deployments WHERE id = $1::uuid`,
 			q.Scope.DeploymentID).Scan(&environment)
-		if err == nil && environment != q.Scope.Environment {
+		// Pod stats carry no environment of their own, so the deployment row is the
+		// only thing that says whose they are: a deployment with none — deleted, its
+		// stats not yet expired — is refused like one in another environment, and a
+		// failed read is a failure rather than a pass.
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && environment != q.Scope.Environment) {
 			return alerting.Series{}, fmt.Errorf(
 				"source: %w: the deployment is not in this watch's environment", alerting.ErrInvalidParams)
+		}
+		if err != nil {
+			return alerting.Series{}, fmt.Errorf("source: look up deployment %s's environment: %w", q.Scope.DeploymentID, err)
 		}
 	}
 
