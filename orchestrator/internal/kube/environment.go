@@ -76,12 +76,8 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 	if err := c.createNamespace(ctx, environment, namespace); err != nil {
 		return err
 	}
-	rbac := c.clientset.RbacV1().RoleBindings(namespace)
-	if err := createIgnoringExisting(func() error {
-		_, err := rbac.Create(ctx, c.roleBinding(orchestratorBinding, c.environments.WorkloadClusterRole,
-			c.environments.OrchestratorServiceAccount, c.namespace), metav1.CreateOptions{})
-		return err
-	}); err != nil {
+	if err := c.ensureBinding(ctx, namespace, c.roleBinding(orchestratorBinding, c.environments.WorkloadClusterRole,
+		c.environments.OrchestratorServiceAccount, c.namespace)); err != nil {
 		return fmt.Errorf("kube: bind orchestrator in %s: %w", namespace, err)
 	}
 
@@ -94,11 +90,8 @@ func (c *Client) EnsureNamespace(ctx context.Context, environment, namespace str
 		}); err != nil {
 			return fmt.Errorf("kube: runtime service account in %s: %w", namespace, err)
 		}
-		if err := createIgnoringExisting(func() error {
-			_, err := rbac.Create(ctx, c.roleBinding(runtimeBinding, c.environments.RuntimeClusterRole,
-				sa, namespace), metav1.CreateOptions{})
-			return err
-		}); err != nil {
+		if err := c.ensureBinding(ctx, namespace, c.roleBinding(runtimeBinding, c.environments.RuntimeClusterRole,
+			sa, namespace)); err != nil {
 			return fmt.Errorf("kube: bind runtime in %s: %w", namespace, err)
 		}
 	}
@@ -204,7 +197,23 @@ func (c *Client) copySecret(ctx context.Context, name, namespace, environment st
 // orchestrator manages: a Deployment, a test-run Job, or a pod such as a dev
 // run. Deleting an environment that does would delete running workloads with it.
 func (c *Client) NamespaceInUse(ctx context.Context, namespace string) (bool, error) {
-	opts := metav1.ListOptions{LabelSelector: labelManagedBy + "=" + managedByValue, Limit: 1}
+	// A namespace that is gone or already terminating holds nothing to protect, and
+	// listing in it would be refused: the orchestrator's rights there come from a
+	// RoleBinding that goes with it. Without this, an environment whose namespace
+	// was deleted before its row could never be deleted.
+	ns, err := c.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("kube: get namespace %s: %w", namespace, err)
+	}
+	if ns.DeletionTimestamp != nil {
+		return false, nil
+	}
+	// No page limit: a limited, filtered list may answer an empty page with more
+	// to come, which would read as not in use. A namespace's managed objects are few.
+	opts := metav1.ListOptions{LabelSelector: labelManagedBy + "=" + managedByValue}
 	deployments, err := c.clientset.AppsV1().Deployments(namespace).List(ctx, opts)
 	if err != nil {
 		return false, fmt.Errorf("kube: list deployments in %s: %w", namespace, err)
@@ -241,7 +250,10 @@ func (c *Client) DeleteNamespace(ctx context.Context, environment, namespace str
 	if !c.owns(existing, environment) {
 		return ErrNamespaceTaken
 	}
-	if err := namespaces.Delete(ctx, namespace, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
+	// The object checked is the object deleted, even if the name changed hands in
+	// between.
+	opts := metav1.DeleteOptions{Preconditions: metav1.NewUIDPreconditions(string(existing.UID))}
+	if err := namespaces.Delete(ctx, namespace, opts); ignoreNotFound(err) != nil {
 		return fmt.Errorf("kube: delete namespace %s: %w", namespace, err)
 	}
 	return nil
@@ -267,6 +279,30 @@ func (c *Client) roleBinding(name, clusterRole, account, accountNamespace string
 		}},
 		RoleRef: rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: clusterRole},
 	}
+}
+
+// ensureBinding creates want in namespace, or replaces a binding of that name
+// that grants something else. A RoleBinding's role cannot be changed in place, and
+// the ClusterRoles it points at are named by the chart, so a binding left from an
+// earlier name would grant a role that no longer exists.
+func (c *Client) ensureBinding(ctx context.Context, namespace string, want *rbacv1.RoleBinding) error {
+	bindings := c.clientset.RbacV1().RoleBindings(namespace)
+	have, err := bindings.Get(ctx, want.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		return err
+	case have.RoleRef == want.RoleRef && reflect.DeepEqual(have.Subjects, want.Subjects):
+		return nil
+	default:
+		if err := bindings.Delete(ctx, want.Name, metav1.DeleteOptions{}); ignoreNotFound(err) != nil {
+			return err
+		}
+	}
+	return createIgnoringExisting(func() error {
+		_, err := bindings.Create(ctx, want, metav1.CreateOptions{})
+		return err
+	})
 }
 
 // createIgnoringExisting runs create and treats AlreadyExists as success.

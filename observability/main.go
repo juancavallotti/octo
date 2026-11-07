@@ -412,7 +412,7 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 		environments = current.Cached(lookup, environmentLookupTTL)
 		handler = current.Confine(lookup, mux)
 	}
-	return current.Parse(guard(current.Require(environments, handler)))
+	return current.Parse(guard(current.Require(environments, authz.Exempt, handler)))
 }
 
 // environmentLookupTTL is how long a request's environment is taken on trust

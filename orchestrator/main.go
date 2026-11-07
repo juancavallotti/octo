@@ -906,7 +906,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// roles in it, and checked after, so an unauthenticated caller cannot use the
 	// header to learn which environments exist.
 	// Confine then refuses a request naming a row in another environment.
-	return caller.Middleware(current.Parse(guard(current.Require(environments,
+	return caller.Middleware(current.Parse(guard(current.Require(environments, authz.Exempt,
 		current.Confine(owners, mux))))), nil
 }
 
