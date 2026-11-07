@@ -20,7 +20,7 @@ func (failing) Exists(context.Context, string) (bool, error) { return false, err
 func serve(lookup Lookup, path, header string) (*httptest.ResponseRecorder, string, bool) {
 	var seen string
 	var explicit bool
-	h := Parse(Require(lookup, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Parse(Require(lookup, func(path string) bool { return path == "/healthz" }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen, explicit = From(r.Context()), Explicit(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})))
@@ -123,5 +123,14 @@ func TestCachedForgetsNamesThatDoNotExist(t *testing.T) {
 	}
 	if len(c.answers) != 0 {
 		t.Errorf("remembered %d unknown names, want none", len(c.answers))
+	}
+}
+
+// A route the guard serves without a token must not answer by whether the named
+// environment exists, or a caller who has not signed in could probe for them.
+func TestAnUncheckedRouteIsServedWithoutALookup(t *testing.T) {
+	rec, _, _ := serve(failing{}, "/healthz", "made-up")
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("an unchecked route with an unknown environment: %d, want it served", rec.Code)
 	}
 }

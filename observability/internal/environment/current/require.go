@@ -22,10 +22,14 @@ type Lookup interface {
 // The environment routes themselves are not checked. They are how a client
 // with a stale selection finds out what exists, and refusing them for it would
 // leave it nowhere to recover from.
-func Require(lookup Lookup, next http.Handler) http.Handler {
+//
+// Nor are the routes unchecked names, which the guard serves without
+// authenticating anyone: answering them by whether the named environment exists
+// would let a caller who has not signed in learn which environments there are.
+func Require(lookup Lookup, unchecked func(path string) bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		environment := From(r.Context())
-		if environment == "" || isEnvironmentsRoute(r.URL.Path) {
+		if environment == "" || isEnvironmentsRoute(r.URL.Path) || unchecked(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

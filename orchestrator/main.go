@@ -885,7 +885,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// The environment is read before the guard, which judges the caller by their
 	// roles in it, and checked after, so an unauthenticated caller cannot use the
 	// header to learn which environments exist.
-	return caller.Middleware(current.Parse(guard(current.Require(environments, mux)))), nil
+	return caller.Middleware(current.Parse(guard(current.Require(environments, authz.Exempt, mux)))), nil
 }
 
 // guard wraps the API in the authorization policy, when this install has an iam

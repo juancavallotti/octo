@@ -138,12 +138,12 @@ func TestARouteWithNoWriteRuleIsWritableByNobody(t *testing.T) {
 // admin-only, and a prefix must not leak the difference.
 func TestExemptionsAreExact(t *testing.T) {
 	for _, path := range []string{"/healthz", "/settings/health", "/db-version", "/openapi.json"} {
-		if !exempt(path) {
+		if !Exempt(path) {
 			t.Errorf("%s is not exempt and must be", path)
 		}
 	}
 	for _, path := range []string{"/settings", "/settings/llm", "/settings/health/extra", "/healthzz"} {
-		if exempt(path) {
+		if Exempt(path) {
 			t.Errorf("%s is exempt and must not be", path)
 		}
 	}
@@ -169,7 +169,7 @@ func TestEveryRegisteredRouteIsCoveredByARuleOrAnExemption(t *testing.T) {
 		}
 		for _, m := range handleFunc.FindAllStringSubmatch(string(src), -1) {
 			route := strings.ReplaceAll(m[2], "...", "")
-			if exempt(route) || matchedByARule(route) {
+			if Exempt(route) || matchedByARule(route) {
 				continue
 			}
 			uncovered = append(uncovered, m[1]+" "+route)
@@ -207,7 +207,7 @@ func TestTheSidecarsOwnRoutesAreNotGated(t *testing.T) {
 		"/devruns/671b74fc-cfff-81cf/bundle",
 		"/devruns/671b74fc-cfff-81cf/expire",
 	} {
-		if !exempt(path) {
+		if !Exempt(path) {
 			t.Errorf("%s is gated, and the sidecar has no platform token to pass it with", path)
 		}
 	}
@@ -222,7 +222,7 @@ func TestOnlyThoseTwoDevRunRoutesStepAside(t *testing.T) {
 		"/devruns/abc/bundle/extra",
 		"/devruns/abc/reload",
 	} {
-		if exempt(path) {
+		if Exempt(path) {
 			t.Errorf("%s steps aside from the guard and must not", path)
 		}
 	}
