@@ -38,9 +38,11 @@ Until those land, run workloads that must not be able to reach each other, such 
 
 When you can work in more than one environment, the top bar of every platform page shows an **Environment** picker beside your account tile. Administrators see every environment; everybody else sees the ones they hold a role in.
 
+The admin pages are the exception. They manage the installation itself, such as people, environments and the platform agent, so they show no picker and act in the default environment whichever one you picked.
+
 Picking one reloads the page in that environment. The integration manager, dashboard, metrics, logs and traces all show only that environment, and the buttons you are offered follow your roles there. A page about one integration or deployment lands at the top of its section instead, because that item does not exist in the other environment. The choice is kept in a cookie until you change it. If the environment you chose is deleted, you are put back in the default.
 
-Dr. Octo's chat follows the same choice: he works in the environment you have picked. Over [MCP](/ai/platform-mcp#environments), `list_environments` lists them and every tool takes an optional `environment` argument.
+Dr. Octo's chat follows the same choice: he works in the environment you have picked, and every question reaches him saying which one that is. Over [MCP](/ai/platform-mcp#environments), `list_environments` lists them and every tool takes an optional `environment` argument.
 
 ## Promote a version
 
