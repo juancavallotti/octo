@@ -87,7 +87,10 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
   {
     path: "{path}?env={environmentName}",
     description:
-      "Any page above, in a different environment from the one the user is in: " +
+      "Any page above but the /platform/admin ones, in a different environment " +
+      "from the one the user is in. The admin pages manage the whole " +
+      "installation, belong to no environment, and never take ?env=. For the " +
+      "others, " +
       "add ?env= and the environment's name to its path, e.g. " +
       "/platform/metrics?env=staging for the metrics of an environment named " +
       "staging. For the default environment leave the name empty, as in " +
