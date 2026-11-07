@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"io"
 	"log/slog"
 	"time"
@@ -183,6 +184,12 @@ func (s *Service) Ensure(ctx context.Context, userID, integrationID string) (Ens
 	integ, err := s.integrations.Get(ctx, integrationID)
 	if err != nil {
 		return EnsureResult{}, fmt.Errorf("%w: %w", ErrIntegrationNotFound, err)
+	}
+	// The id comes from the body, where the environment guard on path ids does not
+	// look: an integration of another environment does not exist from here, or its
+	// files would run in this environment's namespace for a caller confined to it.
+	if integ.Environment != current.From(ctx) {
+		return EnsureResult{}, ErrIntegrationNotFound
 	}
 
 	spec, err := s.specFor(ctx, userID, integ)

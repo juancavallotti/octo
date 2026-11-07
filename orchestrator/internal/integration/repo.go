@@ -34,7 +34,7 @@ const configFiles = `
 // and last-editor users (aliases cu/uu) to resolve display email/name; the base
 // integration row is aliased i (real table or a CTE over a write).
 const selectColumns = `i.id, i.name, i.icon, i.last_updated, i.created_by, i.updated_by,
-	cu.email, cu.name, uu.email, uu.name,` + configFiles
+	cu.email, cu.name, uu.email, uu.name, COALESCE(i.environment, ''),` + configFiles
 
 // userJoins resolves the created_by/updated_by user ids to display fields. It
 // requires the base row to be aliased i.
@@ -43,7 +43,7 @@ const userJoins = `LEFT JOIN users cu ON cu.id = i.created_by
 
 // writeReturning is the RETURNING list for an insert/update, exposing the base
 // columns a following CTE join needs (aliased i in selectColumns).
-const writeReturning = "id, name, icon, last_updated, created_by, updated_by"
+const writeReturning = "id, name, icon, last_updated, created_by, updated_by, environment"
 
 // Repo persists integrations to Postgres.
 type Repo struct {
@@ -222,6 +222,7 @@ func scanIntegration(row pgx.Row) (Integration, error) {
 		&it.CreatedBy, &it.UpdatedBy,
 		&it.CreatedByEmail, &it.CreatedByName,
 		&it.UpdatedByEmail, &it.UpdatedByName,
+		&it.Environment,
 		&paths, &contents,
 	); err != nil {
 		return Integration{}, err

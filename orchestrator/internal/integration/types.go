@@ -24,6 +24,8 @@ type Integration struct {
 	// read-only here: the files are written one at a time.
 	Definition  string
 	LastUpdated time.Time
+	// Environment is the environment the integration lives in, "" for the default.
+	Environment string
 
 	CreatedBy      *string
 	UpdatedBy      *string
