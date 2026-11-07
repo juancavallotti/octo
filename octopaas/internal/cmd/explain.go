@@ -102,6 +102,12 @@ func (a *App) credentialHint() string {
 func (a *App) forbiddenHint() string {
 
 	if a.resolved.APIKey != "" {
+		//a key acts in the one environment it is bound to, so with an environment
+		//named the refusal may be about that rather than its roles.
+		if a.resolved.EnvironmentSource != config.FromDefault {
+			return fmt.Sprintf("API key %s was refused this: it is bound to another environment than %s, or its roles there do not cover it. `octopaas whoami` shows where it acts and the roles it carries; mint a key that fits on your account page.",
+				config.MaskKey(a.resolved.APIKey), config.DisplayEnvironment(a.resolved.Environment))
+		}
 		return fmt.Sprintf("API key %s was refused this: its roles do not cover it, or its owner may no longer give them. `octopaas whoami` shows the roles it carries; mint a key that fits on your account page.",
 			config.MaskKey(a.resolved.APIKey))
 	}
