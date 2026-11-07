@@ -15,7 +15,7 @@
 {{- $rbac := $cfg.rbac | default dict -}}
 {{- $envs := $cfg.environments | default dict -}}
 {{- if and (ne (toString $rbac.create) "false") (ne (toString $envs.enabled) "false") }}
-{{- $name := include "octo-common.componentName" (dict "root" . "component" "orchestrator") }}
+{{- $name := include "octo.orchestrator.clusterScopedName" . }}
 {{- $sa := include "octo-common.serviceAccountName" (dict "root" . "component" "orchestrator") }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
