@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,11 @@ func TestConfineStats(t *testing.T) {
 		{"staging", "/stats/" + staging + "/pods", http.StatusNoContent},
 		{"", "/stats/" + staging + "/pods", http.StatusNotFound},
 		{"", "/logs", http.StatusNoContent},
+		// Spellings Postgres reads as the same uuid are checked as that deployment.
+		{"", "/stats/" + strings.ReplaceAll(staging, "-", "") + "/pods", http.StatusNotFound},
+		{"", "/stats/{" + staging + "}/pods", http.StatusNotFound},
+		// A deleted deployment's stats outlive its row, and nothing else says whose.
+		{"", "/stats/33333333-3333-3333-3333-333333333333/pods", http.StatusNotFound},
 	}
 	for _, tc := range cases {
 		h := Confine(owners, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
