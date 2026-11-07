@@ -1,6 +1,7 @@
 "use client";
 
 import { useConfirm } from "@/app/components/ConfirmDialog";
+import Callout from "@/app/components/ui/Callout";
 import type { Environment } from "@/app/model/environments";
 import EnvironmentForm from "./EnvironmentForm";
 import EnvironmentRow from "./EnvironmentRow";
@@ -39,9 +40,9 @@ export default function EnvironmentsManager() {
         </p>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-500">
-            {error}
-          </p>
+          <div role="alert" className="mt-3">
+            <Callout>{error}</Callout>
+          </div>
         )}
 
         <EnvironmentForm busy={busy} taken={taken} onCreate={create} />
