@@ -1508,6 +1508,34 @@ func (failingMinter) MintMachine(context.Context, string, string, string, []stri
 	return "", refusal("api keys cannot lend an identity")
 }
 
+// recordingMinter mints and remembers the environment it was asked for.
+type recordingMinter struct{ environment string }
+
+func (*recordingMinter) Configured() bool { return true }
+func (m *recordingMinter) MintMachine(_ context.Context, _, _, environment string, _ []string) (string, error) {
+	m.environment = environment
+	return "machine.token", nil
+}
+
+// A deployment's token is minted for the environment it is deployed in: that is
+// what confines its stores and its platform calls there. Minted for any other —
+// the default, by an empty value — it would reach what it should not.
+func TestDeployMintsTheIdentityInTheRequestsEnvironment(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{
+		ID: "int-1", Name: "Orders", Definition: "service:\n  name: orders\n"}}
+	minter := &recordingMinter{}
+	svc := NewService(repo, integrations, &fakeKube{status: kube.StatusRunning}, WithIdentities(minter))
+
+	ctx := current.With(caller.With(context.Background(), "a.b.c"), "staging", true)
+	if _, err := svc.Deploy(ctx, "int-1", Settings{}); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if minter.environment != "staging" {
+		t.Errorf("minted for %q, want staging", minter.environment)
+	}
+}
+
 // refusal is iam declining, as the iam client reports it.
 type refusal string
 

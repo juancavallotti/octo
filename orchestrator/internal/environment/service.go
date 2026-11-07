@@ -33,6 +33,7 @@ type namespaces interface {
 type registry interface {
 	RegisterEnvironment(environment, namespace string)
 	ForgetEnvironment(environment string)
+	RegisteredEnvironments() []string
 }
 
 // Service holds environment lifecycle logic: it records environments in the
@@ -59,8 +60,16 @@ func (s *Service) WithRegistry(r registry) *Service {
 	return s
 }
 
-// Register tells the registry about every stored environment.
-func (s *Service) Register(ctx context.Context) error {
+// Resync brings this replica's view of the environments in line with the
+// database, and every environment's namespace in line with the release
+// namespace. Each replica keeps its own registry, so one that did not see an
+// environment deleted and re-created elsewhere would otherwise keep using the
+// old namespace; and the secrets copied into each namespace — a renewed
+// certificate, a rotated credential — have to follow their originals.
+//
+// It is run at startup and at the start of every reconcile pass. One
+// environment failing is reported and the rest carry on.
+func (s *Service) Resync(ctx context.Context) error {
 	if s.registry == nil {
 		return nil
 	}
@@ -68,8 +77,22 @@ func (s *Service) Register(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	kept := make(map[string]bool, len(stored))
 	for _, e := range stored {
+		kept[e.Name] = true
 		s.registry.RegisterEnvironment(e.Name, e.Namespace)
+		if s.kube == nil {
+			continue
+		}
+		if err := s.kube.EnsureNamespace(ctx, e.Name, e.Namespace); err != nil {
+			slog.Warn("environment resync: could not bring the namespace up to date",
+				"environment", e.Name, "namespace", e.Namespace, "error", err)
+		}
+	}
+	for _, name := range s.registry.RegisteredEnvironments() {
+		if !kept[name] {
+			s.registry.ForgetEnvironment(name)
+		}
 	}
 	return nil
 }
@@ -197,12 +220,17 @@ func (s *Service) Update(ctx context.Context, name string, p Patch) (Environment
 
 // Delete removes an environment and its namespace. It refuses (ErrInUse) while
 // an integration is still defined there, or the namespace still runs a
-// deployment, a test run or a dev run. Both are asked before anything is
-// deleted, so a refusal leaves the environment exactly as it was.
+// deployment, a test run or a dev run.
 //
-// A namespace that turns out not to be this environment's is left standing and
-// the row removed anyway: the environment is what was asked to go, and the
-// namespace was never octo's to delete.
+// The row goes first. Its foreign keys are what refuse atomically — an
+// integration created after the checks above still stops it — so a refusal
+// leaves the environment exactly as it was, and once the row is gone nothing new
+// can be created there. A namespace a failed delete leaves behind is still
+// labelled for the environment, so creating it again adopts it.
+//
+// A namespace that turns out not to be this environment's is left standing: the
+// environment is what was asked to go, and the namespace was never octo's to
+// delete.
 func (s *Service) Delete(ctx context.Context, name string) error {
 	if name == Default {
 		return ErrDefault
@@ -228,15 +256,20 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 	if used {
 		return ErrInUse
 	}
-	if err := s.kube.DeleteNamespace(ctx, e.Name, e.Namespace); err != nil {
+	if err := s.repo.Delete(ctx, e.Name); err != nil {
+		return err
+	}
+	if s.registry != nil {
+		s.registry.ForgetEnvironment(e.Name)
+	}
+	// Past the row, the delete has happened: a caller giving up must not leave the
+	// namespace half removed.
+	if err := s.kube.DeleteNamespace(context.WithoutCancel(ctx), e.Name, e.Namespace); err != nil {
 		if !errors.Is(err, kube.ErrNamespaceTaken) {
 			return err
 		}
 		slog.Warn("environment delete: the namespace is not labelled as this environment's; leaving it",
 			"environment", e.Name, "namespace", e.Namespace)
 	}
-	if s.registry != nil {
-		s.registry.ForgetEnvironment(e.Name)
-	}
-	return s.repo.Delete(ctx, e.Name)
+	return nil
 }

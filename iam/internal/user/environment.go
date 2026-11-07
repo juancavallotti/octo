@@ -22,12 +22,12 @@ func NormalizeEnvironment(environment string) string {
 // every check written against a User (HasRole, MayDelegate) answers for that
 // environment unchanged.
 func (u User) In(environment string) User {
-	environment = NormalizeEnvironment(environment)
-	if environment == "" {
-		return u
-	}
 	scoped := u
 	scoped.EnvRoles = nil
+	environment = NormalizeEnvironment(environment)
+	if environment == "" {
+		return scoped
+	}
 	scoped.Roles = slices.Clone(u.EnvRoles[environment])
 	if u.HasRole(RoleAdmin) && !slices.Contains(scoped.Roles, RoleAdmin) {
 		scoped.Roles = append(scoped.Roles, RoleAdmin)
