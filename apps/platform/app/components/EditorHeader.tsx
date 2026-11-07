@@ -8,6 +8,7 @@ import {
   SaveButton,
 } from "@octo/editor";
 import AppLogo from "./AppLogo";
+import EnvironmentSwitcher from "./EnvironmentSwitcher";
 import IntegrationPicker from "./IntegrationPicker";
 import IntegrationsButton from "./IntegrationsButton";
 import MoreMenu from "./MoreMenu";
@@ -63,6 +64,7 @@ export default function EditorHeader({
         {/* Last on the bar, VS Code's corner: about the window, not the file. */}
         <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
         <LayoutToggles />
+        <EnvironmentSwitcher />
         {userMenu}
       </div>
     </header>
