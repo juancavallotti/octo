@@ -147,3 +147,24 @@ func TestReadEvents(t *testing.T) {
 		}
 	}
 }
+
+// Every request names the environment it was given, and none when given none.
+func TestTheEnvironmentTravelsWithEveryRequest(t *testing.T) {
+
+	var got []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("X-Octo-Environment"))
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer api.Close()
+
+	if _, err := New(api.URL, &fakeBearer{}, "octopaas/test").InEnvironment("staging").ListIntegrations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(api.URL, &fakeBearer{}, "octopaas/test").ListIntegrations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != "staging" || got[1] != "" {
+		t.Errorf("headers = %q, want [staging, \"\"]", got)
+	}
+}

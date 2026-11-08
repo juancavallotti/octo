@@ -27,3 +27,26 @@ func TestAForbiddenKeyIsToldAboutTheKey(t *testing.T) {
 		}
 	}
 }
+
+// With an environment named, a key's refusal may be about where the key is bound,
+// so the hint says so instead of blaming its roles alone.
+func TestARefusedKeyInANamedEnvironmentMentionsTheBinding(t *testing.T) {
+
+	_, out := run(t, &fakeAPI{forbidden: "this token is bound to environment \"stage\" and cannot act in \"prod\""},
+		"--environment", "prod", "deployments", "outdated", "--plain")
+	if !strings.Contains(out, "bound to another environment than prod") {
+		t.Errorf("the hint does not mention the binding:\n%s", out)
+	}
+}
+
+// A key that names no environment acts in the one it is bound to, and says so.
+func TestAKeyReportsTheEnvironmentItIsBoundTo(t *testing.T) {
+
+	status, out := run(t, &fakeAPI{}, "environments", "current", "-o", "json")
+	if status != 0 {
+		t.Fatalf("status %d: %s", status, out)
+	}
+	if !strings.Contains(out, `"environment": "stage"`) || !strings.Contains(out, `"source": "key"`) {
+		t.Errorf("want stage, from the key:\n%s", out)
+	}
+}

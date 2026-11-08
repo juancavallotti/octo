@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -192,5 +193,24 @@ func TestExpireErrorIncludesBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "run is still draining") {
 		t.Errorf("error = %q, want it to include the response body", err)
+	}
+}
+
+func TestTheEnvironmentTravelsWithEveryCall(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("X-Octo-Environment"))
+		_ = json.NewEncoder(w).Encode(Bundle{})
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL, "run-1", "tok").InEnvironment("staging").Fetch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewClient(srv.URL, "run-1", "tok").Fetch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != "staging" || got[1] != "" {
+		t.Errorf("headers = %q, want [staging, \"\"]", got)
 	}
 }

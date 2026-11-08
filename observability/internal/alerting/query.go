@@ -25,6 +25,12 @@ type Scope struct {
 	Pods   []string          `json:"pods,omitempty"`
 	Labels map[string]string `json:"labels,omitempty"`
 	Across Aggregate         `json:"across,omitempty"`
+
+	// Environment confines the query to one environment's records, "" for the
+	// default. Never part of a stored or submitted definition: it is the
+	// watch's own environment, bound when the watch is read, so a watch cannot
+	// be written to look into another environment.
+	Environment string `json:"-"`
 }
 
 // key renders the scope into something comparable, for coalescing. Sorted,
@@ -43,7 +49,7 @@ func (s Scope) key() string {
 	for _, k := range sortedKeys(s.Labels) {
 		fmt.Fprintf(&b, "%q=%q;", k, s.Labels[k])
 	}
-	fmt.Fprintf(&b, "|%q", s.Across)
+	fmt.Fprintf(&b, "|%q|%q", s.Across, s.Environment)
 	return b.String()
 }
 

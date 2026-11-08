@@ -15,12 +15,16 @@ const (
 	FromEnv     Source = "env"
 	FromConfig  Source = "config"
 	FromDefault Source = "default"
+	// FromKey is an environment no flag, variable or profile named, which the API
+	// key in use is bound to: every key acts in exactly one.
+	FromKey Source = "key"
 )
 
 // Overrides are what the command line asked for. Empty means not asked.
 type Overrides struct {
-	Profile string
-	URL     string
+	Profile     string
+	URL         string
+	Environment string
 }
 
 // Resolved is the platform a command talks to and how it authenticates.
@@ -32,6 +36,9 @@ type Resolved struct {
 	// APIKey is empty when the command should use the profile's OAuth session.
 	APIKey    string
 	KeySource Source
+	// Environment is the one the command acts in, "" for the default.
+	Environment       string
+	EnvironmentSource Source
 }
 
 // Resolve picks the profile, URL and key a command uses. Flags beat the
@@ -81,7 +88,50 @@ func Resolve(f *File, o Overrides, getenv func(string) string) (Resolved, error)
 	case p.APIKey != "":
 		ret.APIKey, ret.KeySource = p.APIKey, FromConfig
 	}
+
+	//a blank value names nothing: it must not outrank the profile and then trim
+	//down to the default.
+	switch {
+	case strings.TrimSpace(o.Environment) != "":
+		ret.Environment, ret.EnvironmentSource = o.Environment, FromFlag
+	case strings.TrimSpace(getenv(EnvEnvironment)) != "":
+		ret.Environment, ret.EnvironmentSource = getenv(EnvEnvironment), FromEnv
+	case p.Environment != "":
+		ret.Environment, ret.EnvironmentSource = p.Environment, FromConfig
+	default:
+		ret.EnvironmentSource = FromDefault
+	}
+	ret.Environment = NormalizeEnvironment(ret.Environment)
 	return ret, nil
+}
+
+// EnvironmentHeader is what a request names as its environment: nothing when
+// none was named, so a key bound to one environment acts in its own, and the
+// default spelled out when it was named, so that key is refused rather than
+// quietly acting in its own.
+func (r Resolved) EnvironmentHeader() string {
+	if r.EnvironmentSource == FromDefault {
+		return ""
+	}
+	return DisplayEnvironment(r.Environment)
+}
+
+// NormalizeEnvironment spells the default environment as the empty string,
+// whichever way it was named.
+func NormalizeEnvironment(environment string) string {
+	environment = strings.TrimSpace(environment)
+	if environment == DefaultEnvironment {
+		return ""
+	}
+	return environment
+}
+
+// DisplayEnvironment names an environment for a person, spelling the default.
+func DisplayEnvironment(environment string) string {
+	if environment == "" {
+		return DefaultEnvironment
+	}
+	return environment
 }
 
 // envOnly is the CI shape: everything a command needs is in the environment, so

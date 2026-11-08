@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requestJson, callerToken } = vi.hoisted(() => ({
+const { requestJson, callerToken, callerEnvironment } = vi.hoisted(() => ({
   requestJson: vi.fn(),
   callerToken: vi.fn(),
+  callerEnvironment: vi.fn(),
 }));
 
 vi.mock("@octo/http", () => ({ requestJson }));
 vi.mock("@/app/auth/callerToken", () => ({ callerToken }));
+vi.mock("@/app/auth/callerEnvironment", () => ({ callerEnvironment }));
 
 import { observabilityCall } from "./_observability";
 
@@ -16,6 +18,7 @@ describe("the observability transport", () => {
   beforeEach(() => {
     process.env.OBSERVABILITY_URL = BASE;
     requestJson.mockResolvedValue({ ok: true, data: {} });
+    callerEnvironment.mockResolvedValue("");
   });
 
   afterEach(() => {
@@ -43,6 +46,19 @@ describe("the observability transport", () => {
     await observabilityCall("trace query", "GET", "/traces");
 
     expect(requestJson).toHaveBeenCalledWith("GET", `${BASE}/traces`, undefined, undefined);
+  });
+
+  // The environment travels with the credential, so every read is of the
+  // environment the caller chose; the default is sent as nothing at all.
+  it("names the caller's environment", async () => {
+    callerToken.mockResolvedValue("a.b.c");
+    callerEnvironment.mockResolvedValue("staging");
+
+    await observabilityCall("trace query", "GET", "/traces");
+
+    expect(requestJson).toHaveBeenCalledWith("GET", `${BASE}/traces`, undefined, {
+      headers: { Authorization: "Bearer a.b.c", "X-Octo-Environment": "staging" },
+    });
   });
 
   it("trims a trailing slash off the address", async () => {

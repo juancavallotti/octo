@@ -19,6 +19,8 @@ type repository interface {
 	List(ctx context.Context, query string, role Role, limit int, cursor string) ([]User, string, error)
 	Grant(ctx context.Context, userID string, granted Role, grantedBy *string) error
 	Revoke(ctx context.Context, userID string, revoked Role) error
+	GrantIn(ctx context.Context, userID, environment string, granted Role, grantedBy *string) error
+	RevokeIn(ctx context.Context, userID, environment string, revoked Role) error
 	CountWithRole(ctx context.Context, held Role) (int, error)
 }
 
@@ -124,6 +126,46 @@ func (s *Service) Revoke(ctx context.Context, userID string, revoked Role) error
 	// The last-administrator rule is the repository's, because only it can check
 	// and write under one lock — see Repo.Revoke.
 	return s.repo.Revoke(ctx, userID, revoked)
+}
+
+// GrantIn gives a user a role in one environment ("" or "octo" for the default,
+// which is Grant). platform:admin is refused anywhere but the default: it is
+// granted there and reaches every environment, and a second spelling of it
+// would be a second place an administrator could hide.
+func (s *Service) GrantIn(ctx context.Context, userID, environment string, granted Role, grantedBy *string) error {
+	environment = NormalizeEnvironment(strings.TrimSpace(environment))
+	if environment == "" {
+		return s.Grant(ctx, userID, granted, grantedBy)
+	}
+	if err := validateIn(userID, granted); err != nil {
+		return err
+	}
+	return s.repo.GrantIn(ctx, userID, environment, granted, grantedBy)
+}
+
+// RevokeIn removes a role from a user in one environment ("" or "octo" for
+// the default, which is Revoke and keeps its last-administrator rule).
+func (s *Service) RevokeIn(ctx context.Context, userID, environment string, revoked Role) error {
+	environment = NormalizeEnvironment(strings.TrimSpace(environment))
+	if environment == "" {
+		return s.Revoke(ctx, userID, revoked)
+	}
+	if err := validateIn(userID, revoked); err != nil {
+		return err
+	}
+	return s.repo.RevokeIn(ctx, userID, environment, revoked)
+}
+
+// validateIn is validate for an environment other than the default, where
+// admin is not a role at all.
+func validateIn(userID string, r Role) error {
+	if err := validate(userID, r); err != nil {
+		return err
+	}
+	if r == RoleAdmin {
+		return fmt.Errorf("%w: %s is granted in the default environment only, and reaches every one", ErrInvalid, RoleAdmin)
+	}
+	return nil
 }
 
 // validate rejects the two mistakes a grant or revoke can make in its arguments.

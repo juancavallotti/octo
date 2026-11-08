@@ -27,6 +27,8 @@ function env(): NodeJS.ProcessEnv {
 export interface RunOptions extends Pick<ExecOptions, "onLine" | "signal" | "input"> {
   /** The installation to act on; null for the commands that are about profiles. */
   profile: string | null;
+  /** The environment to act in, overriding the profile's; absent uses the profile's. */
+  environment?: string | null;
 }
 
 /**
@@ -34,8 +36,8 @@ export interface RunOptions extends Pick<ExecOptions, "onLine" | "signal" | "inp
  * (pull, rm, logout) resolve to null.
  */
 export async function run<T>(args: string[], opts: RunOptions): Promise<T | null> {
-  const { profile, ...rest } = opts;
-  const result = await exec(binary("octopaas"), [...common(profile), ...args], { ...rest, env: env() });
+  const { profile, environment, ...rest } = opts;
+  const result = await exec(binary("octopaas"), [...common(profile, environment), ...args], { ...rest, env: env() });
   if (result.code !== 0) throw new CliError(failure(result.stderr, result.code), result.code);
   const out = result.stdout.trim();
   if (!out) return null;
@@ -57,7 +59,7 @@ export async function list<T>(args: string[], opts: RunOptions): Promise<T[]> {
  * throws, a cancel included.
  */
 export async function stream(args: string[], opts: RunOptions & Required<Pick<ExecOptions, "onLine">>): Promise<void> {
-  const { profile, ...rest } = opts;
-  const result = await exec(binary("octopaas"), [...common(profile), ...args], { ...rest, env: env() });
+  const { profile, environment, ...rest } = opts;
+  const result = await exec(binary("octopaas"), [...common(profile, environment), ...args], { ...rest, env: env() });
   if (result.code !== 0) throw new CliError(failure(result.stderr, result.code), result.code);
 }

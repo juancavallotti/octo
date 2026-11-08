@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/caller"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -73,7 +74,7 @@ type kubeClient interface {
 	PodLogs(ctx context.Context, podName, container string, follow bool, tail int64) (io.ReadCloser, error)
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
-	InternalURL(slug string, port int) string
+	InternalURL(ctx context.Context, slug string, port int) string
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	RunnerEnabled(runner kube.Runner) bool
@@ -115,7 +116,7 @@ type Service struct {
 // in the consumer and one method wide; *iam.Client satisfies it.
 type identityMinter interface {
 	Configured() bool
-	MintMachine(ctx context.Context, callerToken, deployment string, access []string) (string, error)
+	MintMachine(ctx context.Context, callerToken, deployment, environment string, access []string) (string, error)
 }
 
 // Option customizes a Service at construction.
@@ -179,7 +180,9 @@ func (s *Service) identityFor(ctx context.Context, deploymentID string, access [
 		return "", fmt.Errorf(
 			"this deployment needs an identity and the request carried no credential to mint it with")
 	}
-	minted, err := s.identities.MintMachine(ctx, token, deploymentID, access)
+	// Minted for the environment the request acts in, which is where the
+	// deployment runs: its token will act there and nowhere else.
+	minted, err := s.identities.MintMachine(ctx, token, deploymentID, current.From(ctx), access)
 	var refused interface{ Refusal() string }
 	if errors.As(err, &refused) {
 		return "", &IdentityRefusedError{Reason: refused.Refusal()}
@@ -325,9 +328,10 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		return Deployment{}, fmt.Errorf("%w: %s", ErrMissingRequiredEnv, strings.Join(missing, ", "))
 	}
 
-	// A networked deployment gets a slug unique across all deployments, so its
+	// A networked deployment gets a slug unique within its environment, so its
 	// internal Service (octo-int-{slug}) — and thus its internal URL — never
-	// collides with another deployment's, even another of the same integration.
+	// collides with another deployment's in that namespace, even another of the
+	// same integration.
 	// The user picks the slug (a free default is suggested up front); an empty slug
 	// asks the orchestrator to allocate one.
 	slug := ""
@@ -337,7 +341,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		if err != nil {
 			return Deployment{}, err
 		}
-		internalURL = s.kube.InternalURL(slug, port)
+		internalURL = s.kube.InternalURL(ctx, slug, port)
 	}
 
 	// Optional external endpoint: validate up front so a bad request fails before
@@ -726,7 +730,7 @@ func (s *Service) addressFree(ctx context.Context, slug string, external bool) (
 	return !found, nil
 }
 
-// allocateSlug returns a DNS-1123 slug unique across all deployments, used to name
+// allocateSlug returns a DNS-1123 slug unique within the environment, used to name
 // the per-deployment internal Service (octo-int-{slug}) so each deployment has its
 // own internal URL. It starts from base (the integration name slug) and appends a
 // -NNN suffix, scanning until it finds a value no deployment already claims.
@@ -1139,8 +1143,12 @@ func slugify(name string) string {
 
 // applyRefresh refreshes d's live status from the cluster in place: it sets the
 // coarse cached Status (persisting it when it changed) and the live Detail.
+//
+// The live status is read in d's own environment rather than the caller's: the
+// row knows where its workload runs, and a caller acting in no environment, or
+// another one, would look for it in the wrong namespace and cache it as failed.
 func (s *Service) applyRefresh(ctx context.Context, d *Deployment) {
-	st := s.refresh(ctx, d.ID, d.Status)
+	st := s.refresh(current.With(ctx, d.Environment, current.Explicit(ctx)), d.ID, d.Status)
 	d.Status = st.Phase
 	d.Detail = st
 }

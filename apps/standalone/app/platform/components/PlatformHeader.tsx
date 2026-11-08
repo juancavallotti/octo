@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { Server, Settings2 } from "lucide-react";
+import { Layers, Server, Settings2 } from "lucide-react";
 import { WorkspacePicker } from "@octo/editor";
 import type { PlatformState, PlatformTab } from "../types";
+import DefaultPill from "./DefaultPill";
 import IdentityDot from "./IdentityDot";
 
 const TABS: { id: PlatformTab; label: string }[] = [
@@ -23,12 +24,15 @@ export default function PlatformHeader({
   state,
   profile,
   onProfile,
+  onEnvironment,
   tab,
   onTab,
 }: {
   state: PlatformState | null;
   profile: string | null;
   onProfile(name: string): void;
+  /** Make the current installation act in an environment. */
+  onEnvironment(environment: string): void;
   tab: PlatformTab;
   onTab(tab: PlatformTab): void;
 }) {
@@ -58,6 +62,20 @@ export default function PlatformHeader({
             ]}
             searchPlaceholder="Search installations…"
             emptyLabel="No other installations"
+          />
+        )}
+        {/* Only when there is a choice: an installation with one environment shows nothing new. */}
+        {current && (current.environments?.length ?? 0) > 1 && (
+          <WorkspacePicker
+            label="Environment"
+            icon={<Layers size={14} className="text-zinc-400" />}
+            current={current.environment}
+            items={(current.environments ?? [])
+              .filter((e) => e.name !== current.environment)
+              .map((e) => ({ id: e.name, name: e.name, badge: e.default ? <DefaultPill /> : undefined }))}
+            onSelect={onEnvironment}
+            searchPlaceholder="Search environments…"
+            emptyLabel="No other environments"
           />
         )}
       </div>

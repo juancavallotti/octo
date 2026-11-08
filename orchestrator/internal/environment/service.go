@@ -1,0 +1,275 @@
+package environment
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/kube"
+)
+
+// repository is the persistence surface the service needs. Declared in the
+// consumer (and unexported) so service tests can substitute a fake; *Repo
+// satisfies it structurally.
+type repository interface {
+	Create(ctx context.Context, e Environment) (Environment, error)
+	Get(ctx context.Context, name string) (Environment, error)
+	List(ctx context.Context) ([]Environment, error)
+	Update(ctx context.Context, name string, p Patch) (Environment, error)
+	Delete(ctx context.Context, name string) error
+	HasIntegrations(ctx context.Context, name string) (bool, error)
+}
+
+// namespaces is the Kubernetes surface the service drives. *kube.Client
+// satisfies it.
+type namespaces interface {
+	EnsureNamespace(ctx context.Context, environment, namespace string) error
+	NamespaceInUse(ctx context.Context, namespace string) (bool, error)
+	DeleteNamespace(ctx context.Context, environment, namespace string) error
+}
+
+// registry is told which namespace each environment runs in, so workloads
+// for a request in that environment land there. *kube.Client satisfies it.
+type registry interface {
+	RegisterEnvironment(environment, namespace string)
+	ForgetEnvironment(environment string)
+	RegisteredEnvironments() []string
+}
+
+// Service holds environment lifecycle logic: it records environments in the
+// database and provisions and removes their namespaces.
+type Service struct {
+	registry registry
+	repo     repository
+	kube     namespaces
+	// defaultNamespace is the release namespace, which the default environment
+	// runs in and no other environment may claim.
+	defaultNamespace string
+}
+
+// NewService returns a Service. kube may be nil, in which case environments can
+// be listed but not created or deleted (ErrUnavailable).
+func NewService(repo repository, kube namespaces, defaultNamespace string) *Service {
+	return &Service{repo: repo, kube: kube, defaultNamespace: defaultNamespace}
+}
+
+// WithRegistry has every environment registered with r: those stored now
+// (Register), and each one created or deleted from then on.
+func (s *Service) WithRegistry(r registry) *Service {
+	s.registry = r
+	return s
+}
+
+// Resync brings this replica's view of the environments in line with the
+// database, and every environment's namespace in line with the release
+// namespace. Each replica keeps its own registry, so one that did not see an
+// environment deleted and re-created elsewhere would otherwise keep using the
+// old namespace; and the secrets copied into each namespace — a renewed
+// certificate, a rotated credential — have to follow their originals.
+//
+// It is run at startup and at the start of every reconcile pass. One
+// environment failing is reported and the rest carry on.
+func (s *Service) Resync(ctx context.Context) error {
+	if s.registry == nil {
+		return nil
+	}
+	stored, err := s.repo.List(ctx)
+	if err != nil {
+		return err
+	}
+	kept := make(map[string]bool, len(stored))
+	for _, e := range stored {
+		kept[e.Name] = true
+		s.registry.RegisterEnvironment(e.Name, e.Namespace)
+		if s.kube == nil {
+			continue
+		}
+		if err := s.kube.EnsureNamespace(ctx, e.Name, e.Namespace); err != nil {
+			slog.Warn("environment resync: could not bring the namespace up to date",
+				"environment", e.Name, "namespace", e.Namespace, "error", err)
+		}
+	}
+	for _, name := range s.registry.RegisteredEnvironments() {
+		if !kept[name] {
+			s.registry.ForgetEnvironment(name)
+		}
+	}
+	return nil
+}
+
+// Namespace returns the namespace environment runs in, and whether it is one.
+func (s *Service) Namespace(ctx context.Context, environment string) (string, bool, error) {
+	e, err := s.Get(ctx, environment)
+	if errors.Is(err, ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return e.Namespace, true, nil
+}
+
+// Enabled reports whether environments can be created and deleted here.
+func (s *Service) Enabled() bool { return s.kube != nil }
+
+// defaultEnvironment is the environment every installation has: the release
+// namespace, under the reserved name.
+func (s *Service) defaultEnvironment() Environment {
+	return Environment{
+		Name:        Default,
+		Namespace:   s.defaultNamespace,
+		DisplayName: "Default",
+		IsDefault:   true,
+	}
+}
+
+// List returns the default environment followed by every stored one.
+func (s *Service) List(ctx context.Context) ([]Environment, error) {
+	stored, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return append([]Environment{s.defaultEnvironment()}, stored...), nil
+}
+
+// Get returns the environment named name. The default environment is answered
+// without a database read.
+func (s *Service) Get(ctx context.Context, name string) (Environment, error) {
+	if name == Default {
+		return s.defaultEnvironment(), nil
+	}
+	return s.repo.Get(ctx, name)
+}
+
+// Exists reports whether name is an environment; "" and Default always are.
+func (s *Service) Exists(ctx context.Context, name string) (bool, error) {
+	if name == "" || name == Default {
+		return true, nil
+	}
+	_, err := s.repo.Get(ctx, name)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Create records a new environment and provisions its namespace.
+//
+// The row is written first: its primary key and unique namespace are what make
+// two concurrent creates of the same name or namespace collide, which a check
+// followed by a provision could not. If provisioning then fails, the row is
+// removed again so the name is free to retry. Whatever provisioning left in the
+// cluster is labelled for this environment, so the retry adopts it.
+func (s *Service) Create(ctx context.Context, in Input, createdBy string) (Environment, error) {
+	if s.kube == nil {
+		return Environment{}, ErrUnavailable
+	}
+	if !ValidName(in.Name) {
+		return Environment{}, ErrInvalidName
+	}
+	namespace := in.Namespace
+	if namespace == "" {
+		namespace = "octo-" + in.Name
+	}
+	if !validNamespace(namespace) {
+		return Environment{}, ErrInvalidNamespace
+	}
+	if namespace == s.defaultNamespace {
+		return Environment{}, ErrNamespaceTaken
+	}
+
+	e := Environment{
+		Name:        in.Name,
+		Namespace:   namespace,
+		DisplayName: in.DisplayName,
+		Description: in.Description,
+	}
+	if createdBy != "" {
+		e.CreatedBy = &createdBy
+	}
+	created, err := s.repo.Create(ctx, e)
+	if err != nil {
+		return Environment{}, err
+	}
+
+	if err := s.kube.EnsureNamespace(ctx, created.Name, created.Namespace); err != nil {
+		// Context.WithoutCancel: a create abandoned by its caller must still give
+		// the name back, or it stays taken by an environment with no namespace.
+		if derr := s.repo.Delete(context.WithoutCancel(ctx), created.Name); derr != nil {
+			slog.Error("environment create: remove the row after a failed provision",
+				"environment", created.Name, "error", derr)
+		}
+		if errors.Is(err, kube.ErrNamespaceTaken) {
+			return Environment{}, ErrNamespaceTaken
+		}
+		return Environment{}, err
+	}
+	if s.registry != nil {
+		s.registry.RegisterEnvironment(created.Name, created.Namespace)
+	}
+	return created, nil
+}
+
+// Update changes an environment's display name or description.
+func (s *Service) Update(ctx context.Context, name string, p Patch) (Environment, error) {
+	if name == Default {
+		return Environment{}, ErrDefault
+	}
+	return s.repo.Update(ctx, name, p)
+}
+
+// Delete removes an environment and its namespace. It refuses (ErrInUse) while
+// an integration is still defined there, or the namespace still runs a
+// deployment, a test run or a dev run.
+//
+// The row goes first. Its foreign keys are what refuse atomically — an
+// integration created after the checks above still stops it — so a refusal
+// leaves the environment exactly as it was, and once the row is gone nothing new
+// can be created there. A namespace a failed delete leaves behind is still
+// labelled for the environment, so creating it again adopts it.
+//
+// A namespace that turns out not to be this environment's is left standing: the
+// environment is what was asked to go, and the namespace was never octo's to
+// delete.
+func (s *Service) Delete(ctx context.Context, name string) error {
+	if name == Default {
+		return ErrDefault
+	}
+	if s.kube == nil {
+		return ErrUnavailable
+	}
+	e, err := s.repo.Get(ctx, name)
+	if err != nil {
+		return err
+	}
+	defined, err := s.repo.HasIntegrations(ctx, e.Name)
+	if err != nil {
+		return err
+	}
+	if defined {
+		return ErrInUse
+	}
+	used, err := s.kube.NamespaceInUse(ctx, e.Namespace)
+	if err != nil {
+		return err
+	}
+	if used {
+		return ErrInUse
+	}
+	if err := s.repo.Delete(ctx, e.Name); err != nil {
+		return err
+	}
+	if s.registry != nil {
+		s.registry.ForgetEnvironment(e.Name)
+	}
+	// Past the row, the delete has happened: a caller giving up must not leave the
+	// namespace half removed.
+	if err := s.kube.DeleteNamespace(context.WithoutCancel(ctx), e.Name, e.Namespace); err != nil {
+		if !errors.Is(err, kube.ErrNamespaceTaken) {
+			return err
+		}
+		slog.Warn("environment delete: the namespace is not labelled as this environment's; leaving it",
+			"environment", e.Name, "namespace", e.Namespace)
+	}
+	return nil
+}

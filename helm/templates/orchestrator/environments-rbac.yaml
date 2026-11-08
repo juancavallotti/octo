@@ -1,0 +1,80 @@
+{{- /* Cluster-scoped RBAC for environments. Each environment runs in a namespace
+       the orchestrator creates, and into which it binds two ClusterRoles:
+
+         workload  — the orchestrator's own namespaced rules (octo.orchestrator.rules),
+                     plus creating the runtime ServiceAccount, bound to the
+                     orchestrator's account so it can deploy there;
+         runtime   — the runtime pods' Lease rules (octo.runtime.rules), bound to
+                     the runtime account it creates in that namespace.
+
+       The provisioning role lets the orchestrator create and delete namespaces and
+       write RoleBindings, and `bind` only those two ClusterRoles. Kubernetes refuses
+       a RoleBinding to any role its writer neither holds nor may bind, so this hands
+       an environment nothing the release namespace does not already have. */}}
+{{- $cfg := fromYaml (include "octo-common.componentConfig" (dict "root" . "component" "orchestrator")) -}}
+{{- $rbac := $cfg.rbac | default dict -}}
+{{- $envs := $cfg.environments | default dict -}}
+{{- if and (ne (toString $rbac.create) "false") (ne (toString $envs.enabled) "false") }}
+{{- $name := include "octo.orchestrator.clusterScopedName" . }}
+{{- $sa := include "octo-common.serviceAccountName" (dict "root" . "component" "orchestrator") }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-environment-workload
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" . "component" "orchestrator") | nindent 4 }}
+rules:
+  {{- include "octo.orchestrator.rules" . | nindent 2 }}
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-environment-runtime
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" . "component" "orchestrator") | nindent 4 }}
+rules:
+  {{- include "octo.runtime.rules" . | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-environments
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" . "component" "orchestrator") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "delete"]
+  # Its own namespace only: the octo.dev/release label the Gateway selects on.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["patch"]
+    resourceNames: [{{ .Release.Namespace | quote }}]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "create"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames:
+      - {{ $name }}-environment-workload
+      - {{ $name }}-environment-runtime
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-environments
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" . "component" "orchestrator") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $name }}-environments
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

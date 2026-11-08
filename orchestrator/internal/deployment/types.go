@@ -22,6 +22,8 @@ type Deployment struct {
 	Settings      json.RawMessage
 	Metadata      json.RawMessage
 	LastUpdated   time.Time
+	// Environment is the environment the deployment runs in, "" for the default.
+	Environment string
 	// Detail is the live cluster status populated on read (replicas, pods,
 	// failure reason). Not persisted; the coarse Status string is the cached value.
 	Detail kube.Status
@@ -34,8 +36,8 @@ type Settings struct {
 	// per-deployment Service load-balances across them for internal callers.
 	Replicas int `json:"replicas,omitempty"`
 	// Slug is the user-chosen internal address label for a networked deployment
-	// (the internal Service is octo-int-{slug}). It must be unique across
-	// deployments; empty asks the orchestrator to allocate a free one. Ignored for
+	// (the internal Service is octo-int-{slug}). It must be unique among the
+	// deployments of its environment; empty asks the orchestrator to allocate a free one. Ignored for
 	// integrations with no HTTP source. Input only — the resolved slug lives in
 	// Metadata.
 	Slug string `json:"slug,omitempty"`

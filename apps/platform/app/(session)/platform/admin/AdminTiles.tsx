@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Mail, Trash2, Users } from "lucide-react";
+import { Activity, Layers, Mail, Trash2, Users } from "lucide-react";
 import { DrOctoIcon } from "@octo/editor";
 import { ShortcutTile } from "../DashboardTiles";
 
@@ -22,6 +22,12 @@ export const LIVE = [
     icon: Users,
     title: "People",
     subtitle: "Who may use this platform, and what each of them may do",
+  },
+  {
+    href: "/platform/admin/environments",
+    icon: Layers,
+    title: "Environments",
+    subtitle: "Isolated slices of the platform, each in a namespace of its own",
   },
   {
     href: "/platform/admin/email",

@@ -97,6 +97,21 @@ Sign-in exchanges the provider's token for one this platform signed, carrying th
 
 There are no per-integration permissions yet. The `platform:` prefix is there to leave room for them.
 
+### Roles per environment
+
+A role is granted in one [environment](/platform/environments). The roles above are the default environment's, and everybody kept the roles they had when environments arrived. To grant roles elsewhere, open a person in **Admin → People** and tick roles under **Roles in other environments**. Someone can be a developer in `staging` and a monitor in the default, or hold nothing at all in the default.
+
+`platform:admin` is granted only in the default environment, and an administrator holds every role in every environment. The dialog says so instead of offering boxes for them.
+
+The iam endpoints are the same ones the default uses, with the environment as a segment of the path:
+
+| Operation | Endpoint |
+| --- | --- |
+| Grant a role in an environment | `PUT /users/{id}/environments/{environment}/roles/{role}` |
+| Revoke a role in an environment | `DELETE /users/{id}/environments/{environment}/roles/{role}` |
+
+A person's platform token carries their roles everywhere, so switching environments needs no new sign-in.
+
 ### What the screens do with a role
 
 The UI reflects the same split the servers enforce, and reflects it only — every decision with a consequence is made on the server, and nothing here is a control.
@@ -164,7 +179,7 @@ Keys are managed from the platform's account area, backed by these iam endpoints
 
 | Operation | Endpoint |
 | --- | --- |
-| Mint a key (returns the plaintext once) | `POST /users/{userId}/apikeys` with `{"name", "roles", "expiresAt"}` |
+| Mint a key (returns the plaintext once) | `POST /users/{userId}/apikeys` with `{"name", "roles", "expiresAt"}`, and optionally `"environment"` |
 | List your keys (metadata only) | `GET /users/{userId}/apikeys` |
 | Revoke a key | `DELETE /users/{userId}/apikeys/{id}` |
 
@@ -193,6 +208,22 @@ curl -X POST http://iam:8093/auth \
 
 The token names the key it came from, and `POST /auth/refresh` refuses it: when it expires, exchange the key again. That is what makes a revocation stick.
 
+### Keys and environments
+
+A key can be bound to one [environment](/platform/environments) with `"environment": "<name>"` when you mint it. The account page binds a new key to the environment chosen in the top bar, offers the roles you hold there, and shows each key's environment beside its roles. Without it, the key is bound to the default environment, `octo`. Every key minted before environments existed is bound there too.
+
+A bound key's roles are checked against what you may delegate **in that environment**, and its token acts there and nowhere else. A staging key cannot touch default-environment integrations, and it cannot lend a deployment an identity anywhere but staging. Deleting an environment deletes the keys bound to it.
+
 <Callout type="info">
 API keys do not reach `/mcp`. It is an OAuth 2.1 resource server and accepts only access tokens minted by the identity provider — see [MCP Authentication](/ai/mcp-auth).
 </Callout>
+
+## Platform tokens and environments
+
+A platform token tells each service which environments its bearer may act in:
+
+- **A person's token** carries `roles` for the default environment and `envRoles`, a map from each other environment to the roles held there. `platform:admin` is only ever granted in the default environment, and an administrator holds it in every environment.
+- **A deployment's token** carries an `environment` claim: the environment the deployment runs in. Its roles apply there and nowhere else. They are the runtime role plus any platform access lent at deploy time, judged against what the deploying person holds in that environment. Renewing the token keeps the environment and the access exactly; it never widens them. So a compromised pod reaches no further than its own environment.
+- **A key's token** carries the key's `environment` and is confined to it in the same way.
+
+A deployment's or key's token minted before environments existed carries no `environment` claim and is treated as bound to the default environment, never as unbound.

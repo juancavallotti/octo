@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
@@ -164,7 +165,7 @@ func (f *fakeCluster) withPods(devRunID string, pods ...kube.PodStatus) {
 	f.runs[devRunID] = run
 }
 
-func (f *fakeCluster) SidecarURL(devRunID string) string {
+func (f *fakeCluster) SidecarURL(_ context.Context, devRunID string) string {
 	return "http://octo-dev-" + devRunID + ".octo:8099"
 }
 
@@ -389,6 +390,29 @@ func TestEnsureRequiresASavedIntegration(t *testing.T) {
 	}
 }
 
+// TestEnsureRefusesAnotherEnvironmentsIntegration keeps a run of one
+// environment's integration out of every other's namespace: the id arrives in
+// the body, past the guard that confines path ids to the request's environment.
+func TestEnsureRefusesAnotherEnvironmentsIntegration(t *testing.T) {
+	cluster := newFakeCluster()
+	integs := fakeIntegrations{byID: map[string]integration.Integration{
+		"int-1": {ID: "int-1", Name: "int-1", Definition: networkedDefinition, Environment: "stage"},
+	}}
+	svc := NewService(cluster, integs, fakeResources{}, secret,
+		WithClock(func() time.Time { return testNow }),
+		withSidecars(&fakeSidecar{cluster: cluster}))
+
+	if _, err := svc.Ensure(context.Background(), "u1", "int-1"); !errors.Is(err, ErrIntegrationNotFound) {
+		t.Errorf("default environment: error = %v, want ErrIntegrationNotFound", err)
+	}
+	if _, err := svc.Ensure(current.With(context.Background(), "prod", true), "u1", "int-1"); !errors.Is(err, ErrIntegrationNotFound) {
+		t.Errorf("prod: error = %v, want ErrIntegrationNotFound", err)
+	}
+	if _, err := svc.Ensure(current.With(context.Background(), "stage", true), "u1", "int-1"); err != nil {
+		t.Errorf("its own environment: error = %v, want a run", err)
+	}
+}
+
 // TestEveryUserOperationNeedsAUser is the guard on the one mistake the label selector
 // makes easy: an empty user id means "do not filter by user", so an operation that let
 // one through would address every user's dev runs — and two of these operations delete
@@ -537,7 +561,7 @@ func TestReloadPublishesBeforeForwarding(t *testing.T) {
 	if err := svc.Reload(context.Background(), "u1", run.ID); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	publish, forward := indexOf(cluster.calls, "publish "+run.ID), indexOf(cluster.calls, "sidecar-reload "+cluster.SidecarURL(run.ID))
+	publish, forward := indexOf(cluster.calls, "publish "+run.ID), indexOf(cluster.calls, "sidecar-reload "+cluster.SidecarURL(context.Background(), run.ID))
 	if publish < 0 {
 		t.Fatalf("endpoint was not published on the flip to networked; calls: %v", cluster.calls)
 	}

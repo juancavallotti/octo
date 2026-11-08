@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest, ProxyConfig } from "next/server";
 import { auth } from "@/auth";
 import { hostSet, isIntegrationHost } from "@/app/gateway-error/hostGuard";
+import { listEnvironments } from "@/app/actions/client/environments";
+import { runWithToken } from "@/app/auth/callerToken";
+import { octoTokenFrom } from "@/app/auth/sessionCookie";
+import {
+  ENVIRONMENT_COOKIE,
+  ENVIRONMENT_COOKIE_MAX_AGE,
+  ENVIRONMENT_PARAM,
+  selectionFromLink,
+} from "@/app/lib/environment";
 
 /**
  * The part of a request these helpers read. Structural rather than NextRequest so
@@ -63,7 +72,8 @@ function isPublic(pathname: string): boolean {
 const gate = auth((req) => {
   const { pathname, search } = req.nextUrl;
   if (onIntegrationHost(req)) return errorPageOnly(req);
-  if (req.auth || isPublic(pathname)) return NextResponse.next();
+  if (req.auth) return selectFromLink(req, req.auth.user.roles ?? [], req.auth.user.envRoles);
+  if (isPublic(pathname)) return NextResponse.next();
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
@@ -73,6 +83,53 @@ const gate = auth((req) => {
   url.searchParams.set("callbackUrl", `${pathname}${search}`);
   return NextResponse.redirect(url);
 });
+
+/**
+ * selectFromLink makes a link's `?env=` the person's choice of environment before
+ * the page renders: on the request, so this page is already in it, and on the
+ * response, so it stays chosen. One that does not exist, or where they hold no
+ * role, is ignored, as the switcher would refuse it, and the page then says where
+ * it really is.
+ */
+async function selectFromLink(
+  req: Pick<NextRequest, "nextUrl" | "cookies" | "headers">,
+  roles: string[],
+  envRoles: Record<string, string[]> | undefined,
+): Promise<NextResponse> {
+  const wanted = selectionFromLink(
+    req.nextUrl.searchParams.get(ENVIRONMENT_PARAM),
+    req.cookies.get(ENVIRONMENT_COOKIE)?.value,
+    roles,
+    envRoles,
+  );
+  if (wanted === null || (wanted !== "" && !(await exists(req.headers, wanted)))) {
+    return NextResponse.next();
+  }
+  if (wanted === "") req.cookies.delete(ENVIRONMENT_COOKIE);
+  else req.cookies.set(ENVIRONMENT_COOKIE, wanted);
+  const res = NextResponse.next({ request: { headers: req.headers } });
+  if (wanted === "") res.cookies.delete(ENVIRONMENT_COOKIE);
+  else {
+    res.cookies.set(ENVIRONMENT_COOKIE, wanted, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: ENVIRONMENT_COOKIE_MAX_AGE,
+    });
+  }
+  return res;
+}
+
+/**
+ * Whether `name` is an environment the person can see. Asked only when a link
+ * names one other than their choice, so an ordinary page load costs nothing.
+ */
+async function exists(incoming: Headers, name: string): Promise<boolean> {
+  const token = await octoTokenFrom(incoming);
+  if (!token) return false;
+  const listed = await runWithToken(token, () => listEnvironments());
+  return listed.ok && listed.data.some((e) => e.name === name);
+}
 
 /**
  * errorPageOnly collapses everything on an integration hostname onto the error

@@ -181,6 +181,15 @@ type Event struct {
 	Data string
 }
 
+// Environment is one of the platform's isolated slices.
+type Environment struct {
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	Default     bool   `json:"default"`
+}
+
 // Runtimes is what a deployment can be pinned to.
 type Runtimes struct {
 	// Current is the runtime release the install deploys.

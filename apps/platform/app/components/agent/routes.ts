@@ -7,6 +7,8 @@
  * stale the first time a page was added here.
  *
  * A `{placeholder}` is a template the agent fills in from something it looked up.
+ * Every page but the admin ones is in one environment; the last entry says how to
+ * reach a page in another.
  * Keep the descriptions short and factual; they are read by a model deciding
  * whether a page answers the question it was asked, not by a person browsing.
  */
@@ -81,5 +83,20 @@ export const ROUTE_CATALOGUE: readonly RouteHint[] = [
     path: "/platform/admin/agent",
     description:
       "The platform agent: the LLM and embedding providers he runs on, and installing, updating, tracing or removing him.",
+  },
+  {
+    path: "{path}?env={environmentName}",
+    description:
+      "Any page above but the /platform/admin ones, in a different environment " +
+      "from the one the user is in. The admin pages manage the whole " +
+      "installation, belong to no environment, and never take ?env=. For the " +
+      "others, " +
+      "add ?env= and the environment's name to its path, e.g. " +
+      "/platform/metrics?env=staging for the metrics of an environment named " +
+      "staging. For the default environment leave the name empty, as in " +
+      '"/platform/metrics?env=". The user then works in that environment. ' +
+      "A path without " +
+      "?env= stays in the current environment, so asked for a page in another " +
+      "one, always add it.",
   },
 ] as const;

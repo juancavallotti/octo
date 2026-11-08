@@ -18,6 +18,8 @@ export interface ApiKey {
   last4: string;
   /** The roles the key carries; a token from it holds those its owner may still delegate. */
   roles: string[];
+  /** The environment the key acts in; absent for the default. */
+  environment?: string;
   /** RFC3339 timestamp of creation. */
   createdAt: string;
   /** RFC3339 timestamp after which the key no longer authenticates. */

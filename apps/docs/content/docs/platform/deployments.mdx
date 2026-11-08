@@ -29,7 +29,7 @@ Anything else (a cron-driven job, a queue consumer) runs as a bare workload: pod
 
 ### Internal address
 
-Every networked deployment gets a **slug**, unique across all deployments: pick one in the deploy dialog or leave it empty to have the orchestrator allocate one from the integration name (`orders`, `orders-001`, ...). The slug names the stable internal Service, so other integrations reach the deployment at a constant, replica-balanced address reported as the deployment's `internalUrl`:
+Every networked deployment gets a **slug**, unique among the deployments of its [environment](/platform/environments): pick one in the deploy dialog or leave it empty to have the orchestrator allocate one from the integration name (`orders`, `orders-001`, ...). The slug names the stable internal Service, so other integrations reach the deployment at a constant, replica-balanced address reported as the deployment's `internalUrl`:
 
 ```
 http://octo-int-{slug}.{namespace}:{port}

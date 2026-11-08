@@ -1,0 +1,140 @@
+---
+title: "Environments"
+description: "Named slices of the platform, each running in a Kubernetes namespace of its own."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+An environment is a named slice of the platform that runs in its own Kubernetes namespace. Use environments to keep, for example, `staging` workloads apart from production ones on one installation.
+
+Every installation has the **default environment**, `octo`. It is the namespace the platform itself is installed in. It always exists, and you cannot rename or delete it.
+
+## What belongs to an environment
+
+| Per environment | Shared by the whole installation |
+| --- | --- |
+| Integrations, their files, resources and versions | People and their API keys |
+| Folders | Installation settings (email, LLM providers, the platform agent) |
+| Deployments, their pods, test runs and dev runs | Subdomains: a subdomain is unique across every environment |
+| Cluster secrets (each namespace has its own `octo-secrets`) | Model prices |
+| Logs, traces, pod stats and alert watches | |
+
+Names and deployment slugs are unique within an environment, so `staging` and the default environment can each have an integration called `orders`, each deployed at `octo-int-orders` in its own namespace.
+
+An integration, deployment, version or folder from one environment is invisible from another. Asking for one by ID from the wrong environment answers `404`, exactly as if it did not exist. Every row written before environments existed belongs to the default environment.
+
+## What an environment does not isolate
+
+Environments separate data and access: what a request can see, and what a token can act on. They do not yet separate the network or the message broker that every environment's workloads share, so a workload in one environment can still reach another's.
+
+<Callout type="warn" title="Workloads can reach other environments">
+- **The pod network is open.** No NetworkPolicy separates environment namespaces. A workload can call another environment's integrations at their internal URL, `octo-int-<slug>.<namespace>`, without a token, and reach Redis, where every deployment's volatile objects live. Tracked in [#597](https://github.com/juancavallotti/octo/issues/597).
+- **NATS is shared and unauthenticated.** Queues and topics are kept apart by the runtime's naming, not by the broker. A flow that knows another deployment's ID can publish onto its queues with a `system:` subject, and a process with access to NATS can read every environment's logs and traces off it. Tracked in [#596](https://github.com/juancavallotti/octo/issues/596).
+</Callout>
+
+Until those land, run workloads that must not be able to reach each other, such as production and an untrusted test environment, on separate installations.
+
+## Switch environments in the platform
+
+When you can work in more than one environment, the top bar of every platform page shows an **Environment** picker beside your account tile. Administrators see every environment; everybody else sees the ones they hold a role in.
+
+The admin pages are the exception. They manage the installation itself, such as people, environments and the platform agent, so they show no picker and act in the default environment whichever one you picked.
+
+Picking one reloads the page in that environment. The integration manager, dashboard, metrics, logs and traces all show only that environment, and the buttons you are offered follow your roles there. A page about one integration or deployment lands at the top of its section instead, because that item does not exist in the other environment. The choice is kept in a cookie until you change it. If the environment you chose is deleted, you are put back in the default.
+
+Outside the default, every page's address ends in `?env=<name>`, so you can bookmark or share it and it opens in that environment. Opening such a link picks that environment for you, as the picker would. A link to an environment you hold no role in is ignored, and the address changes to say where you really are.
+
+Dr. Octo's chat follows the same choice: he works in the environment you have picked, and every question reaches him saying which one that is. When he takes you to a page in another environment, he does it with the same `?env=` address, and that environment becomes your choice. Over [MCP](/ai/platform-mcp#environments), `list_environments` lists them, and every tool that reads or changes the installation's data takes an optional `environment` argument. Leaving it out acts in the default environment, not the one picked in the platform. `evaluate_cel` and the documentation tools read nothing of the installation's, so they take none.
+
+## Promote a version
+
+A version can be promoted from one environment into another, so what you tested in `staging` is exactly what reaches production. In the integration manager, pick the version in the version menu, then choose **Promote** and the target environment. The working copy is not a version, so pick a tag first.
+
+- **The same integration every time.** The first promotion creates the integration in the target, with its working copy set to the version, and remembers which integration it came from. Every later promotion of that integration lands on the same one there, even if either has been renamed.
+- **Flows and templates travel; env files do not.** An env file holds an environment's own hosts and credentials, so the promoted version takes the target integration's own env files. Fill those in once in the target.
+- **Nothing deploys.** The version appears in the target under the same tag. Deploy or roll it out there as you would any version.
+- **Who may promote.** Any role in the source environment, plus developer, operator or admin in the target.
+
+Promoting a tag the target already has is refused, because tags never change once made. So is creating an integration whose name an unrelated integration in the target already uses.
+
+The API is `POST /snapshots/{id}/promote` with `{"environment": "<target>"}`, sent in the source environment.
+
+## Choose an environment on a request
+
+The orchestrator, the observability service and the [public API](/platform/public-api) read the environment from the `X-Octo-Environment` header. Without the header, or with `octo`, a request acts in the default environment, so existing clients keep working unchanged.
+
+- **Roles are checked in that environment.** A person holds their default roles in `octo`, and the roles granted per environment elsewhere. `platform:admin` applies in every environment.
+- **Unknown names are refused** with `404 unknown environment`. The check runs after authentication, so a caller without a token cannot probe which environments exist.
+- **Bound tokens stay in their environment.** A deployment's own token and a token from an environment-bound API key act in their environment when no header is sent. Naming any other environment is refused with `403`.
+- **The `/environments` routes ignore the header.** A client with a stale selection can always list what it can use.
+- **You see the environments you can act in.** A token bound to one environment lists only that one, and a person lists the environments they hold a role in; an administrator lists every one. Any other answers `404`, so a client is never offered an environment it would be refused in.
+
+## Create an environment
+
+1. Open **Admin → Environments** (`/platform/admin/environments`). The page requires `platform:admin`.
+2. Enter a **name**: lowercase letters, digits and hyphens, at most 30 characters, starting and ending with a letter or digit. `octo` is reserved.
+3. Optionally set a **display name**, a **description** and a **namespace**. The namespace defaults to `octo-<name>`.
+4. Select **Create environment**.
+
+The orchestrator creates the namespace and labels it `octo.dev/environment=<name>`. In the namespace it then:
+
+- binds its own service account to the rules it already has in the release namespace;
+- creates the runtime service account and binds it to the runtime's Lease rules;
+- copies the image pull secrets that runtime pods use (`runtime.imagePullSecrets`), and the Secret holding a managed Redis URL (`externalRedis.existingSecret`).
+- labels the namespace `octo.dev/release=<release namespace>`. The orchestrator puts the same label on the release namespace at startup.
+
+Deployments made in the environment then run in its namespace, and their external endpoints are published from there.
+
+<Callout>
+The namespace cannot be changed after creation. A namespace that already exists is refused unless it already carries this environment's label, so creating an environment never takes over a namespace somebody else owns.
+</Callout>
+
+## Change or delete an environment
+
+Edit an environment to change its display name or description. Its name and namespace are fixed.
+
+When you delete an environment, its namespace is deleted with it, along with its folders, cluster secrets, alert watches and the API keys bound to it. The delete is refused while an integration is still defined in the environment, or while the namespace still runs a deployment, a test run or a dev run.
+
+## Cluster permissions
+
+Provisioning namespaces is the one thing the chart grants beyond the release namespace. With `orchestrator.environments.enabled` (the default), the chart creates:
+
+| Object | Grants |
+| --- | --- |
+| ClusterRole `<release>-orchestrator-<namespace>-environments` | Create, list and delete namespaces. Create RoleBindings. Bind only the two ClusterRoles below. |
+| ClusterRole `<release>-orchestrator-<namespace>-environment-workload` | The orchestrator's usual namespaced rules, bound into each environment's namespace. |
+| ClusterRole `<release>-orchestrator-<namespace>-environment-runtime` | The runtime's Lease rules, bound to the runtime account in each environment's namespace. |
+
+The names carry the release namespace, so two releases of the same name in different namespaces do not collide. Each RoleBinding in an environment's namespace is named after the ClusterRole it grants.
+
+Kubernetes refuses a RoleBinding to any role its writer neither holds nor may bind. So an environment's namespace receives nothing beyond what the release namespace already has.
+
+With environments on, the chart's own Gateway (`networking.gateway.create`) admits integration routes from every namespace labelled `octo.dev/release=<release namespace>`. If you bring your own Gateway, give its wildcard listener the same selector in `allowedRoutes`, or endpoints in environments other than the default attach to nothing.
+
+Turn environments off on a cluster where the release may not hold cluster-scoped RBAC:
+
+```yaml
+orchestrator:
+  environments:
+    enabled: false
+```
+
+With it off, environments are still listed but cannot be created or deleted. The API answers `503`.
+
+## API
+
+| Method | Path | Who |
+| --- | --- | --- |
+| `GET` | `/environments` | Any signed-in role, listing the environments the caller holds a role in. The default environment comes first. |
+| `GET` | `/environments/{name}` | Any signed-in role, for an environment the caller holds a role in |
+| `POST` | `/environments` | `platform:admin` |
+| `PATCH` | `/environments/{name}` | `platform:admin`. Changes `displayName` and `description` only. |
+| `DELETE` | `/environments/{name}` | `platform:admin` |
+
+```bash
+curl -sS -X POST "$ORCHESTRATOR_URL/environments" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "staging", "displayName": "Staging"}'
+```
+
+The full request and response shapes are in the [API reference](/platform/api-reference).

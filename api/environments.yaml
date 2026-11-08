@@ -1,0 +1,30 @@
+# Environments: the named, isolated slices of the installation a caller can
+# act in. Read-only here — creating and deleting one provisions a namespace,
+# which is an administrator's act in the platform itself.
+
+flows:
+  # GET /v1/environments
+  - name: list-environments
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /v1/environments
+        methods: [GET]
+        headers: [Authorization]
+        responseHeaders: [WWW-Authenticate]
+    error:
+      - ref: log-relay-failure
+      - ref: relay-failure-status
+      - ref: relay-failure-body
+    process:
+      - ref: authenticate
+      - type: rest-dynamic
+        name: relay
+        settings:
+          connector: orchestrator
+          method: '"GET"'
+          path: '"/environments"'
+          headers: '{"Authorization": "Bearer " + vars.platformToken}'
+          failOnError: false
+      - ref: relay-status

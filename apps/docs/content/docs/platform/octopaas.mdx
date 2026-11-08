@@ -74,6 +74,26 @@ A command picks its profile in this order:
 
 Naming a profile that does not exist is an error. octopaas never falls back to the current profile on a typo.
 
+## Work in an environment
+
+A platform can have several [environments](/platform/environments), such as `staging` beside the default, `octo`. Every command acts in one, and only sees that environment's integrations, deployments and logs:
+
+```bash
+octopaas environments list
+octopaas --environment staging integrations list
+octopaas environments use staging     # saved on the profile in effect
+octopaas environments current         # which one, and why
+```
+
+A command picks its environment in this order:
+
+1. `--environment`
+2. `OCTOPAAS_ENVIRONMENT`
+3. the profile's, which you set with `octopaas environments use <name>` or `octopaas profile add <name> --environment <env>`
+4. `octo`, the default
+
+`octopaas environments use` checks the name against the platform before saving it. `octopaas profile list` and `octopaas whoami` show the environment in effect.
+
 ## Use it in CI/CD
 
 A pipeline needs no config file and no sign-in. Set the platform and an API key from your secret store, and run commands directly:
@@ -88,6 +108,8 @@ steps:
   - run: octopaas versions create billing "$GITHUB_REF_NAME"
   - run: octopaas deployments rollout billing --version "$GITHUB_REF_NAME"
 ```
+
+To ship to an environment other than the default, also set `OCTOPAAS_ENVIRONMENT`. A key minted while that environment was chosen in the platform is bound to it, and refuses every other.
 
 Mint the key on your account page (see [API keys](/platform/users-and-api-keys#api-keys)). A key acts as the user who minted it, limited to the roles you gave it. Give a pipeline the **CI/CD** role: it pushes code, tags versions, runs tests and rolls out, and reads the integrations, versions, deployments, test reports, upgrades and runtimes that takes. It cannot create, scale or delete anything, or read logs, code or configuration ([the full list](/platform/users-and-api-keys#what-cicd-can-and-cannot-do)). Create the integration and its first deployment yourself; a CI/CD key ships to them but cannot create them. It rolls out deployments that have no platform access grants; one that has them needs a signed-in person. Keep the key in your CI secret store: what it deploys keeps running after the key is revoked, so a leaked key is a production incident (see [API keys](/platform/users-and-api-keys#api-keys)). `octopaas whoami` shows the roles a key carries. When a command needs a role the key lacks, octopaas says so and points you to the account page to mint one that has it. When both `OCTOPAAS_URL` and `OCTOPAAS_KEY` are set and there is no config file yet, octopaas does not write one, so a read-only home directory is fine.
 
@@ -104,6 +126,7 @@ octopaas deployments list -o json | jq -r '.[] | select(.status != "running") | 
 | `OCTOPAAS_URL` | The API to talk to. Overrides the profile's `url`; `--url` overrides it. |
 | `OCTOPAAS_KEY` | An API key (`octo_…`). Overrides the profile's key and any signed-in session. |
 | `OCTOPAAS_PROFILE` | The profile to use. `--profile` overrides it. |
+| `OCTOPAAS_ENVIRONMENT` | The environment to act in. Overrides the profile's; `--environment` overrides it. |
 | `OCTOPAAS_HOME` | Where `config.yaml` and `credentials.yaml` live (default `~/.octopaas`). |
 | `NO_COLOR`, `CI` | Either one switches off colours and animations, as `--plain` does. |
 | `OCTOPAAS_NO_UPDATE_NOTIFIER` | Set to anything to stop octopaas checking for, and mentioning, new releases. |

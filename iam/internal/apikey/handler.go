@@ -85,22 +85,26 @@ func ownerOnly(next http.HandlerFunc) http.HandlerFunc {
 
 // createRequest is the body of a create request.
 type createRequest struct {
-	Name      string      `json:"name"`
-	Roles     []user.Role `json:"roles"`
-	ExpiresAt time.Time   `json:"expiresAt"`
+	Name  string      `json:"name"`
+	Roles []user.Role `json:"roles"`
+	// Environment binds the key to one environment; empty or "octo" is the default.
+	Environment string    `json:"environment,omitempty"`
+	ExpiresAt   time.Time `json:"expiresAt"`
 }
 
 // apiKeyResponse is the wire representation of a key. It carries no secret
 // material — only the non-secret display fragments.
 type apiKeyResponse struct {
-	ID         string      `json:"id"`
-	Name       string      `json:"name"`
-	Prefix     string      `json:"prefix"`
-	Last4      string      `json:"last4"`
-	Roles      []user.Role `json:"roles"`
-	CreatedAt  time.Time   `json:"createdAt"`
-	ExpiresAt  time.Time   `json:"expiresAt"`
-	LastUsedAt *time.Time  `json:"lastUsedAt"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Prefix string      `json:"prefix"`
+	Last4  string      `json:"last4"`
+	Roles  []user.Role `json:"roles"`
+	// Environment is the one the key acts in, absent for the default.
+	Environment *string    `json:"environment,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ExpiresAt   time.Time  `json:"expiresAt"`
+	LastUsedAt  *time.Time `json:"lastUsedAt"`
 }
 
 // createResponse adds the one-time plaintext token to the key metadata. This is
@@ -112,14 +116,15 @@ type createResponse struct {
 
 func toResponse(k APIKey) apiKeyResponse {
 	return apiKeyResponse{
-		ID:         k.ID,
-		Name:       k.Name,
-		Prefix:     k.Prefix,
-		Last4:      k.Last4,
-		Roles:      k.Roles,
-		CreatedAt:  k.CreatedAt,
-		ExpiresAt:  k.ExpiresAt,
-		LastUsedAt: k.LastUsedAt,
+		ID:          k.ID,
+		Name:        k.Name,
+		Prefix:      k.Prefix,
+		Last4:       k.Last4,
+		Roles:       k.Roles,
+		Environment: k.Environment,
+		CreatedAt:   k.CreatedAt,
+		ExpiresAt:   k.ExpiresAt,
+		LastUsedAt:  k.LastUsedAt,
 	}
 }
 
@@ -140,7 +145,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	k, token, err := h.svc.Create(ctx, owner, req.Name, req.Roles, req.ExpiresAt)
+	k, token, err := h.svc.CreateIn(ctx, owner, req.Environment, req.Name, req.Roles, req.ExpiresAt)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -189,6 +194,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrInvalidExpiry):
 		httpx.WriteError(w, http.StatusBadRequest,
 			"invalid api key expiration: it must be in the future and at most two years away")
+	case errors.Is(err, ErrUnknownEnvironment):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrInvalidRoles):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrEscalation):

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"io"
 	"log/slog"
 	"time"
@@ -57,7 +58,7 @@ type devRunCluster interface {
 	SetDevRunHost(ctx context.Context, devRunID, host string) error
 	ListDevRuns(ctx context.Context, sel kube.DevRunSelector) ([]kube.DevRun, error)
 	PodLogs(ctx context.Context, podName, container string, follow bool, tail int64) (io.ReadCloser, error)
-	SidecarURL(devRunID string) string
+	SidecarURL(ctx context.Context, devRunID string) string
 	ExternalHost(subdomain string) string
 	ExternalURL(subdomain string) string
 }
@@ -183,6 +184,12 @@ func (s *Service) Ensure(ctx context.Context, userID, integrationID string) (Ens
 	integ, err := s.integrations.Get(ctx, integrationID)
 	if err != nil {
 		return EnsureResult{}, fmt.Errorf("%w: %w", ErrIntegrationNotFound, err)
+	}
+	// The id comes from the body, where the environment guard on path ids does not
+	// look: an integration of another environment does not exist from here, or its
+	// files would run in this environment's namespace for a caller confined to it.
+	if integ.Environment != current.From(ctx) {
+		return EnsureResult{}, ErrIntegrationNotFound
 	}
 
 	spec, err := s.specFor(ctx, userID, integ)
@@ -369,7 +376,7 @@ func (s *Service) reload(ctx context.Context, run DevRun) error {
 	if err := s.touch(ctx, run); err != nil {
 		return err
 	}
-	return s.sidecars.Reload(ctx, s.cluster.SidecarURL(run.ID), deriveSidecarToken(s.hashSecret, run.UserID, run.IntegrationID))
+	return s.sidecars.Reload(ctx, s.cluster.SidecarURL(ctx, run.ID), deriveSidecarToken(s.hashSecret, run.UserID, run.IntegrationID))
 }
 
 // reconcileEndpoint brings a dev run's Service and external endpoint in line with
@@ -496,7 +503,7 @@ func (s *Service) Status(ctx context.Context, userID, devRunID string) (DevRun, 
 	if err != nil {
 		return DevRun{}, err
 	}
-	sidecar, err := s.sidecars.Status(ctx, s.cluster.SidecarURL(run.ID),
+	sidecar, err := s.sidecars.Status(ctx, s.cluster.SidecarURL(ctx, run.ID),
 		deriveSidecarToken(s.hashSecret, run.UserID, run.IntegrationID))
 	if err != nil {
 		// Expected while a pod is still starting, so this is debug rather than warn: the

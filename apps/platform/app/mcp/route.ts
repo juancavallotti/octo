@@ -20,6 +20,8 @@ import {
 } from "./store-adapter";
 import { devRunMcpHost } from "./run-host";
 import { runWithToken } from "@/app/auth/callerToken";
+import { runWithEnvironment } from "@/app/auth/callerEnvironment";
+import { listEnvironments } from "@/app/actions/client/environments";
 import { verifyMcpToken } from "./verify-token";
 import { MCP_ORIGIN, RESOURCE_METADATA_PATH } from "./oauth-config";
 
@@ -124,6 +126,23 @@ const handler = createOctoMcpHandler(
     // resolve it against. Only a host that proxies to a child of itself needs one.
     // Point the authoring prompt at the human docs when configured.
     docsUrl: process.env.OCTO_DOCS_URL,
+    // Every tool that touches an integration takes an optional `environment`, and
+    // list_environments says which there are. A tool given one runs with it as the
+    // caller's environment, so every orchestrator call it makes names it — and is
+    // judged by the caller's roles there, as any other request is.
+    environments: {
+      list: async () => {
+        const listed = await listEnvironments();
+        if (!listed.ok) throw new Error(listed.error);
+        return listed.data.map(({ name, displayName, description, default: isDefault }) => ({
+          name,
+          displayName,
+          description,
+          default: isDefault,
+        }));
+      },
+      run: (environment, fn) => runWithEnvironment(environment, fn),
+    },
   },
   {
     // Dev-run pods for the long-running app, local children for the one-shots.

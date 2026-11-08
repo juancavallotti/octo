@@ -56,6 +56,8 @@ Press **Stop** to end a run in progress, or close the panel. Closing aborts the 
 
 You can also type while he is working. A message sent mid-answer is handed to the run already in flight rather than starting a second one, and the answer goes to the stream you already have open. It shows as unread until he picks it up, which can be a whole model call later; then it moves into the conversation at that point, marked **Read, and taken into account**, with the reasoning and tool calls it caused underneath it. If the run ends first, or he runs out of steps before reaching it, the panel says so and tells you to ask again. A message from a second tab, or from a window that cannot tell a run is already going, still reaches that run; the panel says where the answer went.
 
+He works in the [environment](/platform/environments) you have chosen in the top bar. The platform sends your choice along with your credential, so he reads and changes that environment's integrations and deployments, judged by your roles there. Switch environments and the next message is answered in the new one.
+
 Press **New conversation** to start fresh. That drops the thread and what he remembers of it, but the conversation is kept and listed by name in the panel. He knows which page you are on, so "this integration" or "this deployment" means what you think it means.
 
 <Callout>
@@ -125,6 +127,10 @@ He is deployed on that runner automatically. On an installation whose chart does
 `web_search` and `web_extract` ask you first because of what they bring back: a search result or a fetched page is text somebody else wrote and can carry instructions addressed to him. Everything else he can reach is either a `GET` or an orchestrator call whose effect is on this installation's own data, and stays free, because a panel that asked about every read would be a panel whose questions nobody reads. The objective and the queries (or the URLs) ride in the question, so you are allowing that call rather than the tool in general. If you do not answer, the call is denied when his clock runs out, and he answers from what he knows and says he could not check the web.
 
 It is an ordinary [`ai-agent` setting](/ai/tool-authorization), `authorize` on the tool, so you can gate another tool of his the same way, or take this one off, by editing his definition and rolling out. [Human in the Loop](/guides/human-in-the-loop) walks through building the same thing into an agent of your own.
+
+## Alerts in other environments
+
+An alert reaches him through a watch's topic action, and that run acts with his own identity, not a person's. His identity is bound to the environment he is deployed in, so he can only investigate and repair there. A watch can therefore only hand its alerts to an app in the watch's own environment. He is always installed in the default environment, whichever one you have picked, so only the default environment's alerts can be handed to him.
 
 ## Restrict what he can do
 

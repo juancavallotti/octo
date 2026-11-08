@@ -30,6 +30,7 @@ import (
 	"github.com/juancavallotti/octo/observability/internal/authz"
 	"github.com/juancavallotti/octo/observability/internal/cost"
 	"github.com/juancavallotti/octo/observability/internal/db"
+	"github.com/juancavallotti/octo/observability/internal/environment/current"
 	"github.com/juancavallotti/octo/observability/internal/fold"
 	"github.com/juancavallotti/octo/observability/internal/ingest"
 	"github.com/juancavallotti/octo/observability/internal/leader"
@@ -244,7 +245,8 @@ func startAlerting(
 	)
 	go runner.Run(ctx)
 	slog.Info("evaluating alerting watches", "identity", elector.Identity())
-	return alerting.NewService(store, runner, alertaction.Validate), nil
+	return alerting.NewService(store, runner, alertaction.Validate).
+		WithDeployments(repo.NewEnvironments(pool)), nil
 }
 
 // startTraces publishes a rate card and subscribes the trace consumer to it.
@@ -401,7 +403,29 @@ func newServer(database *db.DB, rdb *redis.Client, alerts *alerting.Service) htt
 				"POST /alerts/preview, GET /alerts/evaluations, GET /alerts/incidents, "+
 				"POST /alerts/incidents/{id}/ack")
 	}
-	return guard(mux)
+	// The environment is read before the guard, which judges the caller by their
+	// roles in it, and checked after, so an unauthenticated caller cannot use the
+	// header to learn which environments exist.
+	var environments current.Lookup = onlyTheDefault{}
+	var handler http.Handler = mux
+	if database != nil {
+		lookup := repo.NewEnvironments(database.Pool())
+		environments = current.Cached(lookup, environmentLookupTTL)
+		handler = current.Confine(lookup, mux)
+	}
+	return current.Parse(guard(current.Require(environments, authz.Exempt, handler)))
+}
+
+// environmentLookupTTL is how long a request's environment is taken on trust
+// once looked up. Short, because it is also how long a deleted environment
+// still validates.
+const environmentLookupTTL = 10 * time.Second
+
+// onlyTheDefault is the environment lookup of a process with no database.
+type onlyTheDefault struct{}
+
+func (onlyTheDefault) Exists(_ context.Context, name string) (bool, error) {
+	return name == "", nil
 }
 
 // guard wraps the API in the authorization policy, when IAM_URL names an issuer

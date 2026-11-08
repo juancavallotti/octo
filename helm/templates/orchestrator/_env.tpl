@@ -102,6 +102,20 @@
 {{- end }}
 - name: RUNTIME_SERVICE_ACCOUNT
   value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "runtime") | quote }}
+{{- /* Environments: who the orchestrator is, and the two ClusterRoles it binds
+       into each environment's namespace (environments-rbac.yaml). Emitted only
+       when that template renders, so an install without the cluster grant leaves
+       environments unmanageable rather than failing at the first create. */}}
+{{- $orch := fromYaml (include "octo-common.componentConfig" (dict "root" . "component" "orchestrator")) }}
+{{- if and (ne (toString ($orch.rbac | default dict).create) "false") (ne (toString ($orch.environments | default dict).enabled) "false") }}
+{{- $orchName := include "octo.orchestrator.clusterScopedName" . }}
+- name: ORCHESTRATOR_SERVICE_ACCOUNT
+  value: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "orchestrator") | quote }}
+- name: ENVIRONMENT_WORKLOAD_CLUSTER_ROLE
+  value: {{ printf "%s-environment-workload" $orchName | quote }}
+- name: ENVIRONMENT_RUNTIME_CLUSTER_ROLE
+  value: {{ printf "%s-environment-runtime" $orchName | quote }}
+{{- end }}
 {{- /* Pull secrets for the integration pods the orchestrator creates. Resolved
        through componentConfig, so defaults.imagePullSecrets covers them along
        with every chart workload and runtime.imagePullSecrets overrides just
@@ -234,4 +248,12 @@
   value: {{ . | toJson | quote }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{- /* The orchestrator's name for cluster-scoped objects: its component name and
+       the release namespace. Namespaced objects take the namespace from where
+       they live; cluster-scoped ones share one space across the cluster, so two
+       releases of the same name in different namespaces would collide. */}}
+{{- define "octo.orchestrator.clusterScopedName" -}}
+{{- printf "%s-%s" (include "octo-common.componentName" (dict "root" . "component" "orchestrator")) .Release.Namespace -}}
 {{- end }}

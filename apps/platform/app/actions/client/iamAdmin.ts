@@ -67,24 +67,35 @@ export function deleteUser(id: string): Promise<ActionResult<void>> {
 }
 
 /** Give a user a role, and answer with the whole set they now hold. */
-export function grantRole(id: string, role: string): Promise<ActionResult<PlatformUser>> {
-  return roleCall("PUT", id, role);
+export function grantRole(
+  id: string,
+  role: string,
+  environment = "",
+): Promise<ActionResult<PlatformUser>> {
+  return roleCall("PUT", id, role, environment);
 }
 
 /** Take a role away, and answer with the whole set they now hold. */
-export function revokeRole(id: string, role: string): Promise<ActionResult<PlatformUser>> {
-  return roleCall("DELETE", id, role);
+export function revokeRole(
+  id: string,
+  role: string,
+  environment = "",
+): Promise<ActionResult<PlatformUser>> {
+  return roleCall("DELETE", id, role, environment);
 }
 
 /** Grants are addressed through the user they belong to, never on their own. */
+/** An environment other than the default is a segment of its own in the path. */
 function roleCall(
   method: string,
   id: string,
   role: string,
+  environment: string,
 ): Promise<ActionResult<PlatformUser>> {
+  const scope = environment ? `/environments/${encodeURIComponent(environment)}` : "";
   return managed<PlatformUser>(
     method,
-    `/users/${encodeURIComponent(id)}/roles/${encodeURIComponent(role)}`,
+    `/users/${encodeURIComponent(id)}${scope}/roles/${encodeURIComponent(role)}`,
   );
 }
 

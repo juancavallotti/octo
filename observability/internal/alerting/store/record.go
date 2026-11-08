@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/juancavallotti/octo/observability/internal/alerting"
+
+	"github.com/juancavallotti/octo/observability/internal/environment/current"
 )
 
 // stateColumns is the state half of every joined read, in scanState's order.
@@ -37,7 +39,7 @@ func scanWatchAndState(rows pgx.Rows, into *alerting.Due) error {
 		&w.ID, &w.Name, &w.Description, &w.Enabled, &w.Severity,
 		&w.Combinator, &conditions, &actions, &w.OnNoData,
 		&step, &interval, &hold, &cooldown,
-		&w.DefinitionHash, &w.CreatedAt, &w.UpdatedAt,
+		&w.DefinitionHash, &w.CreatedAt, &w.UpdatedAt, &w.Environment,
 		&st.Phase, &since, &st.ConsecutiveFiring, &st.ConsecutiveOK, &st.ConsecutiveErrors,
 		&st.DefinitionHash, &lastEval, &st.LastStatus, &st.LastValue,
 		&incidentID, &lastNotified, &mutedUntil, &nextDue)
@@ -55,6 +57,7 @@ func scanWatchAndState(rows pgx.Rows, into *alerting.Due) error {
 	if err := json.Unmarshal(actions, &w.Actions); err != nil {
 		return fmt.Errorf("store: decode the actions of watch %s: %w", w.ID, err)
 	}
+	w.BindEnvironment()
 
 	st.WatchID = w.ID
 	st.Since = deref(since)
@@ -278,7 +281,9 @@ func (s *Store) Mute(ctx context.Context, watchID string, until time.Time) error
 func (s *Store) Acknowledge(ctx context.Context, incidentID, userID string, at time.Time) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE alert_incidents SET acknowledged_at = $2, acknowledged_by = `+nullableUUID(3)+`
-		 WHERE id = $1::uuid AND acknowledged_at IS NULL`, incidentID, at, nullOrString(userID))
+		 WHERE id = $1::uuid AND acknowledged_at IS NULL
+		   AND watch_id IN (SELECT id FROM alert_watches WHERE environment IS NOT DISTINCT FROM $4)`,
+		incidentID, at, nullOrString(userID), current.Column(ctx))
 	if err != nil {
 		return fmt.Errorf("store: acknowledge incident %s: %w", incidentID, err)
 	}
@@ -298,6 +303,10 @@ func (s *Store) Incidents(ctx context.Context, f alerting.IncidentFilter) ([]ale
 	}
 	if f.WatchID != "" {
 		add("i.watch_id = $%d::uuid", f.WatchID)
+	}
+	{
+		// Only the episodes of watches in the environment the request acts in.
+		add("w.environment IS NOT DISTINCT FROM $%d", current.Column(ctx))
 	}
 	if f.From != nil {
 		add("i.opened_at >= $%d", *f.From)
@@ -358,6 +367,10 @@ func (s *Store) History(ctx context.Context, f alerting.HistoryFilter) ([]alerti
 	}
 	if f.WatchID != "" {
 		add("e.watch_id = $%d::uuid", f.WatchID)
+	}
+	{
+		// Only the evaluations of watches in the environment the request acts in.
+		add("e.watch_id IN (SELECT id FROM alert_watches WHERE environment IS NOT DISTINCT FROM $%d)", current.Column(ctx))
 	}
 	if f.IncidentID != "" {
 		add("e.incident_id = $%d::uuid", f.IncidentID)

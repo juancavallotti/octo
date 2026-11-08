@@ -31,6 +31,8 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/devrun"
 	"github.com/juancavallotti/octo/orchestrator/internal/email"
 	"github.com/juancavallotti/octo/orchestrator/internal/embedding"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	"github.com/juancavallotti/octo/orchestrator/internal/folder"
 	"github.com/juancavallotti/octo/orchestrator/internal/health"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
@@ -245,6 +247,13 @@ func kubeConfig() (kube.Config, error) {
 		},
 		ImagePullSecrets: imagePullSecretsConfig(),
 		RuntimeServices:  runtimeServicesConfig(),
+		// What an environment's namespace is wired with. The chart sets all three
+		// together; any one unset leaves environments unmanageable.
+		Environments: kube.EnvironmentRBAC{
+			OrchestratorServiceAccount: os.Getenv("ORCHESTRATOR_SERVICE_ACCOUNT"),
+			WorkloadClusterRole:        os.Getenv("ENVIRONMENT_WORKLOAD_CLUSTER_ROLE"),
+			RuntimeClusterRole:         os.Getenv("ENVIRONMENT_RUNTIME_CLUSTER_ROLE"),
+		},
 	}
 	if err := cfg.Validate(); err != nil {
 		return kube.Config{}, err
@@ -528,6 +537,12 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// which is a different answer from "did not respond".
 	var kubeProbe, natsProbe func(context.Context) error
 
+	// Which environments a request may name. Without a database there are none
+	// but the default, which is what onlyTheDefault answers.
+	var environments current.Lookup = onlyTheDefault{}
+	// Which environment each row belongs to. Without a database there are no rows.
+	var owners current.Owners = noRows{}
+
 	if database != nil {
 		// Kubernetes access is built first because of the one dependency cycle in this
 		// wiring: the dev-run service reads integrations and their resources, while a
@@ -580,10 +595,45 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			"endpoints", "POST/GET /folders, GET/PUT/DELETE /folders/{id}, "+
 				"GET /folders/{id}/integrations, PUT/DELETE /folders/{id}/integrations/{integrationId}")
 
+		// Environments are listed wherever there is a database, since every screen
+		// is scoped by one. Creating and deleting them provisions namespaces, so
+		// that needs a cluster and the chart's environment RBAC; without either the
+		// service is built with no namespace driver and refuses those two.
+		var namespaces *kube.Client
+		if kubeClient != nil && kubeClient.EnvironmentsEnabled() {
+			namespaces = kubeClient
+		}
+		environmentSvc := newEnvironmentService(database, namespaces, kc.Namespace)
+		// Workloads for a request in an environment go to its namespace, so the
+		// cluster client learns every environment's: the stored ones now, each
+		// created or deleted here as it happens, and any another replica created
+		// on first use.
+		if kubeClient != nil {
+			if kubeClient.EnvironmentsEnabled() {
+				if err := kubeClient.LabelReleaseNamespace(ctx); err != nil {
+					slog.Warn("could not label the release namespace; a chart-managed Gateway "+
+						"will not admit this namespace's routes", "error", err)
+				}
+			}
+			environmentSvc.WithRegistry(kubeClient)
+			kubeClient.ResolveEnvironmentsWith(environmentSvc.Namespace)
+			if err := environmentSvc.Resync(ctx); err != nil {
+				slog.Error("register environments with the cluster client", "error", err)
+			}
+		}
+		environments = current.Cached(environmentSvc, environmentLookupTTL)
+		owners = environment.NewRepo(database.Pool())
+		environment.NewHandler(environmentSvc).Register(mux)
+		slog.Info("environment routes registered", "manageable", environmentSvc.Enabled(),
+			"endpoints", "GET/POST /environments, GET/PATCH/DELETE /environments/{name}")
+
 		// Version tags. Snapshotting needs only the database (not Kubernetes), so it
 		// is registered outside the deployment/kube gate below — tags can be created
 		// and managed even where deploys are unavailable.
-		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc)
+		// Versions are promoted between environments, so the service checks a
+		// target against the same environments every request is checked against.
+		snapshotSvc := snapshot.NewService(snapshot.NewRepo(database.Pool()), integrationSvc).
+			WithEnvironments(environmentSvc)
 		snapshotHandler := snapshot.NewHandler(snapshotSvc)
 		snapshotHandler.Register(mux)
 		slog.Info("snapshot routes registered",
@@ -757,7 +807,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			testrun.NewHandler(testrunSvc).Register(mux)
 			// Swept even when test runs are switched off, so a run left running when
 			// the image was removed is still finished.
-			startTestRunSweeper(ctx, testrunSvc)
+			startTestRunSweeper(ctx, testrunSvc, environmentSvc)
 			slog.Info("test run routes registered", "enabled", testrunSvc.Enabled(),
 				"testImage", kubeClient.TestImage(),
 				"endpoints", "POST/GET /deployments/{id}/testruns, GET /deployments/{id}/testruns/{runId}, GET /upgrades")
@@ -787,7 +837,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 			// Dev runs: one pod per run, rather than a child process of this one.
 			if devrunSvc.Enabled() {
 				devrun.NewHandler(devrunSvc).Register(mux)
-				startDevRunReaper(ctx, devrunSvc)
+				startDevRunReaper(ctx, devrunSvc, environmentSvc)
 				slog.Info("devrun routes registered",
 					"devRuntimeImage", kc.DevRuntimeImage, "devSidecarImage", kc.SidecarImage,
 					"idleTimeout", devrunSvc.IdleTimeout(),
@@ -827,7 +877,7 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 		// without one there is nothing to disagree with, and every row would look
 		// orphaned.
 		if reconcileDeployments != nil {
-			startReconciler(ctx, reconcileDeployments, agentSvc, reconcileSecrets, waitForCacheSync)
+			startReconciler(ctx, reconcileDeployments, agentSvc, reconcileSecrets, waitForCacheSync, environmentSvc)
 			slog.Info("deployment reconciler started", "interval", deployment.ReconcileInterval())
 		}
 
@@ -855,7 +905,12 @@ func newServer(ctx context.Context, database *db.DB, redisClient *redis.Client, 
 	// things that need it: minting a deployment's identity on the caller's
 	// authority, and the guard below. Reading a header authenticates nobody — see
 	// internal/caller.
-	return caller.Middleware(guard(mux)), nil
+	// The environment is read before the guard, which judges the caller by their
+	// roles in it, and checked after, so an unauthenticated caller cannot use the
+	// header to learn which environments exist.
+	// Confine then refuses a request naming a row in another environment.
+	return caller.Middleware(current.Parse(guard(current.Require(environments, authz.Exempt,
+		current.Confine(owners, mux))))), nil
 }
 
 // guard wraps the API in the authorization policy, when this install has an iam
@@ -928,6 +983,35 @@ func newKubeClient(ctx context.Context, kc kube.Config) (*kube.Client, error) {
 	return client, nil
 }
 
+// environmentLookupTTL is how long a request's environment is taken on trust
+// once looked up. Short, because it is also how long a deleted environment
+// still validates.
+const environmentLookupTTL = 10 * time.Second
+
+// onlyTheDefault is the environment lookup of an install with no database.
+type onlyTheDefault struct{}
+
+func (onlyTheDefault) Exists(_ context.Context, name string) (bool, error) {
+	return name == "", nil
+}
+
+// noRows is the owner lookup of an install with no database.
+type noRows struct{}
+
+func (noRows) EnvironmentOf(context.Context, string, string) (string, bool, error) {
+	return "", false, nil
+}
+
+// newEnvironmentService builds the environment service. A nil client is passed
+// on as a nil interface, not as a typed nil, so the service sees no driver.
+func newEnvironmentService(database *db.DB, client *kube.Client, defaultNamespace string) *environment.Service {
+	repo := environment.NewRepo(database.Pool())
+	if client == nil {
+		return environment.NewService(repo, nil, defaultNamespace)
+	}
+	return environment.NewService(repo, client, defaultNamespace)
+}
+
 // newDevRunService builds the dev-run service, or a nil one when dev runs are not
 // configured (no cluster, or the images and orchestrator URL a dev pod needs are
 // unset). A nil service reports Enabled() == false, so the caller registers nothing.
@@ -968,7 +1052,7 @@ func newDevRunService(
 // Every replica runs its own, and that needs no coordination: a reap deletes an object
 // whose name is derived, so two replicas collecting the same idle run produce one
 // delete and one NotFound, which DeleteDevRun already ignores.
-func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
+func startDevRunReaper(ctx context.Context, svc *devrun.Service, environments environmentLister) {
 	go func() {
 		ticker := time.NewTicker(devRunReapInterval)
 		defer ticker.Stop()
@@ -978,14 +1062,16 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 				return
 			case <-ticker.C:
 				sweep, cancel := context.WithTimeout(ctx, devRunReapTimeout)
-				reaped, err := svc.ReapIdle(sweep)
+				forEachEnvironment(sweep, environments, func(sweep context.Context) {
+					reaped, err := svc.ReapIdle(sweep)
+					if err != nil {
+						slog.Error("dev run reap", "environment", current.From(sweep), "error", err)
+					}
+					if reaped > 0 {
+						slog.Info("idle dev runs reaped", "environment", current.From(sweep), "count", reaped)
+					}
+				})
 				cancel()
-				if err != nil {
-					slog.Error("dev run reap", "error", err)
-				}
-				if reaped > 0 {
-					slog.Info("idle dev runs reaped", "count", reaped)
-				}
 			}
 		}
 	}()
@@ -995,7 +1081,7 @@ func startDevRunReaper(ctx context.Context, svc *devrun.Service) {
 //
 // Every replica runs its own: finishing a run is a conditional write, so two
 // replicas reaching the same run record one verdict between them.
-func startTestRunSweeper(ctx context.Context, svc *testrun.Service) {
+func startTestRunSweeper(ctx context.Context, svc *testrun.Service, environments environmentLister) {
 	go func() {
 		ticker := time.NewTicker(testRunSweepInterval)
 		defer ticker.Stop()
@@ -1005,14 +1091,16 @@ func startTestRunSweeper(ctx context.Context, svc *testrun.Service) {
 				return
 			case <-ticker.C:
 				sweep, cancel := context.WithTimeout(ctx, testRunSweepTimeout)
-				swept, err := svc.Sweep(sweep)
+				forEachEnvironment(sweep, environments, func(sweep context.Context) {
+					swept, err := svc.Sweep(sweep)
+					if err != nil {
+						slog.Error("test run sweep", "environment", current.From(sweep), "error", err)
+					}
+					if swept > 0 {
+						slog.Info("abandoned test runs finished", "environment", current.From(sweep), "count", swept)
+					}
+				})
 				cancel()
-				if err != nil {
-					slog.Error("test run sweep", "error", err)
-				}
-				if swept > 0 {
-					slog.Info("abandoned test runs finished", "count", swept)
-				}
 			}
 		}
 	}()
@@ -1030,19 +1118,33 @@ func startTestRunSweeper(ctx context.Context, svc *testrun.Service) {
 //
 // Every replica runs its own, and that needs no coordination: two replicas agreeing
 // that a row is orphaned produce one delete and one no-op.
+// cacheSyncTimeout bounds how long the reconciler waits for the informer caches
+// before sweeping with whichever have loaded.
+const cacheSyncTimeout = 2 * time.Minute
+
 func startReconciler(
 	ctx context.Context,
 	deployments *deployment.Service,
 	agents *agent.Service,
 	secrets *secret.Service,
 	synced func(context.Context) bool,
+	environments environmentLister,
 ) {
 	go func() {
-		if !synced(ctx) {
-			slog.Warn("reconciler: informer caches did not sync; not sweeping")
+		// Bounded, so one environment whose informers never sync — a RoleBinding
+		// lost in its namespace — does not stop the sweep in every other. A
+		// namespace still unsynced is read from the API server instead, which
+		// answers authoritatively or fails; it never reads as an empty cluster.
+		waitCtx, cancel := context.WithTimeout(ctx, cacheSyncTimeout)
+		ok := synced(waitCtx)
+		cancel()
+		if ctx.Err() != nil {
 			return
 		}
-		reconcileOnce(ctx, deployments, agents, secrets)
+		if !ok {
+			slog.Warn("reconciler: some informer caches have not synced; those namespaces are read from the API server")
+		}
+		reconcileOnce(ctx, deployments, agents, secrets, environments)
 
 		ticker := time.NewTicker(deployment.ReconcileInterval())
 		defer ticker.Stop()
@@ -1051,7 +1153,7 @@ func startReconciler(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				reconcileOnce(ctx, deployments, agents, secrets)
+				reconcileOnce(ctx, deployments, agents, secrets, environments)
 			}
 		}
 	}()
@@ -1071,17 +1173,28 @@ func reconcileOnce(
 	deployments *deployment.Service,
 	agents *agent.Service,
 	secrets *secret.Service,
+	environments environmentLister,
 ) {
 	sweep, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
-	repaired, err := deployments.Reconcile(sweep)
-	if err != nil {
-		slog.Error("reconcile deployments", "error", err)
-	} else if repaired.RowsDeleted > 0 || repaired.WorkloadsDeleted > 0 {
-		slog.Info("deployments reconciled",
-			"rowsDeleted", repaired.RowsDeleted, "workloadsDeleted", repaired.WorkloadsDeleted)
+	// First, so the sweeps below compare each environment's rows against the
+	// namespace it has now, not one another replica moved it from.
+	if err := environments.Resync(sweep); err != nil {
+		slog.Error("resync environments", "error", err)
 	}
+
+	// Each environment is its own namespace and its own rows, so the deployment
+	// and secret sweeps compare them one environment at a time.
+	forEachEnvironment(sweep, environments, func(sweep context.Context) {
+		repaired, err := deployments.Reconcile(sweep)
+		if err != nil {
+			slog.Error("reconcile deployments", "environment", current.From(sweep), "error", err)
+		} else if repaired.RowsDeleted > 0 || repaired.WorkloadsDeleted > 0 {
+			slog.Info("deployments reconciled", "environment", current.From(sweep),
+				"rowsDeleted", repaired.RowsDeleted, "workloadsDeleted", repaired.WorkloadsDeleted)
+		}
+	})
 
 	if agents != nil {
 		if fixed, err := agents.Repair(sweep); err != nil {
@@ -1092,11 +1205,35 @@ func reconcileOnce(
 	}
 
 	if secrets != nil {
-		if dropped, err := secrets.Reconcile(sweep); err != nil {
-			slog.Error("reconcile secret catalogue", "error", err)
-		} else if dropped > 0 {
-			slog.Info("secret catalogue reconciled", "entriesDropped", dropped)
-		}
+		forEachEnvironment(sweep, environments, func(sweep context.Context) {
+			if dropped, err := secrets.Reconcile(sweep); err != nil {
+				slog.Error("reconcile secret catalogue", "environment", current.From(sweep), "error", err)
+			} else if dropped > 0 {
+				slog.Info("secret catalogue reconciled", "environment", current.From(sweep), "entriesDropped", dropped)
+			}
+		})
+	}
+}
+
+// environmentLister lists the default environment and every created one.
+// *environment.Service satisfies it.
+type environmentLister interface {
+	List(ctx context.Context) ([]environment.Environment, error)
+	Resync(ctx context.Context) error
+}
+
+// forEachEnvironment runs fn once per environment, with ctx acting in it, so a
+// sweep that compares rows to a namespace compares each environment's own. A
+// listing that fails still sweeps the default, which needs no row to exist.
+func forEachEnvironment(ctx context.Context, environments environmentLister, fn func(context.Context)) {
+	list, err := environments.List(ctx)
+	if err != nil {
+		slog.Error("list environments for a sweep; sweeping the default only", "error", err)
+		fn(current.With(ctx, "", false))
+		return
+	}
+	for _, e := range list {
+		fn(current.With(ctx, e.Name, true))
 	}
 }
 

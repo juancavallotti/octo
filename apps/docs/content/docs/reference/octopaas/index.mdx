@@ -19,6 +19,7 @@ For installing it, signing in and using it in CI/CD, see [the octopaas guide](/p
 | --- | --- |
 | [`octopaas auth`](/reference/octopaas/auth) | Sign in, sign out, and see how you are signed in |
 | [`octopaas config`](/reference/octopaas/config) | Look at the config file |
+| [`octopaas environments`](/reference/octopaas/environments) | List environments, and choose the one your commands act in |
 | [`octopaas profile`](/reference/octopaas/profile) | Switch between the platforms you work with |
 | [`octopaas whoami`](/reference/octopaas/whoami) | Who you are signed in as, and where |
 | [`octopaas files`](/reference/octopaas/files) | Read and write an integration's config files one at a time |
@@ -37,6 +38,7 @@ For installing it, signing in and using it in CI/CD, see [the octopaas guide](/p
 
 | Flag | What it does | Default |
 | --- | --- | --- |
+| `--environment` | the environment to act in (default: $OCTOPAAS_ENVIRONMENT, then the profile's, then octo) |  |
 | `--plain` | no colours, animations or art, even in a terminal |  |
 | `--url` | the API to talk to, overriding the profile (default: $OCTOPAAS_URL) |  |
 | `-o`, `--output` | how to print results: table, json or yaml | `table` |

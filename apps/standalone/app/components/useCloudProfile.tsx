@@ -1,10 +1,11 @@
 "use client";
 
-import { createElement, useEffect, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, CircleCheck, Download, Workflow } from "lucide-react";
 import type { PickerGroup, PickerItem, PickerRowAction } from "@octo/editor";
 import { resolveIcon } from "@octo/editor/runtime";
 import { paasBridge } from "../desktop";
+import CloudProfileHeading from "./CloudProfileHeading";
 import type { IntegrationSummary, PaasBridge, PlatformState, SyncState } from "../platform/types";
 
 /** An integration's id in the picker, kept apart from the folder paths beside it. */
@@ -16,31 +17,10 @@ const PREFIX = "paas:";
  * it did. A list stays on show through a failed refresh, which is how it works offline.
  */
 interface Remote {
-  profile: string;
+  /** The installation and environment the list is of, as "profile@environment". */
+  scope: string;
   list: IntegrationSummary[] | null;
   error?: string;
-}
-
-/**
- * A cloud profile's mark. Drawn here rather than taken from lucide, whose cloud is
- * lopsided enough to read as a smudge at heading size.
- */
-function CloudMark({ size = 13 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <path d="M6.5 19.5h11a4.25 4.25 0 0 0 .55-8.46A6.25 6.25 0 0 0 6.1 9.6 4.98 4.98 0 0 0 6.5 19.5Z" />
-    </svg>
-  );
 }
 
 /**
@@ -94,6 +74,12 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
   const [remote, setRemote] = useState<Remote | null>(null);
   const installation = platform?.profiles.find((p) => p.current);
   const profile = installation?.name;
+  // A list belongs to an installation in one environment: switching either shows
+  // nothing of the other's while the new one loads.
+  const scope = `${profile}@${installation?.environment ?? "octo"}`;
+  // Set when the environment was picked here, so the list asks the platform again
+  // once the new scope arrives rather than settling for the cache.
+  const fetchOnScope = useRef(false);
 
   // The cached list as soon as the installation is known, so the open folder is
   // marked, and the menu filled, before anything asks the platform.
@@ -104,15 +90,15 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
     paas
       .cachedIntegrations(profile)
       .then((list) => {
-        if (!cancelled && list) setRemote((r) => (r?.profile === profile && r.list ? r : { profile, list }));
+        if (!cancelled && list) setRemote((r) => (r?.scope === scope && r.list ? r : { scope, list }));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [profile]);
+  }, [profile, scope]);
 
-  const mine = remote?.profile === profile ? remote : null;
+  const mine = remote?.scope === scope ? remote : null;
   const loaded = mine?.list ?? [];
   const here = loaded.find((i) => i.local === vaultPath);
   const listed = new Set(loaded.flatMap((i) => (i.local ? [i.local] : [])));
@@ -130,15 +116,22 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
     if (!paas || !profile) return;
     paas
       .integrations(profile)
-      .then((list) => setRemote({ profile, list }))
+      .then((list) => setRemote({ scope, list }))
       .catch((err: unknown) =>
         setRemote((r) => ({
-          profile,
-          list: r?.profile === profile ? r.list : null,
+          scope,
+          list: r?.scope === scope ? r.list : null,
           error: err instanceof Error ? err.message : String(err),
         })),
       );
   };
+
+  useEffect(() => {
+    if (!fetchOnScope.current) return;
+    fetchOnScope.current = false;
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is rebuilt every render; the new scope is the trigger.
+  }, [scope]);
 
   if (!paas || !installation || !profile) return { group: null, listed, refresh, select };
 
@@ -180,12 +173,19 @@ export function useCloudProfile(platform: PlatformState | null, vaultPath: strin
     group: {
       id: profile,
       label: (
-        <>
-          <CloudMark />
-          <span className="min-w-0 truncate">
-            <b className="font-semibold text-zinc-700 dark:text-zinc-200">{profile}</b> cloud profile{stale}
-          </span>
-        </>
+        <CloudProfileHeading
+          profile={profile}
+          environment={installation.environment || "octo"}
+          environments={installation.environments}
+          note={stale}
+          disabled={busy}
+          onPick={(environment) => {
+            fetchOnScope.current = true;
+            void paas.useEnvironment(profile, environment).catch(() => {
+              fetchOnScope.current = false;
+            });
+          }}
+        />
       ),
       items,
       emptyLabel,

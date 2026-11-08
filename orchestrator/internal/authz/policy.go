@@ -70,6 +70,10 @@ var policy = []rule{
 	{"runtimes", anyone, nil},
 
 	// --- building -------------------------------------------------------
+	// Promoting a version reads it here and writes it in another environment.
+	// Reading takes any role in this one; the handler judges the write by the
+	// caller's roles in the target, which this table cannot see.
+	{"snapshots/*/promote", anyone, anyone},
 	{"integrations", anyone, builds},
 	{"folders", anyone, builds},
 	{"snapshots", anyone, builds},
@@ -86,6 +90,10 @@ var policy = []rule{
 	// through a server somebody else configured is an operating act, and an
 	// unattended run that has just repaired something has to be able to say so.
 	{"email", []string{RoleAdmin, RoleOperator}, []string{RoleAdmin, RoleOperator}},
+	// Environments are readable by anyone who can sign in, because choosing one is
+	// how every other screen is scoped. Creating and deleting them provisions and
+	// removes namespaces, which is the installation's to decide.
+	{"environments", anyone, []string{RoleAdmin}},
 }
 
 // pipeline is the whole of what a platform:cicd token may do: roll out a new
@@ -156,9 +164,9 @@ var selfAuthenticated = []string{
 	"devruns/*/expire",
 }
 
-// exempt reports whether path is served without a platform token — either
+// Exempt reports whether path is served without a platform token — either
 // because it is open, or because it authenticates itself.
-func exempt(path string) bool {
+func Exempt(path string) bool {
 	if _, ok := bypass[strings.TrimSuffix(path, "/")]; ok {
 		return true
 	}

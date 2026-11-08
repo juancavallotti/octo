@@ -8,11 +8,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 // deploymentColumns is the canonical column list (and order) that scanDeployment
 // expects, kept in one place so reads and RETURNING clauses stay in sync.
-const deploymentColumns = "id, integration_id, settings, status, deployment_metadata, last_updated"
+const deploymentColumns = "id, integration_id, settings, status, deployment_metadata, last_updated, COALESCE(environment, '')"
 
 // Repo persists deployments to Postgres.
 type Repo struct {
@@ -28,8 +30,8 @@ func NewRepo(pool *pgxpool.Pool) *Repo {
 // initial status and metadata; id and last_updated come back via RETURNING.
 func (r *Repo) Create(ctx context.Context, integrationID, status string, settings, metadata json.RawMessage) (Deployment, error) {
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO integration_deployments (integration_id, settings, status, deployment_metadata)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO integration_deployments (integration_id, settings, status, deployment_metadata, environment)
+		 VALUES ($1, $2, $3, $4, (SELECT environment FROM integrations WHERE id = $1))
 		 RETURNING `+deploymentColumns,
 		integrationID, settings, status, metadata,
 	)
@@ -84,7 +86,9 @@ func (r *Repo) ListByIntegration(ctx context.Context, integrationID string) ([]D
 // things happened.
 func (r *Repo) ListAll(ctx context.Context) ([]Deployment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT `+deploymentColumns+` FROM integration_deployments ORDER BY last_updated ASC`,
+		`SELECT `+deploymentColumns+` FROM integration_deployments
+		 WHERE environment IS NOT DISTINCT FROM $1 ORDER BY last_updated ASC`,
+		current.Column(ctx),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("deployment repo: list all: %w", err)
@@ -98,12 +102,29 @@ func (r *Repo) ListAll(ctx context.Context) ([]Deployment, error) {
 	return items, nil
 }
 
-// IntegrationIDBySlug returns the integration id of any deployment whose metadata
-// slug matches, and whether one was found. Used to keep the internal Service name
-// (octo-int-{slug}) unique across integrations. If several match (the same
-// integration redeployed), any one is returned — they share an integration id.
+// IntegrationIDBySlug returns the integration id of any deployment in the
+// request's environment whose metadata slug matches, and whether one was found.
+// Used to keep the internal Service name (octo-int-{slug}) unique within the
+// environment's namespace, the only place that name has to be unique. If several
+// match (the same integration redeployed), any one is returned — they share an
+// integration id.
 func (r *Repo) IntegrationIDBySlug(ctx context.Context, slug string) (string, bool, error) {
-	return r.integrationIDByMetaField(ctx, "deployment_metadata", "slug", slug)
+	if slug == "" {
+		return "", false, nil
+	}
+	var integrationID string
+	err := r.pool.QueryRow(ctx,
+		`SELECT integration_id FROM integration_deployments
+		 WHERE deployment_metadata->>'slug' = $1 AND environment IS NOT DISTINCT FROM $2 LIMIT 1`,
+		slug, current.Column(ctx),
+	).Scan(&integrationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("deployment repo: integration by slug: %w", err)
+	}
+	return integrationID, true, nil
 }
 
 // IntegrationIDBySubdomain returns the integration id of any deployment using the
@@ -147,8 +168,9 @@ func (r *Repo) SecretReferenced(ctx context.Context, name string) (bool, error) 
 		`SELECT EXISTS (
 			SELECT 1 FROM integration_deployments
 			WHERE jsonb_path_exists(settings, '$.env.* ? (@.secret == $name)', jsonb_build_object('name', $1::text))
+			  AND environment IS NOT DISTINCT FROM $2
 		)`,
-		name,
+		name, current.Column(ctx),
 	).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("deployment repo: secret referenced: %w", err)
@@ -248,7 +270,7 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 // scanDeployment reads one row in deploymentColumns order.
 func scanDeployment(row pgx.Row) (Deployment, error) {
 	var d Deployment
-	if err := row.Scan(&d.ID, &d.IntegrationID, &d.Settings, &d.Status, &d.Metadata, &d.LastUpdated); err != nil {
+	if err := row.Scan(&d.ID, &d.IntegrationID, &d.Settings, &d.Status, &d.Metadata, &d.LastUpdated, &d.Environment); err != nil {
 		return Deployment{}, err
 	}
 	return d, nil

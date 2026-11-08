@@ -168,7 +168,7 @@ func (s Spec) networked() bool { return s.Port > 0 }
 func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	name := resourceName(spec.ID)
 	labels := c.labels(spec)
-	cms := c.clientset.CoreV1().ConfigMaps(c.namespace)
+	cms := c.clientset.CoreV1().ConfigMaps(c.ns(ctx))
 	if _, err := cms.Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
 		Data:       map[string]string{configFileName: spec.Definition},
@@ -182,7 +182,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 		return err
 	}
 
-	deps := c.clientset.AppsV1().Deployments(c.namespace)
+	deps := c.clientset.AppsV1().Deployments(c.ns(ctx))
 	if _, err := deps.Create(ctx, c.deployment(name, labels, spec), metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create deployment: %w", err)
 	}
@@ -193,7 +193,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 		return nil
 	}
 
-	svcs := c.clientset.CoreV1().Services(c.namespace)
+	svcs := c.clientset.CoreV1().Services(c.ns(ctx))
 	if _, err := svcs.Create(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
 		Spec: corev1.ServiceSpec{
@@ -239,7 +239,7 @@ func (c *Client) ensureInternalService(ctx context.Context, spec Spec) error {
 	if spec.Slug == "" {
 		return nil
 	}
-	_, err := c.clientset.CoreV1().Services(c.namespace).Create(ctx, &corev1.Service{
+	_, err := c.clientset.CoreV1().Services(c.ns(ctx)).Create(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   internalServiceName(spec.Slug),
 			Labels: c.labels(spec),
@@ -268,7 +268,7 @@ func (c *Client) Scale(ctx context.Context, deploymentID string, replicas int32)
 		replicas = 1
 	}
 	patch := []byte(fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas))
-	_, err := c.clientset.AppsV1().Deployments(c.namespace).Patch(
+	_, err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Patch(
 		ctx, resourceName(deploymentID), types.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: scale deployment: %w", err)
@@ -291,7 +291,7 @@ func (c *Client) Rollout(ctx context.Context, spec Spec) error {
 	name := resourceName(spec.ID)
 	labels := c.labels(spec)
 
-	cms := c.clientset.CoreV1().ConfigMaps(c.namespace)
+	cms := c.clientset.CoreV1().ConfigMaps(c.ns(ctx))
 	cm, err := cms.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: rollout get configmap: %w", err)
@@ -305,7 +305,7 @@ func (c *Client) Rollout(ctx context.Context, spec Spec) error {
 		return err
 	}
 
-	deps := c.clientset.AppsV1().Deployments(c.namespace)
+	deps := c.clientset.AppsV1().Deployments(c.ns(ctx))
 	existing, err := deps.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("kube: rollout get deployment: %w", err)
@@ -338,7 +338,7 @@ func (c *Client) DeleteInternalService(ctx context.Context, slug string) error {
 	if slug == "" {
 		return nil
 	}
-	err := c.clientset.CoreV1().Services(c.namespace).Delete(ctx, internalServiceName(slug), metav1.DeleteOptions{})
+	err := c.clientset.CoreV1().Services(c.ns(ctx)).Delete(ctx, internalServiceName(slug), metav1.DeleteOptions{})
 	return ignoreNotFound(err)
 }
 
@@ -520,7 +520,7 @@ func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 // behind after the grant that produced it went away would go on working, since a
 // machine token renews at any age.
 func (c *Client) putToken(ctx context.Context, spec Spec, labels map[string]string) error {
-	secrets := c.clientset.CoreV1().Secrets(c.namespace)
+	secrets := c.clientset.CoreV1().Secrets(c.ns(ctx))
 	name := tokenSecretName(spec.ID)
 
 	if spec.Token == "" {
@@ -817,16 +817,16 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 	if err := c.endpoints.withdraw(ctx, name); err != nil {
 		errs = append(errs, err)
 	}
-	if err := c.clientset.AppsV1().Deployments(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
+	if err := c.clientset.AppsV1().Deployments(c.ns(ctx)).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete deployment: %w", err))
 	}
-	if err := c.clientset.CoreV1().Services(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
+	if err := c.clientset.CoreV1().Services(c.ns(ctx)).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete service: %w", err))
 	}
-	if err := c.clientset.CoreV1().ConfigMaps(c.namespace).Delete(ctx, name, del); ignoreNotFound(err) != nil {
+	if err := c.clientset.CoreV1().ConfigMaps(c.ns(ctx)).Delete(ctx, name, del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete configmap: %w", err))
 	}
-	if err := c.clientset.CoreV1().Secrets(c.namespace).Delete(
+	if err := c.clientset.CoreV1().Secrets(c.ns(ctx)).Delete(
 		ctx, tokenSecretName(deploymentID), del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete token secret: %w", err))
 	}

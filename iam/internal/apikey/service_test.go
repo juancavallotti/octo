@@ -259,3 +259,50 @@ func TestListReturnsOnlyOwnersActiveKeys(t *testing.T) {
 		t.Fatalf("list = %+v, want one key for owner", items)
 	}
 }
+
+// knownEnvironments is the environments table, as far as a key asks.
+type knownEnvironments map[string]bool
+
+func (k knownEnvironments) Exists(_ context.Context, name string) (bool, error) {
+	return k[name], nil
+}
+
+func TestAKeyIsBoundToAnEnvironmentItsOwnerHoldsRolesIn(t *testing.T) {
+	svc := NewService(newFakeRepo(), WithEnvironments(knownEnvironments{"staging": true}))
+	ctx := context.Background()
+	exp := time.Now().Add(time.Hour)
+	owner := user.User{
+		ID:       "u",
+		Roles:    []user.Role{user.RoleDeveloper},
+		EnvRoles: map[string][]user.Role{"staging": {user.RoleOperator}},
+	}
+
+	k, _, err := svc.CreateIn(ctx, owner, "staging", "ci", []user.Role{user.RoleOperator}, exp)
+	if err != nil {
+		t.Fatalf("CreateIn: %v", err)
+	}
+	if k.Environment == nil || *k.Environment != "staging" {
+		t.Errorf("environment = %v, want staging", k.Environment)
+	}
+
+	if _, _, err := svc.CreateIn(ctx, owner, "staging", "ci", []user.Role{user.RoleDeveloper}, exp); !errors.Is(err, ErrEscalation) {
+		t.Errorf("a role held only in the default: err = %v, want ErrEscalation", err)
+	}
+	if _, _, err := svc.CreateIn(ctx, owner, "qa", "ci", []user.Role{user.RoleDeveloper}, exp); !errors.Is(err, ErrUnknownEnvironment) {
+		t.Errorf("an unknown environment: err = %v, want ErrUnknownEnvironment", err)
+	}
+	k, _, err = svc.CreateIn(ctx, owner, user.DefaultEnvironment, "ci", []user.Role{user.RoleDeveloper}, exp)
+	if err != nil || k.Environment != nil {
+		t.Errorf("the default by name: environment %v, err %v; want nil, nil", k.Environment, err)
+	}
+}
+
+func TestWithoutEnvironmentsAKeyIsOnlyForTheDefault(t *testing.T) {
+	svc := NewService(newFakeRepo())
+	owner := user.User{ID: "u", Roles: []user.Role{user.RoleAdmin}}
+	_, _, err := svc.CreateIn(context.Background(), owner, "staging", "ci",
+		[]user.Role{user.RoleMonitor}, time.Now().Add(time.Hour))
+	if !errors.Is(err, ErrUnknownEnvironment) {
+		t.Errorf("err = %v, want ErrUnknownEnvironment", err)
+	}
+}

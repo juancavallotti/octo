@@ -7,6 +7,8 @@
  */
 
 export type {
+  EnvironmentRecord,
+  EnvironmentScope,
   IntegrationRecord,
   IntegrationStore,
   MetaStore,

@@ -21,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
 	appslisters "k8s.io/client-go/listers/apps/v1"
-	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 
@@ -136,20 +135,27 @@ type Client struct {
 	// implementation it holds — Ingress or Gateway API HTTPRoute — is the only
 	// place the two differ; see endpoint.go.
 	endpoints endpointPublisher
+	// environments names the identities and ClusterRoles bound into each
+	// environment's namespace; see environment.go.
+	environments EnvironmentRBAC
 	// imagePullSecrets names Secrets in this namespace that authenticate the pull
 	// of runtimeImage. Nil is the normal case — the image is public, or the nodes
 	// carry credentials — and anything else mirrors what the chart puts on its own
 	// workloads, since a mirrored registry holds every octo image, not four of five.
 	imagePullSecrets []string
+	// wildcardTLSSecret is the pre-issued *.{baseDomain} certificate Ingresses
+	// reference when one is configured. An Ingress names its TLS Secret in its own
+	// namespace, so every environment's namespace gets a copy.
+	wildcardTLSSecret string
 	// runtimeServices is the env the orchestrator injects so deployed runtime pods
 	// can reach leader election + the KV API. Zero value disables injection.
 	runtimeServices RuntimeServices
 
-	// Informer-backed read path, populated by StartInformers. When synced reports
-	// true, Status reads from these caches instead of hitting the API server.
-	depLister corelisterDeployments
-	podLister corelisters.PodNamespaceLister
-	synced    func() bool
+	// Informer-backed read path, one per watched namespace; see namespaces.go.
+	informers informerSet
+	// environmentNamespaces maps each environment other than the default to its
+	// namespace; see namespaces.go.
+	environmentNamespaces namespaceRegistry
 }
 
 // corelisterDeployments aliases the namespaced Deployment lister for brevity.
@@ -285,6 +291,10 @@ type Config struct {
 	Gateway           GatewayRef
 	ImagePullSecrets  []string
 	RuntimeServices   RuntimeServices
+	// Environments is what provisioning an environment's namespace needs. Its
+	// zero value leaves environments unavailable, which is every install whose
+	// chart has not granted the cluster-scoped rules that provisioning takes.
+	Environments EnvironmentRBAC
 }
 
 // Validate reports configuration that cannot work, before anything is built from
@@ -362,6 +372,7 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		baseDomain:         cfg.BaseDomain,
 		imagePullSecrets:   cfg.ImagePullSecrets,
 		runtimeServices:    cfg.RuntimeServices,
+		environments:       cfg.Environments,
 	}
 	if c.sidecarPort == 0 {
 		c.sidecarPort = defaultSidecarPort
@@ -373,11 +384,17 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		c.orchestratorURL = cfg.RuntimeServices.OrchestratorURL
 	}
 	if cfg.EndpointAPI == EndpointAPIGateway {
-		c.endpoints = &routePublisher{client: gwcs, namespace: cfg.Namespace, gateway: cfg.Gateway}
+		// The documented default, made explicit: routes now live in environment
+		// namespaces, where an empty parent namespace would mean their own.
+		if cfg.Gateway.Namespace == "" {
+			cfg.Gateway.Namespace = cfg.Namespace
+		}
+		c.endpoints = &routePublisher{client: gwcs, ns: c.ns, gateway: cfg.Gateway}
 	} else {
+		c.wildcardTLSSecret = cfg.WildcardTLSSecret
 		c.endpoints = &ingressPublisher{
 			clientset:         cs,
-			namespace:         cfg.Namespace,
+			ns:                c.ns,
 			clusterIssuer:     cfg.ClusterIssuer,
 			wildcardTLSSecret: cfg.WildcardTLSSecret,
 			ingressClass:      cfg.IngressClass,
@@ -498,7 +515,7 @@ func (c *Client) ExternalURL(subdomain string) string {
 	return "https://" + host
 }
 
-// Namespace returns the namespace the client operates in.
+// Namespace returns the release namespace: the default environment's.
 func (c *Client) Namespace() string { return c.namespace }
 
 // resourceName is the deterministic name shared by a deployment's resources.
@@ -512,8 +529,9 @@ func resourceName(deploymentID string) string { return "octo-dep-" + deploymentI
 func internalServiceName(slug string) string { return "octo-int-" + slug }
 
 // InternalURL is the in-cluster address of the stable internal Service for slug,
-// on the deployment's runtime port (port <1 falls back to runtimePort).
-func (c *Client) InternalURL(slug string, port int) string {
+// on the deployment's runtime port (port <1 falls back to runtimePort), in the
+// namespace of the environment ctx acts in.
+func (c *Client) InternalURL(ctx context.Context, slug string, port int) string {
 	if slug == "" {
 		return ""
 	}
@@ -521,7 +539,7 @@ func (c *Client) InternalURL(slug string, port int) string {
 	if p < 1 {
 		p = runtimePort
 	}
-	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.namespace, p)
+	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.ns(ctx), p)
 }
 
 func (c *Client) labels(spec Spec) map[string]string {

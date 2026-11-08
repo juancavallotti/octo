@@ -24,7 +24,7 @@ export default function IntegrationsTab({
 }) {
   const installation = state.profiles.find((p) => p.name === profile);
   const signedIn = installation?.identity.state === "signed-in";
-  const { items, error, reload } = useIntegrations(profile, signedIn);
+  const { items, error, reload } = useIntegrations(profile, signedIn, installation?.environment);
   const [query, setQuery] = useState("");
 
   const shown = useMemo(() => {

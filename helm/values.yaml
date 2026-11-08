@@ -199,6 +199,16 @@ orchestrator:
     annotations: {}
   rbac:
     create: true
+  # Environments: named slices of the platform, each in a namespace of its own
+  # that the orchestrator creates when an admin adds one. Provisioning needs
+  # cluster-scoped rules — create and delete namespaces, write RoleBindings into
+  # them — so it is the one thing this chart grants beyond the release namespace.
+  # The grant is narrow: the orchestrator may only bind the two ClusterRoles this
+  # chart creates, which hold the same rules it already has here. Set false on a
+  # cluster where the release may not hold cluster-scoped RBAC; environments are
+  # then listed but cannot be created. Needs rbac.create.
+  environments:
+    enabled: true
   # Dev runs: the editor's Run, executed as a pod the orchestrator creates instead of a
   # child process of whichever platform replica answered the request. That is the point —
   # the platform runs several replicas with no session affinity, so a run living in one

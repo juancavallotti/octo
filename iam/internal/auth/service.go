@@ -30,6 +30,9 @@ type (
 	keys interface {
 		Verify(ctx context.Context, plaintext string) (apikey.APIKey, error)
 	}
+	environments interface {
+		Exists(ctx context.Context, name string) (bool, error)
+	}
 )
 
 // Service performs the exchange.
@@ -38,17 +41,33 @@ type Service struct {
 	users    users
 	minter   minter
 	keys     keys
+	// environments answers whether a name a machine token is asked to be bound
+	// to is an environment. Nil allows only the default environment.
+	environments environments
+}
+
+// Option configures a Service beyond its four required collaborators.
+type Option func(*Service)
+
+// WithEnvironments lets machine tokens be bound to environments other than the
+// default, checked against e.
+func WithEnvironments(e environments) Option {
+	return func(s *Service) { s.environments = e }
 }
 
 // NewService returns a Service. Any collaborator being absent is ErrNotConfigured
 // rather than a nil dereference later: the exchange needs all four, and an
 // install missing the identity provider is a supported way to run — it simply
 // cannot mint.
-func NewService(v verifier, u users, m minter, k keys) (*Service, error) {
+func NewService(v verifier, u users, m minter, k keys, opts ...Option) (*Service, error) {
 	if v == nil || u == nil || m == nil || k == nil {
 		return nil, ErrNotConfigured
 	}
-	return &Service{verifier: v, users: u, minter: m, keys: k}, nil
+	s := &Service{verifier: v, users: u, minter: m, keys: k}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // platformClaims is what a platform token carries beyond the registered claims
@@ -69,6 +88,16 @@ type platformClaims struct {
 	// a sign-in. Refresh refuses such a token, so revoking the key ends it within
 	// one token lifetime.
 	APIKey string `json:"apiKey,omitempty"`
+	// EnvRoles is what a person holds in each environment other than the
+	// default, whose roles are Roles. Only a person's token carries it.
+	EnvRoles map[string][]user.Role `json:"envRoles,omitempty"`
+	// Environment is the one environment a bound token acts in, empty for the
+	// default. A token is bound when it is a machine's (Deployment) or came from
+	// a key (APIKey); its Roles are then its roles in that environment and it has
+	// none in any other. Binding is read off those two claims and never off this
+	// one, so a bound token minted before environments existed — which carries no
+	// Environment — is bound to the default rather than to nothing.
+	Environment string `json:"environment,omitempty"`
 }
 
 // Result is a completed exchange: the minted token and the user it speaks for.
@@ -102,7 +131,7 @@ func (s *Service) Exchange(ctx context.Context, rawToken string) (Result, error)
 		return Result{}, fmt.Errorf("auth: resolve user: %w", err)
 	}
 
-	token, err := s.mint(ctx, u, "")
+	token, err := s.mint(ctx, u, "", "")
 	if err != nil {
 		return Result{}, err
 	}
@@ -133,9 +162,16 @@ func (s *Service) exchangeKey(ctx context.Context, rawKey string) (Result, error
 		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
+	// What the owner may delegate is asked in the key's own environment: a key
+	// bound to staging speaks only for what its owner may do there.
+	environment := ""
+	if k.Environment != nil {
+		environment = *k.Environment
+	}
+	scoped := u.In(environment)
 	var roles []user.Role
 	for _, r := range k.Roles {
-		if u.MayDelegate(r) {
+		if scoped.MayDelegate(r) {
 			roles = append(roles, r)
 		}
 	}
@@ -144,8 +180,9 @@ func (s *Service) exchangeKey(ctx context.Context, rawKey string) (Result, error
 			"%w: this API key's roles are no longer held by its owner; mint a new key", ErrForbidden)
 	}
 	u.Roles = roles
+	u.EnvRoles = nil
 
-	token, err := s.mint(ctx, u, k.ID)
+	token, err := s.mint(ctx, u, k.ID, environment)
 	if err != nil {
 		return Result{}, err
 	}
@@ -213,15 +250,19 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (Result, error) 
 	// The access comes back off the presented token, the only record of what this
 	// deployment was lent, and is read through accessOf rather than copied, so a
 	// renewal cannot carry anything this service would not mint today.
+	//
+	// The environment comes back off the token too, and is never widened: a
+	// deployment in staging renews as a deployment in staging, whatever its owner
+	// holds anywhere now.
 	if private.Deployment != "" {
-		token, err := s.mintMachine(ctx, u, private.Deployment, accessOf(private.Roles))
+		token, err := s.mintMachine(ctx, u, private.Deployment, private.Environment, accessOf(private.Roles))
 		if err != nil {
 			return Result{}, err
 		}
 		return Result{Token: token, User: u}, nil
 	}
 
-	token, err := s.mint(ctx, u, "")
+	token, err := s.mint(ctx, u, "", "")
 	if err != nil {
 		return Result{}, err
 	}
@@ -240,21 +281,31 @@ func renewableWhileExpired(err error, private platformClaims) bool {
 }
 
 // mint stamps a platform token for u, naming the API key it was exchanged for
-// when there is one. Shared by both exchanges and the refresh so they cannot
-// drift into carrying different claims for the same person.
-func (s *Service) mint(ctx context.Context, u user.User, keyID string) (signing.Token, error) {
+// when there is one, and the environment that key is bound to. Shared by both
+// exchanges and the refresh so they cannot drift into carrying different claims
+// for the same person.
+//
+// A key's token carries u as the exchange narrowed it — the key's roles in its
+// environment — and no EnvRoles, so it has nothing anywhere else.
+func (s *Service) mint(ctx context.Context, u user.User, keyID, environment string) (signing.Token, error) {
 	roles := u.Roles
 	if roles == nil {
 		// A user who has been granted nothing gets an empty list and not a null, so
 		// a verifier never has to distinguish two encodings of the same fact.
 		roles = []user.Role{}
 	}
-	token, err := s.minter.Mint(ctx, u.ID, platformClaims{
+	claims := platformClaims{
 		Email:  u.Email,
 		Name:   u.Name,
 		Roles:  roles,
 		APIKey: keyID,
-	})
+	}
+	if keyID != "" {
+		claims.Environment = environment
+	} else if len(u.EnvRoles) > 0 {
+		claims.EnvRoles = u.EnvRoles
+	}
+	token, err := s.minter.Mint(ctx, u.ID, claims)
 	if err != nil {
 		return signing.Token{}, fmt.Errorf("auth: mint token: %w", err)
 	}
@@ -278,11 +329,16 @@ func (s *Service) mint(ctx context.Context, u user.User, keyID string) (signing.
 // It is issued only to somebody who may deploy, or any account could hand itself
 // the runtime role by claiming to be deploying something.
 //
+// It is bound to environment ("" or "octo" for the default) and confined to it:
+// it carries no roles anywhere else, and both the right to deploy and the access
+// it is lent are judged by what the caller holds in that environment alone. A
+// compromised pod therefore reaches no further than the environment it runs in.
+//
 // It lives exactly as long as a person's token and is renewed the same way: a
 // longer-lived one could outlive the key that signed it, since the keyset keeps a
 // key published for only one token lifetime past its retirement.
 func (s *Service) MintMachine(
-	ctx context.Context, rawToken, deployment string, access []Access,
+	ctx context.Context, rawToken, deployment, environment string, access []Access,
 ) (Result, error) {
 	deployment = strings.TrimSpace(deployment)
 	if deployment == "" {
@@ -291,20 +347,30 @@ func (s *Service) MintMachine(
 	if _, err := rolesFor(access); err != nil {
 		return Result{}, err
 	}
+	environment = user.NormalizeEnvironment(strings.TrimSpace(environment))
 
 	owner, claims, err := s.owner(ctx, rawToken)
 	if err != nil {
 		return Result{}, err
 	}
+	if err := s.environmentExists(ctx, environment); err != nil {
+		return Result{}, err
+	}
+	scoped := owner.In(environment)
 	if claims.APIKey != "" {
+		// A key's token is bound, and lends only in the environment it is bound to.
+		if claims.Environment != environment {
+			return Result{}, fmt.Errorf(
+				"%w: this API key is bound to environment %q", ErrForbidden, displayEnvironment(claims.Environment))
+		}
 		if err := keyMayLend(claims.Roles, access); err != nil {
 			return Result{}, err
 		}
-	} else if !mayDeploy(owner) {
+	} else if !mayDeploy(scoped) {
 		return Result{}, fmt.Errorf(
 			"%w: lending an identity to a deployment requires %s or %s",
 			ErrForbidden, user.RoleOperator, user.RoleAdmin)
-	} else if !mayLend(owner, access) {
+	} else if !mayLend(scoped, access) {
 		// The access is named and the caller's roles are not: they asked for this
 		// much and may not have it, which is a thing they can act on.
 		return Result{}, fmt.Errorf(
@@ -312,17 +378,44 @@ func (s *Service) MintMachine(
 			ErrForbidden, describe(access))
 	}
 
-	token, err := s.mintMachine(ctx, owner, deployment, access)
+	token, err := s.mintMachine(ctx, owner, deployment, environment, access)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{Token: token, User: owner}, nil
 }
 
+// environmentExists refuses a name that is not an environment. Without a way to
+// ask, only the default is one.
+func (s *Service) environmentExists(ctx context.Context, environment string) error {
+	if environment == "" {
+		return nil
+	}
+	if s.environments == nil {
+		return fmt.Errorf("%w: environments are not available here", user.ErrInvalid)
+	}
+	ok, err := s.environments.Exists(ctx, environment)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: %q is not an environment", user.ErrInvalid, environment)
+	}
+	return nil
+}
+
+// displayEnvironment names an environment for a message, spelling the default.
+func displayEnvironment(environment string) string {
+	if environment == "" {
+		return user.DefaultEnvironment
+	}
+	return environment
+}
+
 // mintMachine stamps the token itself. Shared by the first mint and every renewal,
 // so the two cannot describe the same deployment differently.
 func (s *Service) mintMachine(
-	ctx context.Context, owner user.User, deployment string, access []Access,
+	ctx context.Context, owner user.User, deployment, environment string, access []Access,
 ) (signing.Token, error) {
 	roles, err := rolesFor(access)
 	if err != nil {
@@ -332,8 +425,9 @@ func (s *Service) mintMachine(
 	// it, which is what scopes what it reaches, but nothing reads an address off a
 	// machine token and it should carry only what is consumed.
 	token, err := s.minter.Mint(ctx, owner.ID, platformClaims{
-		Roles:      roles,
-		Deployment: deployment,
+		Roles:       roles,
+		Deployment:  deployment,
+		Environment: environment,
 	})
 	if err != nil {
 		return signing.Token{}, fmt.Errorf("auth: mint machine token: %w", err)

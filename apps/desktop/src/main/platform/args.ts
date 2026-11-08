@@ -44,9 +44,27 @@ export function apiUrl(v: unknown): string {
   return parsed.toString().replace(/\/+$/, "");
 }
 
-/** The flags every call carries: which installation, and output a program can read. */
-export function common(profile: string | null): string[] {
-  return [...(profile ? ["--profile", profile] : []), "--plain", "-o", "json"];
+/** The default environment, which a profile without one acts in. */
+export const DEFAULT_ENVIRONMENT = "octo";
+
+/**
+ * The flags every call carries: which installation, which environment when one is
+ * pinned, and output a program can read. A folder pins the environment it came
+ * from, so it goes back there whatever its profile has been switched to since.
+ */
+export function common(profile: string | null, environment?: string | null): string[] {
+  return [
+    ...(profile ? ["--profile", profile] : []),
+    ...(environment ? ["--environment", word(environment, "The environment")] : []),
+    "--plain",
+    "-o",
+    "json",
+  ];
+}
+
+/** The key a profile's rows are cached under: one per profile and environment. */
+export function cacheKey(profile: string, environment: string | undefined): string {
+  return environment && environment !== DEFAULT_ENVIRONMENT ? `${profile}@${environment}` : profile;
 }
 
 /**

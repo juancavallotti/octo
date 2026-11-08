@@ -76,6 +76,7 @@ export const authConfig: NextAuthConfig = {
     session({ session, token }) {
       const fields = token as OctoTokenFields;
       session.user.roles = fields.roles ?? [];
+      session.user.envRoles = fields.envRoles ?? {};
       if (fields.userId) session.user.id = fields.userId;
       return session;
     },

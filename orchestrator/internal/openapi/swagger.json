@@ -402,7 +402,7 @@
                         "type": "string"
                     },
                     "slug": {
-                        "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique across\ndeployments; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
+                        "description": "Slug is the user-chosen internal address label for a networked deployment\n(the internal Service is octo-int-{slug}). It must be unique among the\ndeployments of its environment; empty asks the orchestrator to allocate a free one. Ignored for\nintegrations with no HTTP source. Input only — the resolved slug lives in\nMetadata.",
                         "type": "string"
                     },
                     "snapshotId": {
@@ -893,6 +893,60 @@
                 },
                 "type": "object"
             },
+            "environment.createRequest": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "displayName": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "environment.environmentResponse": {
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "createdBy": {
+                        "type": "string"
+                    },
+                    "default": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "displayName": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "namespace": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "environment.updateRequest": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "displayName": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "folder.folderRequest": {
                 "properties": {
                     "name": {
@@ -1360,6 +1414,31 @@
                 "properties": {
                     "tag": {
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "snapshot.promoteRequest": {
+                "properties": {
+                    "environment": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "snapshot.promoteResponse": {
+                "properties": {
+                    "created": {
+                        "type": "boolean"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "integrationId": {
+                        "type": "string"
+                    },
+                    "snapshot": {
+                        "$ref": "#/components/schemas/snapshot.summaryResponse"
                     }
                 },
                 "type": "object"
@@ -3778,6 +3857,253 @@
                 "summary": "Send an email",
                 "tags": [
                     "email"
+                ]
+            }
+        },
+        "/environments": {
+            "get": {
+                "description": "The default environment first, then every created one by name — those the\ncaller holds a role in: an environment-bound token sees its own.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/environment.environmentResponse"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "List environments",
+                "tags": [
+                    "environments"
+                ]
+            },
+            "post": {
+                "description": "Provisions its namespace (octo-{name} unless one is given) with the RBAC\nthe orchestrator and runtime pods need there.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/environment.createRequest",
+                                        "summary": "body",
+                                        "description": "The environment"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The environment",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/environment.environmentResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the name or namespace is taken"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "this install cannot provision namespaces"
+                    }
+                },
+                "summary": "Create an environment",
+                "tags": [
+                    "environments"
+                ]
+            }
+        },
+        "/environments/{name}": {
+            "delete": {
+                "description": "Deletes its namespace too. Refused while a deployment, test run or dev run\nstill runs there.",
+                "parameters": [
+                    {
+                        "description": "Environment name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the default environment, or workloads still run there"
+                    }
+                },
+                "summary": "Delete an environment",
+                "tags": [
+                    "environments"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Environment name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/environment.environmentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Get an environment",
+                "tags": [
+                    "environments"
+                ]
+            },
+            "patch": {
+                "description": "Only the display name and description change; the name and namespace are fixed.",
+                "parameters": [
+                    {
+                        "description": "Environment name",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/environment.updateRequest",
+                                        "summary": "body",
+                                        "description": "Fields to change"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to change",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/environment.environmentResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the default environment"
+                    }
+                },
+                "summary": "Update an environment",
+                "tags": [
+                    "environments"
                 ]
             }
         },
@@ -7511,6 +7837,98 @@
                 "summary": "Download a version tag as a bundle",
                 "tags": [
                     "bundles"
+                ]
+            }
+        },
+        "/snapshots/{id}/promote": {
+            "post": {
+                "description": "Copies the version, under the same tag, onto the integration's member of its\nfamily in the target environment, creating that integration the first time.\nFlows and templates come from the version; env files stay the target's own.\nReading the version takes any role in its environment; writing it takes\ndeveloper, operator or admin in the target.",
+                "parameters": [
+                    {
+                        "description": "Snapshot id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/snapshot.promoteRequest",
+                                        "summary": "body",
+                                        "description": "The target environment"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "The target environment",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/snapshot.promoteResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the same environment, or not an environment"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "no role that builds in the target"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/httpx.ErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "the tag is already there, or the name is taken"
+                    }
+                },
+                "summary": "Promote a version into another environment",
+                "tags": [
+                    "snapshots"
                 ]
             }
         },

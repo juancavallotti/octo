@@ -5,6 +5,7 @@ import { currentWriteUserId } from "@/app/actions/_auth";
 import { AuthError, ForbiddenError } from "@/app/auth/guard";
 import { resolveAgentUrl, forgetAgentUrl, orchestratorConfigured } from "@/app/actions/client/agentUrl";
 import { callerToken } from "@/app/auth/callerToken";
+import { callerEnvironment } from "@/app/auth/callerEnvironment";
 import { MAX_FILES, MAX_TOTAL_BYTES } from "@/app/components/agent/attachments";
 
 /**
@@ -149,6 +150,13 @@ export async function POST(req: Request) {
   // have, on behalf of somebody who does not have it.
   const token = await callerToken();
   if (token) headers["X-Agent-Caller-Token"] = token;
+
+  // The environment the person has chosen in the top bar, read from their own
+  // cookie on the server like the token beside it, so Dr. Octo works in the
+  // environment they are looking at and their roles are judged there. The default
+  // is sent as nothing, which the agent reads the same way.
+  const environment = await callerEnvironment();
+  if (environment) headers["X-Agent-Environment"] = environment;
 
   // An authorization, read with the same strictness and for a sharper reason: this
   // is the one instruction that lets something happen rather than stopping it. An

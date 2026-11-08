@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ArrowLeft, Mail, Settings, Trash2, Users } from "lucide-react";
+import { Activity, ArrowLeft, Layers, Mail, Settings, Trash2, Users } from "lucide-react";
 import { DrOctoIcon } from "@octo/editor";
 
 /**
@@ -40,6 +40,12 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     href: "/platform/admin/users",
     label: "People",
     icon: Users,
+  },
+  {
+    key: "environments",
+    href: "/platform/admin/environments",
+    label: "Environments",
+    icon: Layers,
   },
   { key: "email", href: "/platform/admin/email", label: "Email", icon: Mail },
   {

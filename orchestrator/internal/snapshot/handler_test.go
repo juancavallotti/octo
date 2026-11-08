@@ -272,3 +272,12 @@ func TestAPersonReadsAnySnapshotsResources(t *testing.T) {
 		t.Errorf("a developer was refused a snapshot's resources: %d", rec.Code)
 	}
 }
+
+func (m *memRepo) Promote(_ context.Context, snapshotID, target, _ string) (Promotion, error) {
+	s, ok := m.snapshots[snapshotID]
+	if !ok {
+		return Promotion{}, ErrNotFound
+	}
+	return Promotion{IntegrationID: "in-" + target, Created: true, Environment: target,
+		Snapshot: Summary{ID: "promoted", IntegrationID: "in-" + target, Tag: s.Tag}}, nil
+}

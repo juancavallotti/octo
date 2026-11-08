@@ -62,6 +62,16 @@ type Client struct {
 	http      *http.Client
 	bearer    Bearer
 	userAgent string
+	// environment is named on every request; empty sends no header, and the
+	// platform then acts in the default, or in the one environment a bound key
+	// is limited to.
+	environment string
+}
+
+// InEnvironment names environment on every request ("" names none).
+func (c *Client) InEnvironment(environment string) *Client {
+	c.environment = environment
+	return c
 }
 
 // New is a client for the API at base (https://api.octopaas.dev). bearer may be
@@ -149,6 +159,9 @@ func (c *Client) send(ctx context.Context, r request, refresh bool) (*http.Respo
 	//some edges refuse a library's default user agent outright, and it is nice
 	//for the platform's logs to know who is calling anyway.
 	req.Header.Set("User-Agent", c.userAgent)
+	if c.environment != "" {
+		req.Header.Set("X-Octo-Environment", c.environment)
+	}
 
 	if c.bearer != nil && !r.anonymous {
 		token, err := c.bearer.Bearer(ctx, refresh)

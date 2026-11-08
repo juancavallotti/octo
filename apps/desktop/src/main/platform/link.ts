@@ -18,6 +18,11 @@ export interface Link {
   url: string;
   integrationId: string;
   integrationName: string;
+  /**
+   * The environment it was pulled from or imported into. A link written before
+   * environments existed has none, and is the default's.
+   */
+  environment?: string;
   /** The version it was pulled from, when it was a version rather than the draft. */
   pulledTag?: string;
   linkedAt: number;
@@ -43,6 +48,7 @@ export function readLink(dir: string): Link | null {
       url: raw.url!,
       integrationId: raw.integrationId!,
       integrationName: raw.integrationName!,
+      ...(str(raw.environment) ? { environment: raw.environment } : {}),
       ...(str(raw.pulledTag) ? { pulledTag: raw.pulledTag } : {}),
       linkedAt: typeof raw.linkedAt === "number" ? raw.linkedAt : 0,
       ...(raw.synced && str(raw.synced.digest) && str(raw.synced.lastUpdated)
@@ -65,4 +71,9 @@ export function writeLink(dir: string, link: Link): void {
 
 export function removeLink(dir: string): void {
   rmSync(linkFile(dir), { force: true });
+}
+
+/** The environment a linked folder belongs to, the default for a link that names none. */
+export function linkEnvironment(link: Link): string {
+  return link.environment ?? "octo";
 }

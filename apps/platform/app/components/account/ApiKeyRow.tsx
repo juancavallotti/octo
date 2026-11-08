@@ -42,6 +42,11 @@ export default function ApiKeyRow({
         </span>
         <div className="mt-1">
           <RoleBadges roles={apiKey.roles} describe={keyRoleCard} />
+          {apiKey.environment && (
+            <span className="ml-1 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400">
+              {apiKey.environment}
+            </span>
+          )}
         </div>
       </div>
       <div className="hidden flex-col items-end text-xs text-zinc-400 sm:flex">

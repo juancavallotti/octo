@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -999,5 +1000,69 @@ func TestCreateWithARoleOutsideTheCatalogueCreatesNobody(t *testing.T) {
 	}
 	if len(people) != 0 {
 		t.Errorf("the refused create left %d people behind", len(people))
+	}
+}
+
+func (m *memRepo) GrantIn(_ context.Context, userID, environment string, granted Role, _ *string) error {
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	if u.EnvRoles == nil {
+		u.EnvRoles = map[string][]Role{}
+	}
+	if !slices.Contains(u.EnvRoles[environment], granted) {
+		u.EnvRoles[environment] = append(u.EnvRoles[environment], granted)
+	}
+	return nil
+}
+
+func (m *memRepo) RevokeIn(_ context.Context, userID, environment string, revoked Role) error {
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrNotFound
+	}
+	// Revoking what was never granted is a no-op, as the repository's DELETE is.
+	if u.EnvRoles == nil {
+		return nil
+	}
+	u.EnvRoles[environment] = slices.DeleteFunc(u.EnvRoles[environment], func(r Role) bool { return r == revoked })
+	return nil
+}
+
+func TestRolesAreGrantedPerEnvironment(t *testing.T) {
+	repo := newMemRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+	u, err := repo.Create(ctx, "dev@example.com", "Dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.GrantIn(ctx, u.ID, "staging", RoleDeveloper, nil); err != nil {
+		t.Fatalf("GrantIn: %v", err)
+	}
+	got, _ := svc.Get(ctx, u.ID)
+	if !slices.Equal(got.EnvRoles["staging"], []Role{RoleDeveloper}) || len(got.Roles) != 0 {
+		t.Errorf("after a staging grant: roles %v, envRoles %v", got.Roles, got.EnvRoles)
+	}
+
+	if err := svc.GrantIn(ctx, u.ID, "staging", RoleAdmin, nil); !errors.Is(err, ErrInvalid) {
+		t.Errorf("admin in staging: err = %v, want ErrInvalid", err)
+	}
+	if err := svc.GrantIn(ctx, u.ID, DefaultEnvironment, RoleMonitor, nil); err != nil {
+		t.Fatalf("GrantIn the default by name: %v", err)
+	}
+	got, _ = svc.Get(ctx, u.ID)
+	if !slices.Equal(got.Roles, []Role{RoleMonitor}) {
+		t.Errorf("the default by name landed in %v", got.Roles)
+	}
+
+	if err := svc.RevokeIn(ctx, u.ID, "staging", RoleDeveloper); err != nil {
+		t.Fatalf("RevokeIn: %v", err)
+	}
+	got, _ = svc.Get(ctx, u.ID)
+	if len(got.EnvRoles["staging"]) != 0 {
+		t.Errorf("after revoking: envRoles %v", got.EnvRoles)
 	}
 }

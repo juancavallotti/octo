@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/juancavallotti/octo/observability/internal/environment/current"
 )
 
 // TraceApp is one app's trace activity over a window: a row in the list you pick
@@ -59,7 +61,7 @@ WITH traced AS (
            sum(cost_usd)                                  AS cost_usd,
            sum(unpriced_calls)                            AS unpriced_calls
       FROM trace_summaries
-     WHERE started_at >= $1 AND started_at <= $2
+     WHERE started_at >= $1 AND started_at <= $2 AND environment IS NOT DISTINCT FROM $3
      GROUP BY deployment_id, integration_id, app_name, app_version
 ),
 dropped AS (
@@ -74,7 +76,7 @@ dropped AS (
                     THEN (attrs ->> 'dropped')::bigint ELSE 0 END) AS dropped_records,
            max(ts)                                          AS last_seen_at
       FROM traces
-     WHERE kind = 'trace.dropped' AND ts >= $1 AND ts <= $2
+     WHERE kind = 'trace.dropped' AND ts >= $1 AND ts <= $2 AND environment IS NOT DISTINCT FROM $3
      GROUP BY deployment_id, integration_id, app_name, app_version
 )
 SELECT COALESCE(t.deployment_id,   d.deployment_id)::text AS deployment_id,
@@ -98,7 +100,7 @@ SELECT COALESCE(t.deployment_id,   d.deployment_id)::text AS deployment_id,
 // Apps returns one row per app with trace activity in [from, to], most recently
 // active first.
 func (t *Traces) Apps(ctx context.Context, from, to time.Time) ([]TraceApp, error) {
-	rows, err := t.pool.Query(ctx, traceAppsSQL, from, to)
+	rows, err := t.pool.Query(ctx, traceAppsSQL, from, to, current.Column(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("repo: query trace apps: %w", err)
 	}
@@ -220,6 +222,12 @@ func (t *Traces) List(ctx context.Context, f TraceFilter) ([]TraceListRow, error
 		where = append(where, fmt.Sprintf(cond, placeholders...))
 	}
 
+	// Only the environment the request acts in; see Logs.Query for the spelling.
+	if environment := current.From(ctx); environment == "" {
+		where = append(where, "environment IS NULL")
+	} else {
+		add("environment = $%d", environment)
+	}
 	if f.DeploymentID != "" {
 		add("deployment_id = $%d::uuid", f.DeploymentID)
 	}
@@ -393,7 +401,8 @@ var (
 // Trace returns one trace's summary, reporting false when there is no such trace.
 func (t *Traces) Trace(ctx context.Context, traceID string) (TraceListRow, bool, error) {
 	row, err := scanTraceListRow(t.pool.QueryRow(ctx,
-		"SELECT"+traceListColumns+" FROM trace_summaries WHERE trace_id = $1", traceID))
+		"SELECT"+traceListColumns+" FROM trace_summaries WHERE trace_id = $1 AND environment IS NOT DISTINCT FROM $2",
+		traceID, current.Column(ctx)))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return TraceListRow{}, false, nil
@@ -418,8 +427,8 @@ func (t *Traces) Records(ctx context.Context, traceID string, withBodies bool) (
 	// One past the cap, so a full page can be told from a trace that happens to
 	// end exactly on it.
 	rows, err := t.pool.Query(ctx,
-		"SELECT"+columns+" FROM traces WHERE trace_id = $1 ORDER BY seq LIMIT $2",
-		traceID, maxTraceRecords+1)
+		"SELECT"+columns+" FROM traces WHERE trace_id = $1 AND environment IS NOT DISTINCT FROM $3 ORDER BY seq LIMIT $2",
+		traceID, maxTraceRecords+1, current.Column(ctx))
 	if err != nil {
 		return nil, false, fmt.Errorf("repo: query trace records: %w", err)
 	}
@@ -450,8 +459,8 @@ func (t *Traces) Records(ctx context.Context, traceID string, withBodies bool) (
 // route from becoming a way to read arbitrary captured payloads by guessing.
 func (t *Traces) Record(ctx context.Context, traceID, id string) (TraceRecordRow, bool, error) {
 	row, err := scanTraceRecordRow(t.pool.QueryRow(ctx,
-		"SELECT"+recordColumnsWithBodies+" FROM traces WHERE trace_id = $1 AND id = $2::uuid",
-		traceID, id))
+		"SELECT"+recordColumnsWithBodies+" FROM traces WHERE trace_id = $1 AND id = $2::uuid AND environment IS NOT DISTINCT FROM $3",
+		traceID, id, current.Column(ctx)))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return TraceRecordRow{}, false, nil

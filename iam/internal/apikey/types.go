@@ -22,16 +22,19 @@ import (
 // token or its hash on reads — those exist only transiently at creation and
 // verification.
 type APIKey struct {
-	ID         string
-	UserID     string
-	Name       string
-	Prefix     string
-	Last4      string
-	Roles      []user.Role
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
-	LastUsedAt *time.Time
-	RevokedAt  *time.Time
+	ID     string
+	UserID string
+	Name   string
+	Prefix string
+	Last4  string
+	Roles  []user.Role
+	// Environment is the one environment the key acts in; nil is the default.
+	// A key's token carries its roles there and nothing anywhere else.
+	Environment *string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	LastUsedAt  *time.Time
+	RevokedAt   *time.Time
 }
 
 const (

@@ -19,6 +19,9 @@ describe("AdminTiles", () => {
     expect(screen.getByRole("link", { name: /People/ }).getAttribute("href")).toBe(
       "/platform/admin/users",
     );
+    expect(screen.getByRole("link", { name: /Environments/ }).getAttribute("href")).toBe(
+      "/platform/admin/environments",
+    );
   });
 
   // Data retention was the last tile the section described without having, and

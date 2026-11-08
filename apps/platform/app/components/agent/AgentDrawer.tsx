@@ -12,7 +12,10 @@ import ConversationList from "./ConversationList";
 import WorkingStatus from "./WorkingStatus";
 import { useAgentChat } from "./useAgentChat";
 import { useStickToBottom } from "./useStickToBottom";
+import { heldBack, useRunEnvironment } from "./useRunEnvironment";
 import { MAX_WIDTH, MIN_WIDTH } from "./panelPrefs";
+import { useEnvironment } from "@/app/auth/EnvironmentContext";
+import { leavesEnvironment } from "@/app/lib/environment";
 
 /** How far one arrow key nudges the panel edge. */
 const KEY_STEP = 16;
@@ -55,6 +58,7 @@ export default function AgentDrawer({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const environment = useEnvironment()?.environment ?? "";
   const [draft, setDraft] = useState("");
   const files = useAttachments(accepted);
 
@@ -63,7 +67,12 @@ export default function AgentDrawer({
     // parsed; router.push keeps it a client-side navigation, so the drawer and the
     // conversation in it survive the move.
     router.push(target.path);
+    // Into another environment: the proxy chooses it on the way, but the layouts
+    // around the page were rendered for this one, and only a refresh redraws them.
+    if (leavesEnvironment(target.path, environment)) router.refresh();
   });
+
+  const runEnvironment = useRunEnvironment(chat.busy, environment);
 
   // The panel is hidden, not unmounted, when it is closed, so this keeps arriving.
   useEffect(() => onBusy(chat.busy), [chat.busy, onBusy]);
@@ -75,12 +84,9 @@ export default function AgentDrawer({
   const open = chat.turns.findLast((turn) => turn.role === "agent");
 
   const submit = () => {
-    // The composer refuses to attach while he is working, but `busy` can also
-    // turn true from another tab writing into this conversation — so files may
-    // already be here when a steer is all this send can be. Kept, never sent to
-    // be dropped: see useAgentChat's steer branch and #516.
-    if (chat.busy && files.files.length) {
-      files.hold("He is working. Send the files once he has answered.");
+    const reason = heldBack(chat.busy, files.files.length > 0, runEnvironment, environment);
+    if (reason) {
+      files.hold(reason);
       return;
     }
     chat.send(draft, files.files);

@@ -143,6 +143,16 @@ func (m *memUsers) Get(_ context.Context, id string) (user.User, error) {
 	}
 	withRoles := *u
 	withRoles.Roles = append([]user.Role(nil), m.roles[id]...)
+	withRoles.EnvRoles = nil
+	for environment, held := range u.EnvRoles {
+		if len(held) == 0 {
+			continue
+		}
+		if withRoles.EnvRoles == nil {
+			withRoles.EnvRoles = map[string][]user.Role{}
+		}
+		withRoles.EnvRoles[environment] = append([]user.Role(nil), held...)
+	}
 	return withRoles, nil
 }
 
@@ -275,4 +285,47 @@ func (k stubKeys) Verify(_ context.Context, plaintext string) (apikey.APIKey, er
 		return apikey.APIKey{}, apikey.ErrInvalidToken
 	}
 	return key, nil
+}
+
+// knownEnvironments is the environments table, as far as iam asks it anything.
+type knownEnvironments map[string]bool
+
+func (k knownEnvironments) Exists(_ context.Context, name string) (bool, error) {
+	return name == "" || k[name], nil
+}
+
+func (m *memUsers) GrantIn(_ context.Context, userID, environment string, granted user.Role, _ *string) error {
+	u, ok := m.byID[userID]
+	if !ok {
+		return user.ErrNotFound
+	}
+	if u.EnvRoles == nil {
+		u.EnvRoles = map[string][]user.Role{}
+	}
+	for _, held := range u.EnvRoles[environment] {
+		if held == granted {
+			return nil
+		}
+	}
+	u.EnvRoles[environment] = append(u.EnvRoles[environment], granted)
+	return nil
+}
+
+func (m *memUsers) RevokeIn(_ context.Context, userID, environment string, revoked user.Role) error {
+	u, ok := m.byID[userID]
+	if !ok {
+		return user.ErrNotFound
+	}
+	// Revoking what was never granted is a no-op, as the repository's DELETE is.
+	if u.EnvRoles == nil {
+		return nil
+	}
+	var kept []user.Role
+	for _, held := range u.EnvRoles[environment] {
+		if held != revoked {
+			kept = append(kept, held)
+		}
+	}
+	u.EnvRoles[environment] = kept
+	return nil
 }

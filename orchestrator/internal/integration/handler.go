@@ -56,8 +56,7 @@ type updateRequest struct {
 }
 
 // integrationResponse is the wire representation of an integration. The
-// attribution fields are omitted when unknown. Its field layout mirrors the
-// domain Integration so toResponse is a direct conversion.
+// attribution fields are omitted when unknown.
 type integrationResponse struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -74,11 +73,22 @@ type integrationResponse struct {
 	UpdatedByName  *string `json:"updatedByName,omitempty"`
 }
 
-// toResponse maps the domain model to its wire form. The field layouts match,
-// so a direct conversion suffices; if they diverge this stops compiling, which
-// is the signal to write an explicit mapping.
+// toResponse maps the domain model to its wire form. The environment stays off
+// it: a caller reads an integration only in the environment it lives in.
 func toResponse(it Integration) integrationResponse {
-	return integrationResponse(it)
+	return integrationResponse{
+		ID:             it.ID,
+		Name:           it.Name,
+		Icon:           it.Icon,
+		Definition:     it.Definition,
+		LastUpdated:    it.LastUpdated,
+		CreatedBy:      it.CreatedBy,
+		UpdatedBy:      it.UpdatedBy,
+		CreatedByEmail: it.CreatedByEmail,
+		CreatedByName:  it.CreatedByName,
+		UpdatedByEmail: it.UpdatedByEmail,
+		UpdatedByName:  it.UpdatedByName,
+	}
 }
 
 // create godoc

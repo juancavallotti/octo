@@ -38,6 +38,7 @@ export interface OctoTokenFields {
   octoToken?: string;
   octoExpiresAt?: number;
   roles?: string[];
+  envRoles?: Record<string, string[]>;
   userId?: string;
 }
 
@@ -116,6 +117,7 @@ function fieldsFrom(minted: PlatformToken): OctoTokenFields {
     octoToken: minted.token,
     octoExpiresAt: new Date(minted.expiresAt).getTime(),
     roles: minted.user.roles,
+    envRoles: minted.user.envRoles,
     userId: minted.user.id,
   };
 }

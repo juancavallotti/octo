@@ -49,6 +49,9 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"deploymentId": "d1", "name": "billing", "tag": "v1.0.0", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": true},
 			map[string]any{"deploymentId": "d2", "name": "timer", "runtimeVersion": "0.11.13", "upgradeTo": "0.11.14", "hasSuites": false, "pinned": true},
 		}})
+	case r.URL.Path == "/v1/environments":
+		// What a key bound to stage is shown: its own environment and no other.
+		write(200, []any{map[string]any{"name": "stage", "displayName": "Staging", "namespace": "octo-stage", "default": false}})
 	case r.URL.Path == "/v1/runtimes":
 		write(200, map[string]any{"current": "0.11.14", "versions": []any{"0.11.14", "0.11.13"}})
 	case r.URL.Path == "/v1/integrations" && r.Method == http.MethodGet:

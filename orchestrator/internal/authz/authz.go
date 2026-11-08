@@ -12,10 +12,14 @@ package authz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/caller"
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 	httpx "github.com/juancavallotti/octo/orchestrator/internal/http"
 )
 
@@ -33,7 +37,7 @@ type checker interface {
 // routes nobody wrote a rule for — see required.
 func Wrap(v checker, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if exempt(r.URL.Path) {
+		if Exempt(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -74,9 +78,15 @@ func Wrap(v checker, next http.Handler) http.Handler {
 			return
 		}
 
+		ctx, roles, refusal := inEnvironment(r.Context(), principal, r.URL.Path)
+		if refusal != "" {
+			httpx.WriteError(w, http.StatusForbidden, refusal)
+			return
+		}
+
 		allowed := required(r.Method, r.URL.Path)
-		byRole := len(allowed) > 0 && principal.Has(allowed...)
-		byPipeline := principal.Has(RoleCICD) && pipelineMay(r.Method, r.URL.Path)
+		byRole := len(allowed) > 0 && holdsAny(roles, allowed)
+		byPipeline := holdsAny(roles, []string{RoleCICD}) && pipelineMay(r.Method, r.URL.Path)
 		if !byRole && !byPipeline {
 			// The roles are not named. What this install requires is not something an
 			// unauthorized caller should learn by asking.
@@ -85,8 +95,51 @@ func Wrap(v checker, next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(NewContext(r.Context(), principal)))
+		next.ServeHTTP(w, r.WithContext(NewContext(ctx, principal)))
 	})
+}
+
+// inEnvironment settles which environment the request acts in and the roles
+// the principal holds there, or explains why it may not act at all.
+//
+// A bound token — a deployment's, or one from a key — acts in its own
+// environment. Naming no environment means that one, so a pod need not send the
+// header; naming another is refused outright, whatever the roles would say.
+//
+// The environment routes are judged by every role the principal holds anywhere:
+// choosing an environment is how a caller finds the rest, and somebody who
+// works only in staging must be able to see that staging exists.
+func inEnvironment(ctx context.Context, principal Principal, path string) (context.Context, []string, string) {
+	if path == "/environments" || strings.HasPrefix(path, "/environments/") {
+		return ctx, principal.AnyRoles(), ""
+	}
+	environment := current.From(ctx)
+	if principal.Bound() {
+		if !current.Explicit(ctx) {
+			environment = principal.Environment
+			ctx = current.With(ctx, environment, false)
+		} else if environment != principal.Environment {
+			return ctx, nil, fmt.Sprintf("this token is bound to environment %q and cannot act in %q",
+				displayEnvironment(principal.Environment), displayEnvironment(environment))
+		}
+	}
+	return ctx, principal.RolesIn(environment), ""
+}
+
+func displayEnvironment(environment string) string {
+	if environment == "" {
+		return DefaultEnvironment
+	}
+	return environment
+}
+
+func holdsAny(held, wanted []string) bool {
+	for _, w := range wanted {
+		if slices.Contains(held, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewContext carries a verified caller on ctx. Wrap is what calls it in

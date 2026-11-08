@@ -73,6 +73,15 @@ type Principal struct {
 	// Deployment names the deployment a machine token belongs to, and is empty
 	// for a person's.
 	Deployment string
+	// APIKey names the key a token was exchanged for, and is empty for a token
+	// from a sign-in or a machine's.
+	APIKey string
+	// EnvRoles is what a person holds in each environment other than the
+	// default, whose roles are Roles. Never set on a bound token.
+	EnvRoles map[string][]string
+	// Environment is the one environment a bound token acts in, empty for the
+	// default. See Bound.
+	Environment string
 }
 
 // Has reports whether this principal holds any of roles.
@@ -113,7 +122,10 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	}
 
 	var claims struct {
-		Roles []string `json:"roles"`
+		Roles       []string            `json:"roles"`
+		APIKey      string              `json:"apiKey"`
+		EnvRoles    map[string][]string `json:"envRoles"`
+		Environment string              `json:"environment"`
 		// NotBefore is read here because nothing else reads it: go-oidc exposes
 		// `exp` and `iat` on the token and not `nbf`, and SkipExpiryCheck turns off
 		// what time checking it does. Without this a token stamped to become valid
@@ -129,9 +141,12 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		return Principal{}, fmt.Errorf("%w: the token is not valid yet", ErrUnauthenticated)
 	}
 	return Principal{
-		Subject:    token.Subject,
-		Roles:      claims.Roles,
-		Deployment: claims.Deployment,
+		Subject:     token.Subject,
+		Roles:       claims.Roles,
+		Deployment:  claims.Deployment,
+		APIKey:      claims.APIKey,
+		EnvRoles:    claims.EnvRoles,
+		Environment: claims.Environment,
 	}, nil
 }
 

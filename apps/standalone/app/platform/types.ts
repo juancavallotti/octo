@@ -11,6 +11,12 @@ export type Identity =
   | { state: "signed-in"; credential: "apiKey" | "oauth"; name: string; email: string; roles: string[] }
   | { state: "error"; message: string };
 
+/** An environment, as the platform names it; the default is marked, not guessed. */
+export interface EnvironmentView {
+  name: string;
+  default: boolean;
+}
+
 /** One installation of the platform: an octopaas profile. */
 export interface Installation {
   name: string;
@@ -19,6 +25,10 @@ export interface Installation {
   current: boolean;
   /** How it signs in, in octopaas's words. */
   auth: string;
+  /** The environment it acts in; "octo" is the default. */
+  environment: string;
+  /** The environments the installation can act in; null until it has answered. */
+  environments: EnvironmentView[] | null;
   identity: Identity;
 }
 
@@ -28,6 +38,8 @@ export interface FolderLink {
   url: string;
   integrationId: string;
   integrationName: string;
+  /** The environment it came from; absent on a link written before environments, which is the default's. */
+  environment?: string;
   pulledTag?: string;
   linkedAt: number;
 }
@@ -137,6 +149,7 @@ export interface PaasBridge {
   addProfile(name: string, url: string, key?: string): Promise<PlatformState>;
   setKey(name: string, key: string): Promise<PlatformState>;
   useProfile(name: string): Promise<PlatformState>;
+  useEnvironment(name: string, environment: string): Promise<PlatformState>;
   removeProfile(name: string): Promise<PlatformState>;
   signIn(name: string): Promise<PlatformState>;
   signOut(name: string): Promise<PlatformState>;

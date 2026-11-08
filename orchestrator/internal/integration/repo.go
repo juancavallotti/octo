@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
+
+	"github.com/juancavallotti/octo/orchestrator/internal/environment/current"
 )
 
 // DefaultConfigPath is the config file Create writes a new integration's
@@ -32,7 +34,7 @@ const configFiles = `
 // and last-editor users (aliases cu/uu) to resolve display email/name; the base
 // integration row is aliased i (real table or a CTE over a write).
 const selectColumns = `i.id, i.name, i.icon, i.last_updated, i.created_by, i.updated_by,
-	cu.email, cu.name, uu.email, uu.name,` + configFiles
+	cu.email, cu.name, uu.email, uu.name, COALESCE(i.environment, ''),` + configFiles
 
 // userJoins resolves the created_by/updated_by user ids to display fields. It
 // requires the base row to be aliased i.
@@ -41,7 +43,7 @@ const userJoins = `LEFT JOIN users cu ON cu.id = i.created_by
 
 // writeReturning is the RETURNING list for an insert/update, exposing the base
 // columns a following CTE join needs (aliased i in selectColumns).
-const writeReturning = "id, name, icon, last_updated, created_by, updated_by"
+const writeReturning = "id, name, icon, last_updated, created_by, updated_by, environment"
 
 // Repo persists integrations to Postgres.
 type Repo struct {
@@ -65,12 +67,12 @@ func (r *Repo) Create(ctx context.Context, name, definition, actorID string) (In
 	it, err := inTx(ctx, r.pool, func(tx pgx.Tx) (Integration, error) {
 		row := tx.QueryRow(ctx,
 			`WITH i AS (
-				INSERT INTO integrations (name, created_by, updated_by)
-				VALUES ($1, NULLIF($2, '')::uuid, NULLIF($2, '')::uuid)
+				INSERT INTO integrations (name, created_by, updated_by, environment)
+				VALUES ($1, NULLIF($2, '')::uuid, NULLIF($2, '')::uuid, $3)
 				RETURNING `+writeReturning+`
 			)
 			SELECT `+selectColumns+` FROM i `+userJoins,
-			name, actorID,
+			name, actorID, current.Column(ctx),
 		)
 		created, scanErr := scanIntegration(row)
 		if scanErr != nil {
@@ -101,8 +103,9 @@ func (r *Repo) NameExists(ctx context.Context, name, excludeID string) (bool, er
 		`SELECT EXISTS(
 			SELECT 1 FROM integrations
 			WHERE lower(name) = lower($1) AND ($2 = '' OR id::text <> $2)
+			  AND environment IS NOT DISTINCT FROM $3
 		)`,
-		name, excludeID,
+		name, excludeID, current.Column(ctx),
 	).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("integration repo: name exists: %w", err)
@@ -128,7 +131,9 @@ func (r *Repo) Get(ctx context.Context, id string) (Integration, error) {
 // List returns all integrations ordered by name. (Pagination is deferred.)
 func (r *Repo) List(ctx context.Context) ([]Integration, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT `+selectColumns+` FROM integrations i `+userJoins+` ORDER BY i.name`,
+		`SELECT `+selectColumns+` FROM integrations i `+userJoins+`
+		 WHERE i.environment IS NOT DISTINCT FROM $1 ORDER BY i.name`,
+		current.Column(ctx),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("integration repo: list: %w", err)
@@ -217,6 +222,7 @@ func scanIntegration(row pgx.Row) (Integration, error) {
 		&it.CreatedBy, &it.UpdatedBy,
 		&it.CreatedByEmail, &it.CreatedByName,
 		&it.UpdatedByEmail, &it.UpdatedByName,
+		&it.Environment,
 		&paths, &contents,
 	); err != nil {
 		return Integration{}, err

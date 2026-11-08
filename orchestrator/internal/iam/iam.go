@@ -53,6 +53,9 @@ func (c *Client) Configured() bool { return c != nil && c.baseURL != "" }
 // MintMachine asks iam for a token belonging to deployment, on the authority of
 // the caller's own token.
 //
+// `environment` is the one the deployment runs in, and the only one its token
+// will act in; empty is the default.
+//
 // `access` is what the deployment is being lent beyond its own stores; empty
 // lends nothing more. It is a request, not an instruction: iam decides whether
 // this caller may lend it and refuses if not.
@@ -61,7 +64,7 @@ func (c *Client) Configured() bool { return c != nil && c.baseURL != "" }
 // iam's decision, stamped into claims the orchestrator verifies at the other end
 // rather than a shape this caller chose.
 func (c *Client) MintMachine(
-	ctx context.Context, callerToken, deployment string, access []string,
+	ctx context.Context, callerToken, deployment, environment string, access []string,
 ) (string, error) {
 	if !c.Configured() {
 		return "", fmt.Errorf("iam: no address is configured")
@@ -71,6 +74,9 @@ func (c *Client) MintMachine(
 	}
 
 	request := map[string]any{"deployment": deployment}
+	if environment != "" {
+		request["environment"] = environment
+	}
 	if len(access) > 0 {
 		request["access"] = access
 	}
