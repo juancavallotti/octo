@@ -42,10 +42,8 @@ func registerConnector() {
 	})
 
 	// Package-level editor defaults: the odoo connector and every odoo-* block
-	// share the Odoo palette group and icon unless they set their own. The icon
-	// is lucide's Briefcase rather than a brand mark: lucide ships none for Odoo,
-	// and an approximated one would be trademark artwork nobody verified.
-	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: paletteIcon})
+	// share the Odoo palette group and icon unless they set their own.
+	core.RegisterExtension(core.ExtensionMeta{Group: displayName, Icon: displayName})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     connectorType,
@@ -54,14 +52,9 @@ func registerConnector() {
 	})
 }
 
-const (
-	// displayName is the editor-facing label and palette group for the odoo
-	// connector and its blocks.
-	displayName = "Odoo"
-	// paletteIcon is the editor icon they share. It is a lucide name, not a brand
-	// mark: see registerConnector.
-	paletteIcon = "Briefcase"
-)
+// displayName is the editor-facing label, palette group, and icon for the odoo
+// connector and its blocks.
+const displayName = "Odoo"
 
 const (
 	// version19 selects the JSON-2 API, introduced in Odoo 19.

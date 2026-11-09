@@ -28,7 +28,6 @@ import {
   FileText,
   Terminal,
   Box,
-  Briefcase,
   ScatterChart,
   KeyRound,
   Leaf,
@@ -41,6 +40,7 @@ import { DrOctoIcon } from "./dr-octo-icon";
 import { PineconeIcon } from "./pinecone-icon";
 import { TavilyIcon } from "./tavily-icon";
 import { ParallelIcon } from "./parallel-icon";
+import { OdooIcon } from "./odoo-icon";
 import capsJson from "./capabilities.json";
 import type {
   BlockSpec,
@@ -122,12 +122,11 @@ const ICONS: Record<string, LucideIcon> = {
   Pinecone: PineconeIcon,
   Tavily: TavilyIcon,
   Parallel: ParallelIcon,
+  Odoo: OdooIcon,
   // MongoDB has no lucide brand icon, and an approximated one would be
   // trademark artwork nobody verified. Leaf is the nearest honest stand-in —
   // it echoes the shape of MongoDB's own mark without claiming to be it.
   Leaf,
-  // Odoo, likewise: Briefcase stands for the business apps it runs.
-  Briefcase,
 };
 
 /** Resolve a block's icon name to a component, falling back to a generic box. */
