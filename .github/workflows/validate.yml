@@ -196,7 +196,7 @@ jobs:
       - uses: azure/setup-helm@v4
         with:
           # renovate: datasource=github-releases depName=helm/helm
-          version: v3.21.3
+          version: v3.22.1
       - name: Install kubeconform and Task
         env:
           # renovate: datasource=github-releases depName=yannh/kubeconform
@@ -225,7 +225,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           # renovate: datasource=github-releases depName=hashicorp/terraform extractVersion=^v(?<version>.*)$
-          terraform_version: 1.10.5
+          terraform_version: v1.17.1
           terraform_wrapper: false
       - name: Install Task
         run: |
