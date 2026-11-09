@@ -29,6 +29,9 @@ func init() {
 	registerCall()
 	registerSearchRead()
 	registerRead()
+	registerCreate()
+	registerWrite()
+	registerDelete()
 }
 
 const connectorType = "odoo"
