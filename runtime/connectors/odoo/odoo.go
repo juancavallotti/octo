@@ -27,6 +27,8 @@ import (
 func init() {
 	registerConnector()
 	registerCall()
+	registerSearchRead()
+	registerRead()
 }
 
 const connectorType = "odoo"
