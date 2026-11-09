@@ -11,6 +11,7 @@
     "crypto",
     "slack",
     "notion",
+    "odoo",
     "llm",
     "pinecone",
     "tavily",

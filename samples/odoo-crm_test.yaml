@@ -1,0 +1,72 @@
+# Tests the capture-lead flow's claim: a contact is reused when one already has
+# the email and created when none does, and the lead is opened against whichever
+# contact that was.
+#
+# Every odoo block reports through a result variable and leaves the body alone,
+# so each mock hands back the body it was given beside the variable the real
+# block would have set. The last case unmocks the first block instead, to prove
+# the flow really reaches Odoo.
+flow: capture-lead
+
+inputs:
+  form:
+    data:
+      name: Ada Lovelace
+      email: ada@example.com
+      subject: Engines
+      message: Need a quote
+
+mocks:
+  capture-lead.create-lead:
+    default:
+      body: { name: Ada Lovelace, email: ada@example.com, subject: Engines, message: Need a quote }
+      vars: { lead: [12] }
+  capture-lead.note-source:
+    default:
+      body: { name: Ada Lovelace, email: ada@example.com, subject: Engines, message: Need a quote }
+      vars: { note: [90] }
+
+cases:
+  - name: an unknown email creates the contact, then the lead
+    input: form
+    mocks:
+      capture-lead.find-contact:
+        default:
+          body: { name: Ada Lovelace, email: ada@example.com, subject: Engines, message: Need a quote }
+          vars: { contacts: [] }
+      capture-lead.contact-exists[else].create-contact:
+        default:
+          body: { name: Ada Lovelace, email: ada@example.com, subject: Engines, message: Need a quote }
+          vars: { newContact: [5] }
+    spies:
+      capture-lead.contact-exists[else].create-contact:
+        count: 1
+      capture-lead.create-lead:
+        count: 1
+        records:
+          # The lead names the contact just created — the id the create answered.
+          - input:
+              vars: { partnerId: 5 }
+    expect:
+      body: { leadId: 12, partnerId: 5 }
+
+  - name: a known email reuses the contact
+    input: form
+    mocks:
+      capture-lead.find-contact:
+        default:
+          body: { name: Ada Lovelace, email: ada@example.com, subject: Engines, message: Need a quote }
+          vars: { contacts: [{ id: 3 }] }
+    spies:
+      capture-lead.contact-exists[else].create-contact:
+        count: 0
+    expect:
+      body: { leadId: 12, partnerId: 3 }
+
+  - name: the lookup really reaches Odoo, and an unreachable server fails the flow
+    input: form
+    env:
+      # Nothing listens on the discard port. The block is deliberately NOT mocked.
+      ODOO_URL: http://127.0.0.1:9
+    expect:
+      error: "odoo-search-read"

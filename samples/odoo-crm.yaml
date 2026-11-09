@@ -1,0 +1,204 @@
+service:
+  name: odoo-crm
+
+# An Odoo integration over HTTP: capture a lead from a web form, read it back,
+# and turn a request into a confirmed sales order. Between them the flows use
+# every odoo block, and show the pattern the connector rests on — every Odoo app
+# is a set of models, and every model takes the same calls — so the blocks that
+# reach CRM here reach Inventory, Invoicing or a custom module the same way.
+#
+# It needs the Contacts, CRM and Sales apps installed, and an API key
+# (Preferences > Account Security > New API Key in Odoo).
+#
+#   export ODOO_URL=https://mycompany.odoo.com
+#   export ODOO_API_KEY=...
+#   # Odoo 18 and earlier: the legacy endpoint needs the database and login too.
+#   # export ODOO_VERSION=18 ODOO_DATABASE=mycompany ODOO_USERNAME=admin@example.com
+#   octo run --config samples/odoo-crm.yaml
+#
+#   # capture a lead; the contact is reused when one already has that email:
+#   curl -s -X POST localhost:8080/leads \
+#     -d '{"name":"Ada Lovelace","email":"ada@example.com","subject":"Engines","message":"Need a quote"}'
+#   # read it back, with the id from the response:
+#   curl -s localhost:8080/leads/42
+#   # quote a product to a contact and confirm it in one step:
+#   curl -s -X POST localhost:8080/quotes -d '{"email":"ada@example.com","productId":7,"quantity":3}'
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+  - name: ODOO_VERSION
+    default: "19"
+  # Empty is right for Odoo 19 on a server with one database.
+  - name: ODOO_DATABASE
+    default: ""
+  - name: ODOO_USERNAME
+    default: ""
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+  - name: odoo
+    type: odoo
+    settings:
+      version: "${ODOO_VERSION}"
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+      database: ${ODOO_DATABASE}
+      username: ${ODOO_USERNAME}
+
+flows:
+  # POST /leads: find or create the contact by email, open a lead for it, and
+  # note on the lead's chatter where it came from.
+  - name: capture-lead
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /leads
+        methods: [POST]
+    process:
+      - type: odoo-search-read
+        name: find-contact
+        settings:
+          connector: odoo
+          model: '"res.partner"'
+          domain: '[["email", "=ilike", body.email]]'
+          fields: [id]
+          limit: 1
+          resultVar: contacts
+
+      - type: if
+        name: contact-exists
+        condition: size(vars.contacts) > 0
+        then:
+          process:
+            - type: set-variable
+              name: reuse-contact
+              settings:
+                name: partnerId
+                value: vars.contacts[0].id
+        else:
+          process:
+            # odoo-create answers a list of new ids, one record or many.
+            - type: odoo-create
+              name: create-contact
+              settings:
+                connector: odoo
+                model: '"res.partner"'
+                values: '{"name": body.name, "email": body.email}'
+                resultVar: newContact
+            - type: set-variable
+              name: new-contact
+              settings:
+                name: partnerId
+                value: vars.newContact[0]
+
+      - type: odoo-create
+        name: create-lead
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          values: |
+            {"name": body.subject, "partner_id": vars.partnerId,
+             "email_from": body.email, "description": body.message}
+          resultVar: lead
+
+      # Anything a model offers beyond create/read/write/delete goes through
+      # odoo-call — here, posting an internal note to the lead's chatter.
+      - type: odoo-call
+        name: note-source
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"message_post"'
+          ids: vars.lead
+          params: '{"body": "Captured from the website form", "subtype_xmlid": "mail.mt_note"}'
+          resultVar: note
+
+      - type: set-payload
+        name: respond
+        settings:
+          value: '{"leadId": vars.lead[0], "partnerId": vars.partnerId}'
+
+  # GET /leads/{id}: the lead's pipeline fields. Relational fields come back as
+  # Odoo sends them — stage_id is [id, "Name"].
+  - name: get-lead
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /leads/{id}
+        methods: [GET]
+    process:
+      - type: odoo-read
+        name: read-lead
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          ids: int(vars.id)
+          fields: [name, partner_id, email_from, stage_id, probability, expected_revenue]
+
+  # POST /quotes: a sales order for an existing contact with one order line, then
+  # confirmed. Order lines are an x2many field, so they are written as Odoo's
+  # command list: [0, 0, values] creates a line.
+  - name: create-quote
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /quotes
+        methods: [POST]
+    process:
+      - type: odoo-search-read
+        name: find-customer
+        settings:
+          connector: odoo
+          model: '"res.partner"'
+          domain: '[["email", "=ilike", body.email]]'
+          fields: [id]
+          limit: 1
+          resultVar: customers
+
+      - type: if
+        name: customer-known
+        condition: size(vars.customers) > 0
+        then:
+          process:
+            - type: odoo-create
+              name: create-order
+              settings:
+                connector: odoo
+                model: '"sale.order"'
+                values: |
+                  {"partner_id": vars.customers[0].id,
+                   "order_line": [[0, 0, {"product_id": body.productId,
+                                          "product_uom_qty": body.quantity}]]}
+                resultVar: order
+            - type: odoo-call
+              name: confirm-order
+              settings:
+                connector: odoo
+                model: '"sale.order"'
+                method: '"action_confirm"'
+                ids: vars.order
+                resultVar: confirmed
+            - type: odoo-read
+              name: read-order
+              settings:
+                connector: odoo
+                model: '"sale.order"'
+                ids: vars.order
+                fields: [name, state, amount_total]
+        else:
+          process:
+            - type: set-payload
+              name: unknown-customer
+              settings:
+                value: '{"error": "no contact with email " + body.email}'

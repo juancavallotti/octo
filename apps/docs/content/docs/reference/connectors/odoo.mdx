@@ -1,0 +1,261 @@
+---
+title: "Odoo"
+description: "Read and change records in any Odoo app, on Odoo 19 or Odoo 18 and earlier."
+octo_types:
+  - odoo
+  - odoo-call
+  - odoo-search-read
+  - odoo-read
+  - odoo-create
+  - odoo-write
+  - odoo-delete
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `odoo` connector holds an Odoo API key and calls an Odoo server; its blocks search, read, create, update and delete records, and call any other method a model offers. Every Odoo app — Contacts, CRM, Sales, Invoicing, Inventory, a custom module — is a set of models that all take the same calls, so these blocks reach every installed app without app-specific configuration.
+
+## `odoo` connector
+
+The connector provides no source. Every `odoo-*` block binds to it by name.
+
+### Settings
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `version` | `19` \| `18` | No | `19` | Odoo server version, which selects the protocol. See [Versions](#versions). |
+| `url` | string | Yes | none | Base URL of the Odoo server, e.g. `https://mycompany.odoo.com`. |
+| `apiKey` | string | Yes | none | API key of the Odoo user the flow acts as. |
+| `database` | string | Version 18 | none | Database to use. Version 19 needs it only when the server hosts more than one database. |
+| `username` | string | Version 18 | none | Login of the user the API key belongs to. |
+| `timeout` | duration | No | `30s` | Bounds each Odoo call. |
+
+Create the API key in Odoo under **Preferences → Account Security → New API Key**. Every call runs as that key's user, with that user's access rights and record rules, so create a dedicated user for an integration and give it only the apps it needs.
+
+```yaml
+env:
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+
+connectors:
+  - name: odoo
+    type: odoo
+    settings:
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+```
+
+The connector makes no request when it starts: a wrong key or URL surfaces on the first call, as a flow error.
+
+<Callout type="info">
+On Odoo Online, the external API is not available on every subscription plan. Check that yours includes it before you build against it.
+</Callout>
+
+### Versions
+
+Odoo 19 introduced the JSON-2 API, and Odoo 18 and earlier serve only the older JSON-RPC endpoint. `version` picks which one the connector speaks; the blocks behave the same on both.
+
+| | `version: 19` | `version: 18` |
+| --- | --- | --- |
+| Endpoint | `POST /json/2/<model>/<method>` | `POST /jsonrpc` (`execute_kw`) |
+| Authentication | API key as a bearer token | Database, username and API key |
+| Servers | Odoo 19 and later | Odoo 14 to 18, and Odoo 19, which still accepts it |
+
+```yaml
+  - name: odoo
+    type: odoo
+    settings:
+      version: 18
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+      database: ${ODOO_DATABASE}
+      username: ${ODOO_USERNAME}
+```
+
+The version 18 connector looks up the user's id on its first call and reuses it. A failed lookup is not remembered, so a key you fix in Odoo takes effect without a restart.
+
+### Results and errors
+
+Every block follows one rule for its result: it becomes the message body, unless you name a `resultVar`, in which case it goes there and the body is left alone.
+
+Results are Odoo's own values, unchanged:
+
+- A many2one field reads as `[id, "Display Name"]`, e.g. `"stage_id": [1, "New"]`.
+- A one2many or many2many field reads as a list of ids.
+- An empty field reads as `false`, not `null`, whatever its type.
+
+Wherever a block takes record ids, it accepts one id, a list of ids, or a many2one value, so `vars.lead[0].partner_id` can name the partner directly.
+
+Every block has a `failOnError` setting (default `true`). When Odoo reports an error — access denied, a validation error, an unknown method — the flow [fails](/concepts/error-handling) with the Odoo exception name and message, e.g. `odoo.exceptions.ValidationError: Contacts require a name`. With `failOnError: false` the message passes through unchanged.
+
+### Context
+
+Every block takes an optional `context`, a CEL expression producing Odoo's call context. Use it to choose the language of translated fields, the timezone, or the companies a multi-company user acts in:
+
+```yaml
+context: '{"lang": "es_AR", "allowed_company_ids": [2]}'
+```
+
+## `odoo-search-read` block
+
+Find the records of a model that match a domain, and read their fields. The result is a list, `[]` when nothing matched.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `odoo` connector to use. |
+| `model` | CEL | Yes | none | Model to search, e.g. `"res.partner"`. |
+| `domain` | CEL | No | match everything | Odoo domain, a list of `[field, operator, value]` conditions. |
+| `fields` | list of strings | No | every field | Fields to read. |
+| `limit` | int | No | all | Most records to return. |
+| `offset` | int | No | `0` | Records to skip before returning any. |
+| `order` | string | No | the model's default | Sort specification, e.g. `create_date desc, id`. |
+| `context` | CEL | No | none | Call [context](#context). |
+| `resultVar` | string | No | none | Store the result here instead of in the body. |
+| `failOnError` | bool | No | `true` | Turn an Odoo error into a flow error. |
+
+```yaml
+  - type: odoo-search-read
+    settings:
+      connector: odoo
+      model: '"res.partner"'
+      domain: '[["email", "=ilike", body.email]]'
+      fields: [id, name]
+      limit: 1
+```
+
+Conditions in a domain are joined with AND. Put `"|"` before two conditions to OR them: `'["|", ["email", "=", body.email], ["phone", "=", body.phone]]'`. Set `fields` on every call: reading every field of a model like `res.partner` returns well over a hundred of them.
+
+## `odoo-read` block
+
+Read records by id. The result is a list of records.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `odoo` connector to use. |
+| `model` | CEL | Yes | none | Model to read. |
+| `ids` | CEL | Yes | none | A record id, a list of them, or a many2one value. |
+| `fields` | list of strings | No | every field | Fields to read. |
+| `context` | CEL | No | none | Call [context](#context). |
+| `resultVar` | string | No | none | Store the result here instead of in the body. |
+| `failOnError` | bool | No | `true` | Turn an Odoo error into a flow error. |
+
+```yaml
+  - type: odoo-read
+    settings:
+      connector: odoo
+      model: '"crm.lead"'
+      ids: int(vars.id)
+      fields: [name, partner_id, stage_id, expected_revenue]
+```
+
+## `odoo-create` block
+
+Create one record from an object, or several from a list of them. The result is always a list of the new ids, so one record reads as `vars.lead[0]`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `odoo` connector to use. |
+| `model` | CEL | Yes | none | Model to create records in. |
+| `values` | CEL | Yes | none | Field values, or a list of them. |
+| `context` | CEL | No | none | Call [context](#context). |
+| `resultVar` | string | No | none | Store the new ids here instead of in the body. |
+| `failOnError` | bool | No | `true` | Turn an Odoo error into a flow error. |
+
+Values use Odoo's write format: a many2one field takes an id, and a one2many or many2many field takes a list of commands. `[0, 0, {...}]` creates a linked record, `[4, id]` links an existing one, and `[6, 0, [ids]]` replaces the whole set.
+
+```yaml
+  - type: odoo-create
+    settings:
+      connector: odoo
+      model: '"sale.order"'
+      values: |
+        {"partner_id": vars.partnerId,
+         "order_line": [[0, 0, {"product_id": body.productId,
+                                "product_uom_qty": body.quantity}]]}
+      resultVar: order
+```
+
+## `odoo-write` block
+
+Set the same values on records by id. The result is `true`.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `odoo` connector to use. |
+| `model` | CEL | Yes | none | Model to update. |
+| `ids` | CEL | Yes | none | A record id, a list of them, or a many2one value. |
+| `values` | CEL | Yes | none | Field values to set, in the same format as `odoo-create`. |
+| `context` | CEL | No | none | Call [context](#context). |
+| `resultVar` | string | No | none | Store the result here instead of in the body. |
+| `failOnError` | bool | No | `true` | Turn an Odoo error into a flow error. |
+
+```yaml
+  - type: odoo-write
+    settings:
+      connector: odoo
+      model: '"crm.lead"'
+      ids: body.leadId
+      values: '{"priority": "2", "tag_ids": [[4, body.tagId]]}'
+```
+
+## `odoo-delete` block
+
+Delete records by id. The result is `true`. Odoo refuses to delete some records outright, such as a confirmed sales order or a posted invoice; cancel those with [`odoo-call`](#odoo-call-block) instead.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `odoo` connector to use. |
+| `model` | CEL | Yes | none | Model to delete from. |
+| `ids` | CEL | Yes | none | A record id, a list of them, or a many2one value. |
+| `context` | CEL | No | none | Call [context](#context). |
+| `resultVar` | string | No | none | Store the result here instead of in the body. |
+| `failOnError` | bool | No | `true` | Turn an Odoo error into a flow error. |
+
+## `odoo-call` block
+
+Call any public method of a model: on the model itself, or on records when you set `ids`. The result is whatever the method returns. Use it for everything the other blocks do not cover: confirming an order, posting an invoice, writing to a record's chatter, or a method a custom module adds.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `odoo` connector to use. |
+| `model` | CEL | Yes | none | Model to call. |
+| `method` | CEL | Yes | none | Method to call, e.g. `"action_confirm"`. |
+| `ids` | CEL | No | none | Records to call the method on. Without it the method runs on the model. |
+| `params` | CEL | No | none | The method's arguments by name, as an object. |
+| `context` | CEL | No | none | Call [context](#context). |
+| `resultVar` | string | No | none | Store the result here instead of in the body. |
+| `failOnError` | bool | No | `true` | Turn an Odoo error into a flow error. |
+
+```yaml
+  # Post an internal note on a lead's chatter.
+  - type: odoo-call
+    settings:
+      connector: odoo
+      model: '"crm.lead"'
+      method: '"message_post"'
+      ids: vars.lead
+      params: '{"body": "Captured from the website form", "subtype_xmlid": "mail.mt_note"}'
+```
+
+Arguments are always passed by name. On `version: 18`, a custom method that reads its first argument positionally (as Odoo's own batch `create` does) does not receive it by name; the connector handles `create` itself, but a custom method of that kind needs a named-argument wrapper on the Odoo side.
+
+## Common models
+
+The blocks take any model name. These are the models behind the most-used apps, and the calls that move their records along:
+
+| App | Model | Typical calls |
+| --- | --- | --- |
+| Contacts | `res.partner` | Find a contact by email, create or update it. |
+| CRM | `crm.lead` | Create a lead from a form; `write` its `stage_id` to move it along the pipeline. |
+| Sales | `sale.order`, `sale.order.line` | Create a quotation with lines; `action_confirm` turns it into an order. |
+| Invoicing | `account.move` | Create a customer invoice (`move_type: "out_invoice"`); `action_post` posts it; read `payment_state` to see whether it is paid. |
+| Inventory | `product.product`, `stock.quant`, `stock.picking` | Read products and on-hand quantities; validate a transfer with `button_validate`. |
+| Purchase | `purchase.order` | Create a request for quotation; `button_confirm` confirms it. |
+| Project | `project.task` | Create and update tasks. |
+| Helpdesk (Enterprise) | `helpdesk.ticket` | Create tickets and move their stage. |
+| Employees | `hr.employee` | Read the employee directory. |
+| Any model with a chatter | `mail.thread` methods | `message_post` writes a message or note on the record. |
+
+To find a model's fields, call `fields_get` through `odoo-call` with `params: '{"attributes": ["string", "type", "required"]}'`, or turn on developer mode in Odoo and hover over any field.

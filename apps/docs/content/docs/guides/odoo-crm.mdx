@@ -1,0 +1,200 @@
+---
+title: "Odoo CRM and Sales"
+description: "Capture leads and confirm sales orders in Odoo with the odoo connector."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+This guide wires an HTTP API to Odoo: capture a lead from a web form, read it back, and turn a request into a confirmed sales order. It follows
+[`samples/odoo-crm.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/odoo-crm.yaml)
+and uses every block of the [`odoo`](/reference/connectors/odoo) connector.
+
+You need an Odoo server with the Contacts, CRM and Sales apps installed, and an API key from **Preferences → Account Security → New API Key**.
+
+## Declare the connector
+
+The connector needs the server URL and the API key. On Odoo 18 and earlier, it also needs the database and the login the key belongs to, so the sample reads all of them from the environment:
+
+```yaml
+env:
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+  - name: ODOO_VERSION
+    default: "19"
+  - name: ODOO_DATABASE
+    default: ""
+  - name: ODOO_USERNAME
+    default: ""
+
+connectors:
+  - name: odoo
+    type: odoo
+    settings:
+      version: "${ODOO_VERSION}"
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+      database: ${ODOO_DATABASE}
+      username: ${ODOO_USERNAME}
+```
+
+Run it:
+
+```bash
+export ODOO_URL=https://mycompany.odoo.com
+export ODOO_API_KEY=...
+# Odoo 18 and earlier:
+# export ODOO_VERSION=18 ODOO_DATABASE=mycompany ODOO_USERNAME=admin@example.com
+octo run --config samples/odoo-crm.yaml
+```
+
+## Capture a lead
+
+`POST /leads` finds the contact by email, creates it when there is none, and opens a lead against it. Start with the lookup. `=ilike` matches the email case-insensitively, and `fields: [id]` keeps the answer small:
+
+```yaml
+- type: odoo-search-read
+  name: find-contact
+  settings:
+    connector: odoo
+    model: '"res.partner"'
+    domain: '[["email", "=ilike", body.email]]'
+    fields: [id]
+    limit: 1
+    resultVar: contacts
+```
+
+Then branch. `odoo-create` answers a list of new ids even for one record, so the new contact's id is `vars.newContact[0]`:
+
+```yaml
+- type: if
+  name: contact-exists
+  condition: size(vars.contacts) > 0
+  then:
+    process:
+      - type: set-variable
+        settings:
+          name: partnerId
+          value: vars.contacts[0].id
+  else:
+    process:
+      - type: odoo-create
+        name: create-contact
+        settings:
+          connector: odoo
+          model: '"res.partner"'
+          values: '{"name": body.name, "email": body.email}'
+          resultVar: newContact
+      - type: set-variable
+        settings:
+          name: partnerId
+          value: vars.newContact[0]
+```
+
+Create the lead. `partner_id` is a many2one field, so it takes the contact's id:
+
+```yaml
+- type: odoo-create
+  name: create-lead
+  settings:
+    connector: odoo
+    model: '"crm.lead"'
+    values: |
+      {"name": body.subject, "partner_id": vars.partnerId,
+       "email_from": body.email, "description": body.message}
+    resultVar: lead
+```
+
+Anything a model offers beyond create, read, write and delete goes through `odoo-call`. Here it posts an internal note to the lead's chatter:
+
+```yaml
+- type: odoo-call
+  name: note-source
+  settings:
+    connector: odoo
+    model: '"crm.lead"'
+    method: '"message_post"'
+    ids: vars.lead
+    params: '{"body": "Captured from the website form", "subtype_xmlid": "mail.mt_note"}'
+```
+
+Try it:
+
+```bash
+curl -s -X POST localhost:8080/leads \
+  -d '{"name":"Ada Lovelace","email":"ada@example.com","subject":"Engines","message":"Need a quote"}'
+# {"leadId":2,"partnerId":12}
+```
+
+Send it again with the same email and you get a second lead with the same `partnerId`.
+
+## Read a lead
+
+`GET /leads/{id}` reads the lead's pipeline fields. The path parameter arrives as a string, so `int()` turns it into an id:
+
+```yaml
+- type: odoo-read
+  settings:
+    connector: odoo
+    model: '"crm.lead"'
+    ids: int(vars.id)
+    fields: [name, partner_id, email_from, stage_id, probability, expected_revenue]
+```
+
+```bash
+curl -s localhost:8080/leads/2
+# [{"id":2,"name":"Engines","partner_id":[12,"Ada Lovelace"],"stage_id":[1,"New"], ...}]
+```
+
+Relational fields come back as Odoo sends them: `stage_id` is `[id, "Name"]`. Any block that takes `ids` accepts that pair as it is.
+
+## Confirm a sales order
+
+`POST /quotes` creates a quotation for an existing contact and confirms it. Order lines are a one2many field, so they are written as Odoo's command list, where `[0, 0, values]` creates a line:
+
+```yaml
+- type: odoo-create
+  name: create-order
+  settings:
+    connector: odoo
+    model: '"sale.order"'
+    values: |
+      {"partner_id": vars.customers[0].id,
+       "order_line": [[0, 0, {"product_id": body.productId,
+                              "product_uom_qty": body.quantity}]]}
+    resultVar: order
+- type: odoo-call
+  name: confirm-order
+  settings:
+    connector: odoo
+    model: '"sale.order"'
+    method: '"action_confirm"'
+    ids: vars.order
+    resultVar: confirmed
+- type: odoo-read
+  settings:
+    connector: odoo
+    model: '"sale.order"'
+    ids: vars.order
+    fields: [name, state, amount_total]
+```
+
+```bash
+curl -s -X POST localhost:8080/quotes -d '{"email":"ada@example.com","productId":7,"quantity":3}'
+# [{"id":1,"name":"S00001","state":"sale","amount_total":86.25}]
+```
+
+`state: "sale"` is a confirmed order. The same pattern drives the other apps: create an `account.move` and call `action_post` to post an invoice, or call `button_validate` on a `stock.picking` to validate a delivery. The [connector reference](/reference/connectors/odoo#common-models) lists the models behind the common apps.
+
+## Test it
+
+[`samples/odoo-crm_test.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/odoo-crm_test.yaml) tests the lead flow without a server. It mocks each `odoo-*` block, checks that a known email reuses the contact and an unknown one creates it, and runs one case against a refused port to prove the lookup really goes out:
+
+```bash
+dolphin test samples/odoo-crm_test.yaml --env-file samples/.env.test
+```
+
+<Callout type="info">
+The connector makes no request at startup, so a suite can build the flow with a fake key. Only blocks that actually run reach the server.
+</Callout>
