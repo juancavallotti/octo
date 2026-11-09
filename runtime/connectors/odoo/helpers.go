@@ -143,16 +143,16 @@ func evalMap(program *expr.Program, activation map[string]any) (map[string]any, 
 	return m, nil
 }
 
-// evalIDs evaluates a record-id expression: one id or a list of them. The
-// result is never nil, so a block that names ids always calls a recordset, an
-// empty list included.
+// evalIDs evaluates a record-id expression: one id, a list of them, or a
+// many2one value. The result is never nil, so a block that names ids always
+// calls a recordset, an empty list included.
 func evalIDs(program *expr.Program, activation map[string]any) ([]int64, error) {
 	value, err := program.Eval(activation)
 	if err != nil {
 		return nil, err
 	}
 	list, isList := value.([]any)
-	if !isList {
+	if !isList || isMany2one(list) {
 		list = []any{value}
 	}
 	ids := make([]int64, 0, len(list))
@@ -166,6 +166,17 @@ func evalIDs(program *expr.Program, activation map[string]any) ([]int64, error) 
 	return ids, nil
 }
 
+// isMany2one reports whether a list is a many2one value, [id, "Display Name"],
+// rather than a list of ids: a list of ids never holds a string.
+func isMany2one(list []any) bool {
+	if len(list) != 2 {
+		return false
+	}
+	_, isNumber := list[0].(float64)
+	_, isName := list[1].(string)
+	return isNumber && isName
+}
+
 // toID converts one evaluated value to a record id. CEL numbers arrive as
 // float64; a many2one value ([id, "Name"]) contributes its id, so a field read
 // from one record can name another without unpacking it first.
@@ -177,7 +188,7 @@ func toID(value any) (int64, error) {
 		}
 		return int64(v), nil
 	case []any:
-		if len(v) == 2 {
+		if isMany2one(v) {
 			return toID(v[0])
 		}
 	}

@@ -149,6 +149,14 @@ func (c *jsonrpcClient) rpc(ctx context.Context, req Request, service, method st
 		}
 		return nil, &Error{Model: req.Model, Method: req.Method, Name: se.Name, Message: se.Message}
 	}
+	// Odoo reports its own failures as HTTP 200 with an error member, so an error
+	// status without one comes from something in front of it (a proxy, a gateway).
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, &Error{
+			Model: req.Model, Method: req.Method,
+			Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, snippet(payload)),
+		}
+	}
 	var result any
 	if len(env.Result) > 0 {
 		if err := json.Unmarshal(env.Result, &result); err != nil {

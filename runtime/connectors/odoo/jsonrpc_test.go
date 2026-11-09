@@ -1,6 +1,7 @@
 package odoo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -150,5 +151,25 @@ func TestJSONRPCReportsServerError(t *testing.T) {
 	}
 	if oe.Name != "odoo.exceptions.ValidationError" || oe.Message != "Contacts require a name" {
 		t.Errorf("error = %+v", oe)
+	}
+}
+
+func TestJSONRPCReportsErrorStatusWithoutErrorMember(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if bytes.Contains(raw, []byte(`"authenticate"`)) {
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":2}`))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"maintenance"}`))
+	}))
+	t.Cleanup(srv.Close)
+	conn := startConnector(t, legacySettings(srv.URL))
+
+	_, err := conn.Call(context.Background(), Request{Model: "res.partner", Method: "search_read"})
+	var oe *Error
+	if !errors.As(err, &oe) || oe.Message != `HTTP 503: {"status":"maintenance"}` {
+		t.Fatalf("err = %v, want an HTTP 503 error", err)
 	}
 }
