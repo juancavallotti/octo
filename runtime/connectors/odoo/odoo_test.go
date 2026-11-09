@@ -35,6 +35,9 @@ func TestStartValidatesSettings(t *testing.T) {
 		"missing url":     {"apiKey": "k"},
 		"missing api key": {"url": "https://odoo.example.com"},
 		"unknown version": {"url": "https://odoo.example.com", "apiKey": "k", "version": "12"},
+		"version 18 without database": {
+			"url": "https://odoo.example.com", "apiKey": "k", "version": "18", "username": "admin",
+		},
 	}
 	for name, set := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -43,6 +46,15 @@ func TestStartValidatesSettings(t *testing.T) {
 				t.Error("expected Start to fail")
 			}
 		})
+	}
+}
+
+func TestStartAcceptsNumericVersion(t *testing.T) {
+	conn := startConnector(t, map[string]any{
+		"version": 18, "url": "https://odoo.example.com", "apiKey": "k", "database": "prod", "username": "admin",
+	})
+	if _, ok := conn.client.(*jsonrpcClient); !ok {
+		t.Errorf("client = %T, want the JSON-RPC client for version 18", conn.client)
 	}
 }
 

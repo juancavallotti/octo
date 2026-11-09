@@ -8,6 +8,7 @@ package odoo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -52,14 +53,18 @@ const displayName = "Odoo"
 const (
 	// version19 selects the JSON-2 API, introduced in Odoo 19.
 	version19 = "19"
+	// version18 selects the legacy JSON-RPC endpoint, which Odoo 14 through 18
+	// serve and Odoo 19 still accepts.
+	version18 = "18"
 
 	defaultTimeout = 30 * time.Second
 )
 
 // connectorSettings is the global config decoded from the connector's settings.
 type connectorSettings struct {
-	// Odoo server version, which selects the protocol: 19 uses the JSON-2 API.
-	Version string `json:"version" octo:"label=Odoo version,type=enum,enum=19,default=19"`
+	// Odoo server version, which selects the protocol: 19 uses the JSON-2 API, 18
+	// the legacy JSON-RPC endpoint (also right for Odoo 14 to 17).
+	Version version `json:"version" octo:"label=Odoo version,type=enum,enum=19|18,default=19"`
 	// Base URL of the Odoo server, e.g. https://mycompany.odoo.com.
 	URL string `json:"url" octo:"label=Server URL,required"`
 	// API key of the Odoo user the flow acts as.
@@ -102,11 +107,19 @@ func (c *Connector) Start(_ context.Context, config types.ConnectorConfig) error
 	// is two connections per host — see httppool.
 	httpClient := httppool.NewClient(timeout)
 
-	switch strings.TrimSpace(set.Version) {
+	switch strings.TrimSpace(string(set.Version)) {
 	case "", version19:
 		c.client = &json2Client{http: httpClient, baseURL: base, apiKey: set.APIKey, database: set.Database}
+	case version18:
+		if strings.TrimSpace(set.Database) == "" || strings.TrimSpace(set.Username) == "" {
+			return errors.New("odoo connector version 18 requires \"database\" and \"username\" settings")
+		}
+		c.client = &jsonrpcClient{
+			http: httpClient, baseURL: base, apiKey: set.APIKey,
+			database: set.Database, username: set.Username,
+		}
 	default:
-		return fmt.Errorf("odoo connector: unsupported version %q (want 19)", set.Version)
+		return fmt.Errorf("odoo connector: unsupported version %q (want 19 or 18)", set.Version)
 	}
 	return nil
 }
@@ -122,6 +135,26 @@ func (c *Connector) Call(ctx context.Context, req Request) (any, error) {
 		return nil, errors.New("odoo call requires a model and a method")
 	}
 	return c.client.call(ctx, req)
+}
+
+// version decodes the version setting from a string ("19") or a number (19),
+// since YAML reads an unquoted 19 — and an env reference substituted as 19 — as
+// a number.
+type version string
+
+// UnmarshalJSON accepts a JSON string or number.
+func (v *version) UnmarshalJSON(b []byte) error {
+	var n json.Number
+	if err := json.Unmarshal(b, &n); err == nil {
+		*v = version(n.String())
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("parse version: %w", err)
+	}
+	*v = version(s)
+	return nil
 }
 
 // duration decodes a connector timeout from a string ("30s") or nanoseconds.
