@@ -28,6 +28,7 @@ import {
   FileText,
   Terminal,
   Box,
+  Briefcase,
   ScatterChart,
   KeyRound,
   Leaf,
@@ -125,6 +126,8 @@ const ICONS: Record<string, LucideIcon> = {
   // trademark artwork nobody verified. Leaf is the nearest honest stand-in —
   // it echoes the shape of MongoDB's own mark without claiming to be it.
   Leaf,
+  // Odoo, likewise: Briefcase stands for the business apps it runs.
+  Briefcase,
 };
 
 /** Resolve a block's icon name to a component, falling back to a generic box. */
