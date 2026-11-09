@@ -10,7 +10,7 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.9
+	github.com/spf13/pflag v1.1.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
