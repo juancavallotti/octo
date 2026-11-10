@@ -17,7 +17,7 @@ variable "lb_controller_version" {
   type        = string
   description = "aws-load-balancer-controller chart version. Pinned so a cluster rebuild installs the controller that was tested, not whatever is newest."
   # renovate: datasource=helm depName=aws-load-balancer-controller registryUrl=https://aws.github.io/eks-charts
-  default = "1.11.0"
+  default = "1.17.1"
 }
 
 variable "gp3_is_default" {
