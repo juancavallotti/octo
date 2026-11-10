@@ -79,16 +79,15 @@ flows:
           total: body.total # pull just the total out of the scope's summary
         body:
           process:
-            - type: set-variable
-              name: scratch
+            # The scope sets a variable and rewrites the body on its clone; both
+            # stay isolated.
+            - type: multi-transform
+              name: summarize
               settings:
-                name: workingNote
-                value: '"scope-only, never propagated"'
-            - type: set-payload
-              name: summary
-              settings:
-                # The scope rewrites the body on its clone; it stays isolated.
-                value: '{"total": body.qty * body.price, "note": "scope-only body"}'
+                transforms:
+                  - setVar: workingNote
+                    value: '"scope-only, never propagated"'
+                  - setBody: '{"total": body.qty * body.price, "note": "scope-only body"}'
       - type: log
         name: emit
         settings:
@@ -123,6 +122,10 @@ tours them in one flow:
           value: '{"firedAt": body.firedAt, "orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}'
 
       # set-variable: stash a threshold the switch below compares against.
+      #
+      # Real flows fold a run of setters into one multi-transform; this demo keeps
+      # the two apart because showing each builtin on its own is its whole point.
+      # practices: allow multi-transform
       - type: set-variable
         name: set-threshold
         settings:
@@ -244,11 +247,22 @@ reads a YAML service config and emits its deployment settings as `.env` content:
   settings:
     value: "fromYaml(body.yaml)"
 
-- type: set-variable
-  name: render-env
+- type: multi-transform
+  name: derive-settings
   settings:
-    name: envFile
-    value: 'toEnv({"SERVICE_NAME": body.name, "REPLICAS": body.replicas})'
+    transforms:
+      # replicas arrives as a JSON number; CEL has no double * int overload.
+      - setVar: maxSurge
+        value: "body.replicas * 2.0"
+      - setVar: envFile
+        value: |
+          toEnv({
+            "SERVICE_NAME": body.name,
+            "REPLICAS": body.replicas,
+            "MAX_SURGE": vars.maxSurge,
+            "DB_HOST": body.env.DB_HOST,
+            "DEBUG": body.env.DEBUG
+          })
 ```
 
 ```bash

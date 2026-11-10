@@ -1,0 +1,222 @@
+---
+title: "Flow Best Practices"
+description: "Rules for writing flows that read well, test well, and keep their context."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+A flow can be written many ways that all run. These rules pick one way for each common situation, so flows read alike and are easy to test. Each rule has a short id in brackets. Dr. Octo and the MCP server's `write-effective-integrations` prompt teach the same ids, and `scripts/check-flow-practices.mjs` enforces the mechanical ones on every sample.
+
+## Use one multi-transform for a run of setters [#multi-transform]
+
+Two or more `set-variable` or `set-payload` blocks in a row become one [`multi-transform`](/reference/blocks/data#multi-transform). Its steps run in order and each one sees the result of the one before, so nothing is lost by merging them. One block is one step in logs and traces, and one address to mock.
+
+```yaml
+# ✗ three blocks for one step
+- type: set-variable
+  name: keep-id
+  settings: { name: orderId, value: body.id }
+- type: set-variable
+  name: keep-total
+  settings: { name: total, value: body.qty * body.price }
+- type: set-payload
+  name: build-response
+  settings:
+    value: '{"orderId": vars.orderId, "total": vars.total}'
+
+# ✓ one block
+- type: multi-transform
+  name: price-order
+  settings:
+    transforms:
+      - setVar: orderId
+        value: body.id
+      - setVar: total
+        value: body.qty * body.price
+      - setBody: '{"orderId": vars.orderId, "total": vars.total}'
+```
+
+A `set-payload` that sets `rawBody` stays its own block, because `setBody` has no raw mode. Any other deliberate exception, such as a sample that shows setters on purpose, carries `# practices: allow multi-transform` on the line above the block.
+
+## Keep context with enrich around a destructive call [#enrich-context]
+
+Most connector blocks put their result in the body, which replaces what was there. When later steps still need the old body, run the call inside an [`enrich`](/reference/blocks/control-flow#enrich). The scope gets a copy of the message, and only what you lift out with `setVars` or `setBody` comes back. Don't save the body in a variable and rebuild it afterwards.
+
+```yaml
+# ✗ save the body, overwrite it, rebuild it
+- type: set-variable
+  name: keep-event
+  settings: { name: event, value: body }
+- type: odoo-search-read
+  name: find-reason
+  settings: { connector: odoo, model: '"crm.lost.reason"', domain: '[["name", "=ilike", body.reason]]' }
+- type: set-payload
+  name: restore-event
+  settings: { value: vars.event }
+
+# ✓ the event stays the body; only the ids come out
+- type: enrich
+  name: find-reason
+  setVars:
+    reasonIds: body.map(r, r.id)
+  body:
+    process:
+      - type: odoo-search-read
+        name: search-reason
+        settings: { connector: odoo, model: '"crm.lost.reason"', domain: '[["name", "=ilike", body.reason]]', fields: [id] }
+```
+
+## Prefer resultVar for a single call [#result-var]
+
+When the destructive step is one connector operation that has a `resultVar` setting, set it instead of wrapping the block in an `enrich`. The result lands in `vars.<name>` and the body is left alone. Use `enrich` when the scope has several steps, when you want to derive something from the result rather than keep it whole, or when the block has no `resultVar`. `flow-ref`, `rest` and `sql` don't have one.
+
+```yaml
+- type: odoo-search-read
+  name: find-contact
+  settings:
+    connector: odoo
+    model: '"res.partner"'
+    domain: '[["email", "=ilike", body.email]]'
+    fields: [id]
+    resultVar: contacts     # body is still the request
+```
+
+## Split long flows into subflows [#subflows]
+
+A flow that grows past roughly eight to ten steps, or that contains a piece another flow could use, gets split. Move the piece into a sourceless flow (a flow with no `source`) and call it with [`flow-ref`](/guides/composing-flows). Each flow then gets its own suite, so the piece is tested with a direct input instead of only through everything around it.
+
+A two-way `flow-ref` replaces the caller's body with the subflow's result and merges the subflow's vars back. When the caller still needs its own body afterwards, wrap the `flow-ref` in an `enrich`. When the call is the flow's last step, it needs nothing around it.
+
+```yaml
+flows:
+  - name: opportunity-outcome
+    source: { connector: api, type: http, settings: { path: /opportunities/outcome, method: POST } }
+    process:
+      - type: switch
+        name: route-outcome
+        cases:
+          - when: body.outcome == "won"
+            process:
+              - type: enrich
+                name: close-won
+                body:
+                  process:
+                    - type: flow-ref
+                      name: call-close-won
+                      settings: { flow: close-won }
+
+  - name: close-won          # no source: only flow-ref and tests reach it
+    process:
+      - type: odoo-call
+        name: set-won
+        settings: { connector: odoo, model: '"crm.lead"', method: '"action_set_won"', ids: body.opportunityId }
+```
+
+## Keep shared declarations in a globals file [#globals-file]
+
+When a project spans several files, put everything the flows share in `octo.yaml`: `service`, `env`, `resources`, the shared connectors, and `processors`. Put the flows in sibling files named for their area, such as `contacts.yaml` or `opportunities.yaml`. The runtime merges every file in the folder, so a flow in `contacts.yaml` uses the `odoo` connector declared in `octo.yaml`. See [Multi-file Projects](/guides/multi-file-projects).
+
+<Callout type="warn">
+Name a suite after the flow it tests, and never give it the same base name as a flow file. dolphin pairs `x_test.yaml` with `x.yaml` alone, and that file without `octo.yaml` has no connectors. `sync-contacts_test.yaml` next to `contacts.yaml` runs against the whole folder; `contacts_test.yaml` would not.
+</Callout>
+
+```text
+samples/odoo-pipeline-sync/
+  octo.yaml                        # service, env, the odoo and http connectors
+  contacts.yaml                    # sync-contacts
+  opportunities.yaml               # opportunity-outcome, close-won, close-lost
+  followups.yaml                   # stale-followups
+  sync-contacts_test.yaml
+  opportunity-outcome_test.yaml
+  close-won_test.yaml
+  close-lost_test.yaml
+  stale-followups_test.yaml
+```
+
+## Give every flow a suite [#one-suite-per-flow]
+
+A dolphin suite runs one flow (`flow:` at the top), so every flow with logic in it gets its own `<flow>_test.yaml`. A single-file sample with several flows that need testing becomes a folder. Spies can still reach into a subflow through its own address (`close-won.set-won`), so the caller's suite can check the handoff while the subflow's suite checks what it does.
+
+## Name every block [#name-blocks]
+
+Every block gets a `name`: kebab-case and verb-first, such as `find-contact`, `create-lead` or `post-note`. The name is what logs and traces print, what `octo validate` reports errors against (`capture-lead.create-lead: ...`), and the address a dolphin mock or spy uses (`capture-lead.contact-exists[else].create-contact`). An unnamed block is addressed by its type, which stops working as soon as a second block of that type joins the chain, and a log line saying `set-payload` failed doesn't say which one. A `ref:` step is addressed by the processor it references.
+
+## Reshape with CEL before reaching for foreach [#cel-first]
+
+Most reshaping is one expression. `map`, `filter`, `exists` and a ternary in a `set-payload` or `multi-transform` step beat a `foreach` that builds a list item by item. Keep `foreach` for steps that call something per item. Write multi-line CEL as a `|` block scalar so it reads as code.
+
+```yaml
+- type: set-payload
+  name: summarize
+  settings:
+    value: |
+      {"created": body.filter(r, r.action == "created").size(),
+       "updated": body.filter(r, r.action == "updated").size(),
+       "contacts": body}
+```
+
+## Use switch for three or more branches [#switch-over-ifs]
+
+Branching three or more ways on the same value is one [`switch`](/reference/blocks/control-flow#switch) with a `cases` list and a `default`, not `if` blocks nested in each other's `else`. Two ways is an `if`.
+
+## Define repeated blocks once [#processors-ref]
+
+A block configured the same way in several places becomes a `processors:` entry, and each use is a step with `ref:` naming it. Settings on the step override the processor's settings key by key.
+
+```yaml
+processors:
+  - name: audit-log
+    type: log
+    settings: { level: info, message: '"handled " + eventID' }
+
+flows:
+  - name: orders
+    process:
+      - ref: audit-log
+```
+
+## Read configuration from env [#env-config]
+
+Secrets, hosts, ports and anything that changes between environments come from `env`. Mark secrets `required: true` so a missing one fails at startup, and give everything else a default. A literal key or URL in a block gets copied into every environment and every repository the file lands in.
+
+```yaml
+env:
+  - name: ODOO_API_KEY
+    required: true
+  - name: ODOO_URL
+    required: true
+  - name: HTTP_PORT
+    default: "8080"
+```
+
+## Handle errors on purpose [#errors-deliberate]
+
+For each step that can fail, choose how: a [`handle-errors`](/concepts/error-handling) block that recovers locally, a flow-level `error:` chain that recovers the whole flow, or `failOnError: false` on the block followed by an explicit check of its result. A step that can fail with none of these fails the flow, which is fine when that is the intent. Say so in a comment.
+
+## Make scheduled and retried work idempotent [#idempotent-side-effects]
+
+A cron flow runs again tomorrow and a queue redelivers on failure, so a flow with side effects filters out the work already done. The Odoo `stale-followups` sweep only selects opportunities with `["activity_ids", "=", false]`, so a second run schedules nothing new.
+
+## Comment the why, not the what [#comments-why]
+
+A `#` comment explains why a step exists or why it is shaped the way it is. The YAML already says what it does. There is no `description` field on a block. A leaf block silently drops a key it doesn't know, so a `description:` you add documents nothing and fails no check.
+
+```yaml
+# ✗ restates the block
+# search for the contact
+- type: odoo-search-read
+  name: find-contact
+
+# ✓ says what the reader can't see
+# =ilike matches the email case-insensitively; one id is all the branch needs.
+- type: odoo-search-read
+  name: find-contact
+```
+
+## Check a flow
+
+`scripts/check-flow-practices.mjs` runs in CI over `samples/`, Dr. Octo and the MCP examples. It fails on a run of setters and on an unnamed block, and it checks that every rule id on this page is also taught by the MCP prompt and by Dr. Octo's `best-practices` skill:
+
+```bash
+node scripts/check-flow-practices.mjs
+```

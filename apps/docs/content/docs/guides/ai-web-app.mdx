@@ -229,10 +229,13 @@ Instead of a template resource, the error path can build raw HTML inline: set
 ```yaml
 error:
   - type: set-variable
+    name: fail-status
     settings:
       name: httpStatus
       value: "500"
+  # Its own block, not a multi-transform step: only set-payload has rawBody.
   - type: set-payload
+    name: error-page
     settings:
       rawBody: true
       contentType: text/html; charset=utf-8

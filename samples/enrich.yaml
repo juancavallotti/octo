@@ -30,16 +30,15 @@ flows:
           total: body.total # pull just the total out of the scope's summary
         body:
           process:
-            - type: set-variable
-              name: scratch
+            # The scope sets a variable and rewrites the body on its clone; both
+            # stay isolated.
+            - type: multi-transform
+              name: summarize
               settings:
-                name: workingNote
-                value: '"scope-only, never propagated"'
-            - type: set-payload
-              name: summary
-              settings:
-                # The scope rewrites the body on its clone; it stays isolated.
-                value: '{"total": body.qty * body.price, "note": "scope-only body"}'
+                transforms:
+                  - setVar: workingNote
+                    value: '"scope-only, never propagated"'
+                  - setBody: '{"total": body.qty * body.price, "note": "scope-only body"}'
       - type: log
         name: emit
         settings:

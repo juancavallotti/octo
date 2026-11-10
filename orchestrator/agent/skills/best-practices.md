@@ -23,9 +23,10 @@ Two or more `set-variable` / `set-payload` blocks in a row are one
       - setBody: '{"orderId": vars.orderId, "total": vars.total}'
 ```
 
-Each step has exactly one of `setBody` or `setVar` (+ `value`). The checker
-fails a chain of setters; a deliberate one carries
-`# practices: allow multi-transform` on the line above.
+Each step has exactly one of `setBody` or `setVar` (+ `value`). A `set-payload`
+with `rawBody` stays its own block: `setBody` has no raw mode. The checker fails
+a chain of setters; a deliberate one carries `# practices: allow multi-transform`
+on the line above.
 
 ## enrich-context — keep the body around a destructive call
 

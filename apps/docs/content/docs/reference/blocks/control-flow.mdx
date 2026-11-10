@@ -303,6 +303,7 @@ Runs a `body` sub-flow on an **isolated scope** of the message, then merges back
   body:
     process:
       - type: set-payload
+        name: summarize
         settings:
           value: '{"total": body.qty * body.price, "note": "scope-only body"}'
 ```
