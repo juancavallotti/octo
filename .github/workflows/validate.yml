@@ -264,6 +264,10 @@ jobs:
       # docs page claims a type that no longer exists). See AGENTS.md
       # "Documentation policy".
       - run: node scripts/check-docs-drift.mjs
+      # Fails when a sample, Dr. Octo or an MCP example chains setters or leaves a
+      # block unnamed, or when the MCP prompt and Dr. Octo's skill stop teaching
+      # a rule the Flow Best Practices page states.
+      - run: node scripts/check-flow-practices.mjs
       # Fails when the public API serves a route its hand-written OpenAPI
       # description leaves out, or describes one it no longer serves.
       - run: node scripts/check-api-spec.mjs

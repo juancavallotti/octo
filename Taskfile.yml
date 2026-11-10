@@ -218,10 +218,11 @@ tasks:
       - ./bin/octo-api openapi --out apps/docs/public/octo-platform-api.yaml
 
   docs:check:
-    desc: Fail if connector/block docs drift from the runtime registry
+    desc: Fail if connector/block docs drift from the runtime registry, or a sample breaks the flow best practices
     cmds:
       - task: runtime:build
       - node scripts/check-docs-drift.mjs
+      - node scripts/check-flow-practices.mjs
 
   api:spec:check:
     desc: Fail if the public API's OpenAPI description drifts from its routes
