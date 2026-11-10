@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
-	github.com/prometheus/client_model v0.6.2
+	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.70.1
 	github.com/redis/go-redis/v9 v9.22.0
 	google.golang.org/protobuf v1.36.12
