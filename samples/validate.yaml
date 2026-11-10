@@ -39,11 +39,13 @@ flows:
         # body; it can read vars.validationErrors. Omit for the default response.
         # onReject:
         #   process:
-        #     - type: set-payload
+        #     - type: multi-transform
+        #       name: reject
         #       settings:
-        #         value: '{"error": "bad_request", "details": vars.validationErrors}'
-        #     - type: set-variable
-        #       settings: { name: httpStatus, value: 400 }
+        #         transforms:
+        #           - setBody: '{"error": "bad_request", "details": vars.validationErrors}'
+        #           - setVar: httpStatus
+        #             value: "400"
 
       # Only reached when every rule held (a rejected request stopped above).
       - type: set-payload
