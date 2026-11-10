@@ -513,7 +513,7 @@ retention:
   image:
     registry: ""
     repository: curlimages/curl
-    tag: "8.11.1"
+    tag: "8.23.0"
     pullPolicy: IfNotPresent
   # How long curl waits for the sweep, in seconds. It matches the aggregator's
   # own limit on a sweep, so neither side gives up while the other is still
