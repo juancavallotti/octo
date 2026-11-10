@@ -131,7 +131,7 @@ importers:
         version: 1.66.0(@types/react@19.3.0)(react@19.3.1)
       mcp-handler:
         specifier: ^2.3.0
-        version: 2.3.0(@modelcontextprotocol/server@2.4.0)(next@16.4.5(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
+        version: 2.3.1(@modelcontextprotocol/server@2.4.0)(next@16.4.5(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
       next:
         specifier: 16.4.5
         version: 16.4.5(@babel/core@7.29.7)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -404,7 +404,7 @@ importers:
         version: link:../run-host
       mcp-handler:
         specifier: ^2.3.0
-        version: 2.3.0(@modelcontextprotocol/server@2.4.0)(next@16.4.5(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
+        version: 2.3.1(@modelcontextprotocol/server@2.4.0)(next@16.4.5(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -3953,8 +3953,8 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  mcp-handler@2.3.0:
-    resolution: {integrity: sha512-mvs+fJTLTa6kFv71CKPr+2ey+yXeuooM6WHz96pHhSvXe9m83qPizswU5NJ0yrUnJ2T+70VFPjsdstZtdB3evQ==}
+  mcp-handler@2.3.1:
+    resolution: {integrity: sha512-TkqWhx/r6W23uNcnxMwYfJ+i+pSNOMeN0eJE4j1B0CnXPC83R61YEsjFhCv/OOW6COe8u8h/uPDcdQCw5KiaOQ==}
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
@@ -9116,7 +9116,7 @@ snapshots:
 
   math-intrinsics@1.1.0: {}
 
-  mcp-handler@2.3.0(@modelcontextprotocol/server@2.4.0)(next@16.4.5(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)):
+  mcp-handler@2.3.1(@modelcontextprotocol/server@2.4.0)(next@16.4.5(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)):
     dependencies:
       '@modelcontextprotocol/server': 2.4.0
       chalk: 5.6.2
