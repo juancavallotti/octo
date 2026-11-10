@@ -489,7 +489,15 @@ jobs:
     # An arm64 macOS runner. It cross-packages the x64 app fine: nothing here is
     # compiled on the runner — the Go binaries are downloaded and the Electron
     # bundle is fetched per target architecture.
-    runs-on: macos-14
+    #
+    # Pinned to a versioned image rather than macos-latest so a new image's Xcode
+    # can't change the signing toolchain mid-release, but that pin has a shelf
+    # life: GitHub retires old images, and a retired label doesn't fail loudly —
+    # the job is cancelled before its first step ("configuration ... is not
+    # supported"), the rest of the release goes green, and the release ships
+    # without latest-mac.yml, so every installed copy's "Check for Updates" 404s.
+    # That is how v0.11.16 went out on macos-14.
+    runs-on: macos-15
     permissions:
       # Assets are added to the release publish-cli created for this tag.
       contents: write
