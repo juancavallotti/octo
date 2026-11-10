@@ -79,7 +79,7 @@ const webSearchKeySecret = "OCTO_AGENT_WEBSEARCH_KEY"
 // unconfigured install would crash-loop instead of losing one tool. The web_search
 // tool compares against this value and reports itself unavailable.
 //
-// It must match the default in orchestrator/agent/config.yaml, and
+// It must match the default in orchestrator/agent/octo.yaml, and
 // TestWebSearchSentinelMatchesTheAgentDefinition holds the two together.
 const WebSearchUnconfigured = "web-search-not-configured"
 

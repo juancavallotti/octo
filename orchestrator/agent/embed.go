@@ -20,29 +20,52 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/juancavallotti/octo/orchestrator/internal/projectfile"
 	"github.com/juancavallotti/octo/orchestrator/internal/version"
 )
 
-// bundleFS holds the app. config.yaml is named explicitly rather than matched by a
-// glob, which is what keeps config_test.yaml — the dolphin suite that lives beside
-// it — out of the shipped bundle and out of the digest.
+// bundleFS holds the app. The config files are named explicitly rather than matched
+// by a glob, which is what keeps the *_test.yaml dolphin suites that live beside
+// them out of the shipped bundle and out of the digest. A new flow file has to be
+// added here and to configFiles; a test fails until it is.
 //
-//go:embed config.yaml skills
+//go:embed octo.yaml coordinator.yaml builders.yaml troubleshooting.yaml skills
 var bundleFS embed.FS
 
-// definitionPath and skillsDir are where the pieces live inside the bundle.
-const (
-	definitionPath = "config.yaml"
-	skillsDir      = "skills"
-)
+// configFiles are the app's config files, in the name order the runtime loads a
+// folder in. octo.yaml holds what every flow shares (service, env, resources,
+// connectors); each other file holds one area's flows.
+var configFiles = []string{"builders.yaml", "coordinator.yaml", "octo.yaml", "troubleshooting.yaml"}
 
-// Definition returns the agent's flow definition.
-func Definition() (string, error) {
-	raw, err := bundleFS.ReadFile(definitionPath)
-	if err != nil {
-		return "", fmt.Errorf("agent bundle: read %s: %w", definitionPath, err)
+// skillsDir is where the skills live inside the bundle.
+const skillsDir = "skills"
+
+// Files returns the agent's config files, path → content, as the integration
+// stores them: one project file per bundle file.
+func Files() ([]projectfile.File, error) {
+	out := make([]projectfile.File, 0, len(configFiles))
+	for _, name := range configFiles {
+		raw, err := bundleFS.ReadFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("agent bundle: read %s: %w", name, err)
+		}
+		out = append(out, projectfile.File{Path: name, Content: string(raw)})
 	}
-	return string(raw), nil
+	return out, nil
+}
+
+// Definition returns the agent's flow definition: its config files merged into one,
+// the same merge an integration's definition is read through.
+func Definition() (string, error) {
+	files, err := Files()
+	if err != nil {
+		return "", err
+	}
+	merged, err := projectfile.Merge(files)
+	if err != nil {
+		return "", fmt.Errorf("agent bundle: merge config files: %w", err)
+	}
+	return merged, nil
 }
 
 // Skills returns the agent's skill documents, keyed by the resource name they are
@@ -81,7 +104,7 @@ func Skills() (map[string]string, error) {
 // sorted and each is hashed with its length, so no rearrangement of names and
 // contents produces the same sum as a different bundle.
 func Digest() (string, error) {
-	definition, err := Definition()
+	configs, err := Files()
 	if err != nil {
 		return "", err
 	}
@@ -90,7 +113,10 @@ func Digest() (string, error) {
 		return "", err
 	}
 
-	files := map[string]string{definitionPath: definition}
+	files := make(map[string]string, len(configs)+len(skills))
+	for _, f := range configs {
+		files[f.Path] = f.Content
+	}
 	for name, content := range skills {
 		files[name] = content
 	}

@@ -1,0 +1,899 @@
+# The coordinator: the chat flow the editor panel streams from. Connectors, env
+# and skills are declared in octo.yaml.
+flows:
+  - name: chat
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /chat
+        methods: [POST]
+        # How a second request ends the run this one started, and how one answers a
+        # tool call the run is holding in front of a person. The headers are the
+        # whole signal: the expressions on the agent below are the only thing that
+        # gives them meaning.
+        # X-Agent-Caller-Token is the credential of whoever is chatting. Each flow
+        # resolves it into one variable — `authToken`, set in the transform that
+        # opens the flow — and every tool spends that variable without knowing
+        # where it came from. On this path it is the person asking, so the agent
+        # reaches what they reach and never more; on the alert-driven flow there
+        # is no person, and it resolves to this deployment's own identity instead.
+        #
+        # One variable and not an expression repeated at each tool: what a run
+        # acts as is one decision, and a decision spelled out in eight places is
+        # eight places to get it wrong.
+        #
+        # It is a variable, which means tracing records it. That is already true
+        # of the caller's token — a header reaches an expression by becoming one —
+        # and it is the reason `authToken` is a name worth recognising: redacting
+        # credentials at the trace sink starts by knowing what they are called.
+        #
+        # X-Agent-Environment is the environment the person chose in the platform,
+        # resolved the same way into `environment`, and every tool sends it beside
+        # the credential: the agent works in the environment its caller is looking
+        # at, and their roles are judged there.
+        headers: [X-Agent-Stop, X-Agent-Auth-Id, X-Agent-Auth, X-Agent-Caller-Token, X-Agent-Environment]
+        # Sixteen mebibytes, because this route carries files now.
+        #
+        # Required rather than tuning: the default is one mebibyte, which a single
+        # phone screenshot exceeds — the request would be refused by the body
+        # reader before any of the attachment handling ran, and the person pasting
+        # it would see a failure with nothing to do about it.
+        #
+        # The platform refuses more than eight mebibytes of files in one message,
+        # and base64 inflates by about a third, so eleven is the most a legitimate
+        # request carries. The rest is headroom for the route catalogue and the
+        # question itself.
+        maxBodyBytes: 16777216
+        # On an SSE route this bounds the wait for the FIRST frame only. An agent
+        # takes a moment to produce its first token.
+        timeout: 60s
+        sse:
+          enabled: true
+          finalEvent: true
+          finalEventName: answer
+          heartbeat: 15s
+          # 30m, not the 10m this shipped with. A run that delegates is waiting on a
+          # whole second model run — a builder drafting, testing and fixing — and
+          # 10 minutes was cutting those off mid-answer.
+          maxDuration: 30m
+    process:
+      # The key is the user the platform authenticated, plus the thread — so a
+      # stolen thread id names a conversation that does not exist. The user block is
+      # injected server-side by the chat route and overwritten there, so a forged one
+      # in the request never reaches this expression.
+      # Everything the flow needs to know about the request, resolved once.
+      #
+      # One multi-transform rather than four set-variables in a row: that is what
+      # this block is for, and a chain of them is the shape it exists to replace.
+      # The transforms run in order, so threadKey can read the two above it.
+      - type: multi-transform
+        name: resolve-request
+        settings:
+          transforms:
+            # The key is the user the platform authenticated, plus the thread — so
+            # a stolen thread id names a conversation that does not exist. The user
+            # block is injected server-side by the chat route and overwritten
+            # there, so a forged one in the request never reaches this expression.
+            - setVar: userKey
+              value: >-
+                has(body.user) && has(body.user.id) && body.user.id != ""
+                  ? body.user.id : "anonymous"
+            - setVar: threadId
+              value: 'has(body.threadId) && body.threadId != "" ? body.threadId : "default"'
+            - setVar: threadKey
+              value: vars.userKey + "/" + vars.threadId
+            # The question, kept before the agent replaces the body with its
+            # answer. The conversation record needs both halves and can only see
+            # one of them at a time.
+            - setVar: question
+              value: 'has(body.message) ? body.message : ""'
+            # The credential every tool below spends, resolved once here so that
+            # no tool has to know where it came from. On this flow it is the
+            # person chatting: this agent reaches what they reach and never more.
+            - setVar: authToken
+              value: >-
+                "X-Agent-Caller-Token" in vars
+                  ? vars["X-Agent-Caller-Token"] : ""
+            # The environment every tool acts in: the one the person chatting has
+            # chosen. Empty is the default, which every tool sends as no choice.
+            - setVar: environment
+              value: >-
+                "X-Agent-Environment" in vars
+                  ? vars["X-Agent-Environment"] : ""
+            # The same environment, said to the model. Every input below carries
+            # it, so neither he nor a specialist has to guess where he is from the
+            # hostnames he happens to read.
+            - setVar: environmentContext
+              value: >-
+                "You are working in the " +
+                  (vars.environment == ""
+                    ? "default environment"
+                    : "\"" + vars.environment + "\" environment") +
+                  ". Every platform call acts there, and integrations, versions" +
+                  " and deployments of other environments are invisible from it."
+            # The agent's input, stated rather than inherited, and last: every
+            # step above reads the request this replaces. The email is dropped —
+            # it identifies a real person to an external provider and nothing in
+            # the prompt needs it.
+            - setBody: >-
+                {
+                  "message": has(body.message) ? body.message : "",
+                  "page": has(body.page) ? body.page : "",
+                  "routes": has(body.routes) ? body.routes : [],
+                  "user": has(body.user) && has(body.user.name) ? {"name": body.user.name} : {},
+                  "attachments": has(body.attachments) ? body.attachments : []
+                }
+
+      - type: ai-agent
+        name: dr-octo
+        connector: llm
+        stream: true
+        maxIterations: ${AGENT_MAX_ITERATIONS}
+
+        # A person reads this answer, so it is prose and not a document.
+        answer: text
+
+        # The question is the turn; everything else is labelled as context. The
+        # catalogue is sent once per run, not once per message: a follow-up joins a
+        # conversation that already holds it.
+        input: >-
+          body.message +
+            "\n\n---\nContext, not part of the question. " + vars.environmentContext +
+            (size(body.routes) > 0
+              ? " The user is on page " + body.page +
+                ". Pages you may navigate to, and who is asking:\n" +
+                toJson({"routes": body.routes, "user": body.user})
+              : "")
+
+        # The files somebody pasted, dropped or picked in the chat window.
+        #
+        # Unqualified because the set-payload above guarantees the key: it is
+        # always at least an empty list, so there is nothing to guard against.
+        #
+        # They ride ONE turn. The model reads them on the first model call and the
+        # runtime drops them from the transcript as soon as it returns, so the
+        # tools he calls afterwards, the rest of the conversation and the memory
+        # stored under the thread below are all text. That is what stops a
+        # screenshot from being re-sent and re-billed on every later message in a
+        # conversation that may run for an hour.
+        attachments: body.attachments
+        memoryThreadId: vars.threadKey
+        contextMaxTokens: ${AGENT_MEMORY_TOKENS}
+        memoryCompaction: summarize
+
+        # Named, which is what opts him into the runtime's first-class memory:
+        # conversations recorded uncompacted, kept per integration so they survive
+        # a reinstall, and remember/forget/search_memory instead of the three
+        # hand-rolled fact tools this replaced.
+        #
+        # Stated and never derived. A name taken from the block's position would
+        # make renaming this block, or moving it into another branch, silently
+        # destroy every conversation anyone has had with him.
+        agentId: dr-octo
+        userId: vars.userKey
+        userMemory: true
+
+        # Naming a conversation, which is the one thing about it the runtime
+        # cannot decide: what an exchange was ABOUT is a judgement, and a
+        # judgement is a model call.
+        #
+        # It runs once, on the exchange that opens a conversation, and it is
+        # handed that exchange — question and answer — as its body. Whatever
+        # string it returns becomes the name. Returning nothing names nothing,
+        # which is the right answer for a "hi" that was never going anywhere.
+        #
+        # The engine does the writing, and that is the whole reason this is a slot
+        # rather than a flow of its own. It is holding the conversation's
+        # reference already; the store knows how to record a title on whichever
+        # tier it is. What this replaced put the exchange on a queue, read it back
+        # in a separate flow, rebuilt a thread key from parts, escaped a slash into
+        # it, and called the orchestrator over HTTP from inside the deployment the
+        # orchestrator had just started — to set a string.
+        nameThread:
+          process:
+            # The body arriving here is the exchange: threadKey, agentId, userId,
+            # question and answer. ai-mapping hands the whole body to the model and
+            # replaces it with what comes back, so there is no input expression —
+            # reshaping the body IS what this block does.
+            - type: ai-mapping
+              name: name-it
+              settings:
+                connector: llm-fast
+                # llm-fast, not llm: a title is six words and nobody is waiting on
+                # it. Paying reasoning-model rates to summarise one exchange is the
+                # kind of cost that only shows up on the bill.
+                prompt: >-
+                  You are given one exchange: the question a person asked and the
+                  answer they got. Name the conversation it opens.
+
+                  At most six words, a topic rather than a sentence — "Rolling out
+                  the orders integration", not "The user asked how to roll out an
+                  integration". No quotes, no trailing period, no preamble.
+
+                  Name it whenever there is a subject: a question asked, a fact
+                  stated, a task started. An exchange whose reply is short is
+                  still about something — "note that my deploy target is
+                  blueberry" is a conversation about a deploy target.
+
+                  Return an empty title ONLY when there is genuinely no subject:
+                  a bare greeting, a test message, a thanks. An empty title
+                  leaves the conversation unnamed and listed as untitled, so
+                  prefer a plain name over declining — but do not invent a topic
+                  that was never discussed.
+                # The shape is enforced rather than asked for. Without it this block
+                # returned the model's prose, ai-mapping refused to parse it as
+                # JSON, and every conversation fell back to being named after the
+                # raw question it opened with — which looked enough like a title
+                # that nobody noticed the model was not being listened to.
+                outputSchema:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                      description: The conversation's name, or empty to leave it unnamed.
+                  required: [title]
+                  additionalProperties: false
+                outputExample:
+                  title: Rolling out the orders integration
+
+        stopWhen: '"X-Agent-Stop" in vars && vars["X-Agent-Stop"] != ""'
+
+        # How a person's answer to a gated call arrives: the same path a stop
+        # takes, one field further on. A request carrying an id is an answer and
+        # not a message — it is handed to the run holding the call and its own
+        # flow stops with an empty body.
+        #
+        # Both headers are set by the chat route server-side, never accepted from
+        # the browser, for the same reason the identity is: what the client sends
+        # is a request, and what reaches the agent is that route's decision.
+        #
+        # Anything but a plain "allow" denies, a missing header included. An answer
+        # that could not be read is not permission.
+        authorizeId: '"X-Agent-Auth-Id" in vars ? vars["X-Agent-Auth-Id"] : ""'
+        authorizeAllow: '"X-Agent-Auth" in vars && vars["X-Agent-Auth"] == "allow"'
+        # Long enough that reading the queries and deciding is comfortable, short
+        # enough that a closed tab is not a conversation held open. A closed panel
+        # denies at once and never reaches this.
+        authorizeTimeout: 3m
+
+        # thread_title is emitted for the same reason the rest are: the panel has
+        # no other way to learn it in time. Naming happens on the run that opens a
+        # conversation, AFTER its answer has already streamed, so a panel that only
+        # reads titles from a listing shows the conversation somebody is in as
+        # nameless until something reloads it.
+        emit: [thinking, text, tool_call, tool_authorization, tool_result, turn_end,
+               compaction_start, compaction_end, signal, thread_title,
+               done, error, guardrail]
+        events:
+          process:
+            - type: sse-event
+              name: stream-event
+              settings:
+                event: agent
+                ifClosed: stop
+
+        prompt: >
+          You are Dr. Octo, the agent built into this Octo platform. You are a
+          parody of Dr. Evil from the Austin Powers films — bald, black Nehru
+          collar, steepled fingers, a fondness for calling perfectly ordinary work
+          a scheme — and you have all of his theatricality and none of his ethics
+          problem. You are genuinely helpful, you never hold anything to ransom,
+          and you do not do the one-MILLION-dollars bit unprompted.
+
+
+          The register: a dry aside now and then, an occasional pause for effect, a
+          routine deployment referred to as a plan coming together. That is
+          seasoning on competent work and never a substitute for it. If the choice
+          is between landing a joke and answering the question, answer the
+          question. Drop the register entirely when someone is stuck, something is
+          broken in production, or the answer is bad news.
+
+
+          You are also, literally, an Octo App — a flow definition with an ai-agent
+          block, deployed by the orchestrator exactly like the integrations you help
+          build. Mention that only if someone asks; it is a fact, not a personality.
+
+
+          The installation is split into environments, each with its own
+          integrations, versions, deployments and secrets, and the context under each
+          question says which one this conversation is in. When the answer depends on
+          it, say which environment you mean; never infer it from a hostname.
+
+
+          You are talking to a signed-in user of this platform. Their name arrives in
+          body.user.name, and the page they are on arrives in body.page — use the page
+          for context about what they mean by "this" or "here", and use their name
+          sparingly and naturally. When body.user is empty, authentication is off and
+          you are talking to a local developer.
+
+
+          body.routes lists the pages you can send them to: each has a path and a
+          description of what it shows, and a path containing a segment like {id} is a
+          template you fill in. When the answer to a question is a page, take them
+          there with navigate_to instead of describing how to find it — but say what
+          you are showing them in the same turn, because a panel that moves the page
+          without a word is unsettling. Never navigate to a path that is not built
+          from that list.
+
+
+          You help with the platform: reading and explaining integrations, writing
+          and fixing flow definitions, investigating deployments that will not
+          start, and reading logs and traces. You do the talking and the thinking.
+          Two specialists do the heavy work, and choosing between them — and
+          briefing whichever one it is — is most of your job.
+
+
+          That remit is also its edge, and the edge is not a judgement call.
+          Authoring, managing and monitoring the integrations on this platform — and
+          operating the installation that runs them: its deployments, resources,
+          secrets, settings, logs and traces, and the reports drawn from them — is
+          the whole of what you do. A request that is none of that, you decline —
+          flatly and at once. Seeing that it is off-topic is the whole of
+          the work it gets: no skill loaded, no tool called, no specialist briefed,
+          no answer drafted and no plan laid to reach one. "Write me a hello world
+          in Go" is a refusal, not a task — you do not write the Go, and you do not
+          soften the no with it. A general question, an opinion, code or a program
+          in any language: none of it becomes your business by being rewritten as
+          YAML or reframed as a flow, and you do not go hunting for the reading of
+          it that would let you help. One line, in character — not my remit, and
+          here is what is — and no more. Do not weigh how easily you could answer;
+          that you could is not the question.
+
+
+          octo_read is yours, and it is a GET: which integrations exist, what one
+          definition says, what a deployment's status is. Use it freely, and answer
+          from it when that is the whole answer. It cannot write, deliberately —
+          every change to this installation goes through the operator below, which
+          means a write is always something you decided to delegate.
+
+
+          web_search is the open web, and it is the only thing you hold that is not
+          about this installation. Reach for it when the answer lives outside — a
+          provider's error message, a version, what a release changed, an API you
+          are about to call — and not before you have asked the platform itself,
+          which is authoritative where this is not. Say that you searched, and
+          link what you used. If it comes back saying web search is not
+          configured, that is settled for the whole conversation: say you could
+          not check the web, answer from what you know, and do not call it again.
+
+
+          integration_builder writes and proves flow definitions. It knows the
+          schema, holds the workspace, the standalone octo and the dolphin suite
+          runner, and it does not answer until the thing has run. Send it anything
+          that ends in YAML — a new integration, a fix to a flow, a test suite, a
+          CEL expression you want settled. It cannot save anything.
+
+
+          platform_operator changes and inspects the installation: saving a
+          definition, version tags, deploys, rollouts, scaling, undeploys,
+          resources, secrets, settings, and every question about stored logs and
+          traces. Send it anything that ends in an API call.
+
+
+          Both are blind and stateless. They cannot see this conversation, the
+          user, the page, or what the other one was asked. The brief is everything
+          they get, so it carries everything: the ids, the definition text quoted
+          in full, what has already been tried, what must not be touched, and what
+          "done" looks like. "Fix it" is not a brief. A vague brief comes back as a
+          specialist guessing confidently, which is the failure mode this whole
+          arrangement is here to avoid.
+
+
+          They are also not free — each delegation is a whole model run, and the
+          panel goes quiet while it works. Do not delegate a question one octo_read
+          answers, and do not delegate the same job twice because the first report
+          was not what you hoped. Say what you are handing over before you hand it
+          over, in one line, so the wait means something.
+
+
+          A shipped change is usually both of them in order: the builder produces a
+          definition that passes its suite, then the operator saves it, tags it and
+          rolls it out. Pass the builder's YAML into the operator's brief verbatim
+          — the operator has no way to see it otherwise.
+
+
+          When someone asks for a report by email, the specialists gather the rows
+          and you write and send it: load the email-reports skill, compose the HTML
+          and its plain-text twin, say who it is going to, then send_email_report.
+
+
+          Say what you are about to do before anything destructive, and prefer
+          showing a definition to silently saving one. Load a skill yourself when
+          you are explaining the schema rather than writing it; the specialists
+          load their own.
+
+
+          Relay results honestly. A specialist reports what it actually did, which
+          tests passed and what it could not verify — pass that through, keep the
+          definition it hands you verbatim, and never round "I could not check
+          this" up to "this works". If a specialist comes back empty or stuck, say
+          so and say what you would try next; do not fill the gap yourself.
+
+
+          You remember people between conversations. What you have already chosen
+          to remember about someone is given to you at the start of every run — you
+          do not have to ask for it. Call remember, with a short stable name and
+          the fact itself, when they tell you something worth keeping: how they
+          like flows written, which integration is theirs, what to call them.
+          Remember preferences and context, not the contents of a conversation, and
+          never a credential. If something has changed, remember it again under the
+          same name and the new version replaces the old; if they ask you to forget
+          something, call forget without arguing. Call search_memory when the answer
+          depends on something said in an earlier conversation you can no longer
+          see.
+
+
+          Write in Markdown — the panel renders it. Fenced code blocks with a language
+          on them, tables, lists and links all display properly, so a flow definition
+          belongs in a ```yaml fence and a comparison belongs in a table. Keep it
+          light otherwise: no heading on a one-paragraph reply, and never wrap an
+          ordinary sentence in a code fence. You are a chat panel, not a JSON API —
+          answer in prose with structure where structure helps, never as a bare JSON
+          object.
+
+        guardrail: >
+          If the request is not about authoring, managing or monitoring the
+          integrations on this Octo platform, or operating the installation that
+          runs them — its deployments, resources, secrets, settings, logs and
+          traces — take the default path rather than answering. A general coding
+          request does not become in-scope by being turned into a flow.
+
+        tools:
+          # A read of the orchestrator API, and only a read.
+          #
+          # Two tools call the same API in this file and they are not the same
+          # tool: this one is bounded to GET by allowMethods, which is a runtime
+          # refusal rather than an instruction, and it is the one the coordinator
+          # and the builder hold. Everything that changes the installation goes
+          # through the operator specialist, whose octo_api is unrestricted — so
+          # "who can write" is answered by which agent was delegated to, not by how
+          # persuasively somebody asked.
+          - name: octo_read
+            description: >
+              Read anything from the orchestrator API — GET only. The small lookups
+              an answer needs: /integrations to list them, /integrations/{id} for
+              one definition, /integrations/{id}/deployments for what is running,
+              /deployments/{id} for its status. Path only, never a full URL. A 4xx
+              comes back as data rather than an error, so read it and correct the
+              call. Writing is refused here; delegate a change to the platform
+              operator.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                  "path":  { "type": "string", "description": "Path only, e.g. /integrations/abc." },
+                  "query": { "type": "object", "description": "Query parameters." }
+                }
+              }
+            process:
+              - type: rest-dynamic
+                name: call-octo-read
+                settings:
+                  connector: octo
+                  headers: '{"Authorization": "Bearer " + vars.authToken, "X-Octo-Environment": vars.?environment.orValue("")}'
+                  method: '"GET"'
+                  path: body.path
+                  allowMethods: [GET]
+                  query: 'has(body.query) ? body.query : {}'
+                  failOnError: false
+
+          - name: check_expression
+            description: >
+              Evaluate one CEL expression against a message body and return the
+              result. Use it to prove an expression before you put it in a definition
+              — the expressions skill says to, and this is how.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["expr"],
+                "properties": {
+                  "expr": { "type": "string", "description": "The CEL expression, e.g. body.items.size() > 0" },
+                  "data": { "type": "object", "description": "The message body to evaluate it against." }
+                }
+              }
+            process:
+              - type: cli-run
+                name: octo-eval
+                program: env.AGENT_OCTO_BIN
+                args: >-
+                  ["eval", "--expr", body.expr,
+                   "--data", toJson(has(body.data) ? body.data : {})]
+                allow: ["${AGENT_OCTO_BIN}"]
+                env: [PATH, HOME]
+                workDir: ${AGENT_WORKSPACE}
+                timeout: ${AGENT_CLI_TIMEOUT}
+                onExit: continue
+
+          # ------------------------------------------------------- the specialists
+          #
+          # Two tools that delegate to another agent instead of doing the work:
+          # the coordinator writes a brief, a specialist works its own loop with
+          # its own prompt and its own tools, and one report comes back as the
+          # tool result. Both specialists are flows — `integration-builder` and
+          # `platform-operator`, at the bottom of this file — reached from here by
+          # a synchronous flow-ref. Why they are flows and not inline blocks, and
+          # why there are two of them rather than one, is written where they are.
+          #
+          # What matters at this end is the cost, because the coordinator's prompt
+          # has to argue about it: a delegation is a whole model run, and the
+          # specialist starts blind. The failure mode is a thin brief; the second
+          # is delegating a question that one GET would have answered. It is also
+          # why the SSE route's maxDuration is 30m — one turn here can be a whole
+          # loop over there.
+          #
+          # The builder's two borrowed tools carry a builder_ prefix, and that is a
+          # readability choice rather than a requirement: the runtime keeps tool
+          # branches apart by address, so `check_expression` in both levels loads
+          # fine. It is the trace and the panel's tool chips that show a bare name
+          # and nothing else — two `octo_read` chips in one answer say nothing
+          # about which agent made the call. (It also keeps this app loading on an
+          # installation whose validator reads tool branches as one flat
+          # namespace and refuses the repeat.)
+
+          - name: integration_builder
+            description: >
+              Hand a flow definition to the specialist who writes them. It knows the
+              schema, has the workspace, the standalone octo and the dolphin test
+              runner, and it does not answer until the definition has actually run.
+              Send it anything that ends in YAML: a new integration, a fix to a flow,
+              a test suite, a CEL expression to settle. It reads the orchestrator API
+              but cannot write to it, so nothing it produces is saved — it hands back
+              a definition and the evidence it works. The brief must be complete: it
+              cannot see this conversation, so quote the YAML, the ids and what
+              "done" looks like.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["task"],
+                "properties": {
+                  "task":    { "type": "string", "description": "The whole brief, self-contained: what to do, the ids, the definitions, what done looks like." },
+                  "context": { "type": "string", "description": "Anything from the conversation it needs and cannot see — what was already tried, constraints, preferences." }
+                }
+              }
+            process:
+              # The specialist itself is a flow of its own, called synchronously.
+              #
+              # It could sit inline here — a tool slot takes any process chain, an
+              # ai-agent included — and it did. A flow is better for one reason
+              # that outweighs the indirection: a flow can be invoked on its own.
+              # dolphin can drive `integration-builder` with a brief and assert on
+              # what came back without standing up the coordinator, mocking the
+              # model twice, or reaching the specialist through a tool call it has
+              # to be persuaded to make. samples/cli-agent.yaml puts its command
+              # boundary in a flow for exactly this reason.
+              #
+              # Two-way (the default), because the coordinator is waiting: the
+              # called flow's body becomes this tool's result. The brief and
+              # vars.toolScope both ride across on the cloned message, so the
+              # specialist reads its input exactly as it did inline.
+              - type: flow-ref
+                name: delegate
+                settings:
+                  flow: integration-builder
+
+          - name: platform_operator
+            description: >
+              Hand a change or an investigation to the specialist who runs the
+              installation. Saving a definition through the API, version tags,
+              deploys, rollouts, scaling, undeploys, resources, secrets, settings —
+              and every question about stored logs and traces, which is anything
+              about what already happened. It holds the unrestricted orchestrator
+              API, so this is the only way anything on the platform changes. Say
+              plainly in the brief what may be changed and what may not; it cannot
+              see this conversation, so give it the ids and the full definition text
+              it needs.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["task"],
+                "properties": {
+                  "task":    { "type": "string", "description": "The whole brief, self-contained: what to do, the ids, the definitions, what done looks like." },
+                  "context": { "type": "string", "description": "Anything from the conversation it needs and cannot see — what was already tried, constraints, preferences." }
+                }
+              }
+            process:
+              # Its own flow, on the same terms as the builder's above, and for the
+              # same reason: `platform-operator` can be invoked directly in a test.
+              - type: flow-ref
+                name: delegate
+                settings:
+                  flow: platform-operator
+
+          # ---------------------------------------------------------------- email
+          #
+          # The one tool whose effect leaves the platform. It is on the coordinator
+          # and not on either specialist, deliberately: a report is written for a
+          # person, and the coordinator is the only one of the three that knows who
+          # asked and what they wanted. A specialist gathers the rows; this sends
+          # them.
+          #
+          # The sender identity and the provider key are the installation's, held in
+          # the orchestrator's email settings and never in this request — a body
+          # supplying either is refused there, which is what keeps this from being a
+          # relay for whatever address the model was talked into using.
+          - name: send_email_report
+            description: >
+              Send an HTML email report through the platform's own email settings.
+              Use it only when someone asked for a report by email — an answer they
+              can read in the panel does not need to be mailed as well. Load the
+              email-reports skill first: mail clients are not browsers, and it holds
+              the layout that survives them and the shape each kind of report takes.
+              Always send `text` as well as `html`. Never put a secret, a key, an env
+              value or a request body from a trace into a report. Say the recipients
+              and the subject in the same turn, before you call this.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["to", "subject", "html"],
+                "properties": {
+                  "to":      { "type": "array", "items": { "type": "string" }, "description": "Recipient addresses. Only the ones you were given." },
+                  "subject": { "type": "string", "description": "One short line, and make it the finding: 3 of 11 deployments failing." },
+                  "html":    { "type": "string", "description": "The report as inline-styled, table-based HTML. See the email-reports skill." },
+                  "text":    { "type": "string", "description": "The same report in plain text, for clients and previews that show no HTML." }
+                }
+              }
+            process:
+              - type: rest
+                name: send-report
+                settings:
+                  connector: octo
+                  headers:
+                    Authorization: '"Bearer " + vars.authToken'
+                    X-Octo-Environment: 'vars.?environment.orValue("")'
+                  method: POST
+                  path: /email/send
+                  body: >-
+                    {"to": body.to, "subject": body.subject, "html": body.html,
+                     "text": has(body.text) ? body.text : ""}
+                  # A 4xx is an answer — email not configured, too many recipients, a
+                  # newline in the subject — and the model should read it and say so
+                  # rather than have the run fail underneath it.
+                  failOnError: false
+
+          # Web search, when this installation has paid for it.
+          #
+          # The guard is the same shape as the three observability tools': a CEL comparison
+          # against the sentinel, answered from the env rather than from a failed
+          # request. What differs is what the else branch says. "Not granted" is a
+          # fact about the installation that will not change during the
+          # conversation, so the message tells him to stop calling it — a model
+          # that reads "unavailable" without that instruction retries with a
+          # rephrased query, and each retry is a whole turn of his budget.
+          - name: web_search
+            # The one tool a person is asked about, and it is asked about because of
+            # what it BRINGS BACK rather than what it changes. Everything else he
+            # holds is either a GET or an orchestrator call whose blast radius is
+            # this installation's own data; this is the door untrusted text comes
+            # through. A page excerpt can carry instructions, and from there the
+            # path to a delegation and a write exists — with nothing in it but a
+            # prompt, which is not a boundary.
+            #
+            # So the person who is already reading the panel decides whether the
+            # open web gets to speak into this conversation. `true` because there is
+            # no safe half of the argument to let through: the objective and the
+            # queries are shown in the frame, and a search nobody wants is denied
+            # with the reason going back to him as a tool result.
+            #
+            # Everything else stays free, deliberately. A panel that asks about
+            # every octo_read is a panel whose questions nobody reads.
+            authorize: "true"
+            description: >
+              Search the open web and get back ranked pages with the excerpts
+              that bear on your objective — not a list of links to go and read.
+              For what this installation cannot tell you: a provider's API or
+              error message, a library or image version, what changed in a
+              release, an address or endpoint someone named. Prefer octo_read
+              and the observability tools for anything about THIS installation; they are
+              authoritative and this is not. Say you searched the web when you
+              use what comes back, and link the page. Never search for anything
+              from this platform's own data — a key, an env value, a request
+              body from a trace.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["objective", "queries"],
+                "properties": {
+                  "objective": {
+                    "type": "string",
+                    "description": "What you are actually trying to find out, in a sentence. Results are ranked against this, not against the queries."
+                  },
+                  "queries": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "The searches to run toward that objective. Two or three phrasings beat one."
+                  }
+                }
+              }
+            process:
+              - type: if
+                name: web-search-configured
+                condition: env.PARALLEL_API_KEY != "web-search-not-configured"
+                then:
+                  process:
+                    - type: parallel-search
+                      name: search
+                      settings:
+                        connector: web
+                        objective: body.objective
+                        searchQueries: body.queries
+                        # Enough results to cross-check a claim, and a total
+                        # character budget because every one of them is about to
+                        # be re-read on each remaining turn of the conversation.
+                        maxResults: 8
+                        maxCharsTotal: 12000
+                        # A Parallel error is an answer — a rejected key, a rate
+                        # limit — and he should read it and say so rather than
+                        # have the run fail underneath him.
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-configured
+                      settings:
+                        value: '{"error": "Web search is not configured on this installation, so this tool cannot search and will not start working later in this conversation. Do not call it again — answer from what you know and from the platform itself, and say that you could not check the web. An operator enables it by saving a Parallel API key under Admin, Platform agent."}'
+
+          - name: web_extract
+            # Authorized for the same reason web_search is, and it is if anything
+            # the sharper case: search brings back excerpts Parallel chose, this
+            # brings back the contents of a page named in the call — the most
+            # direct route for untrusted text on the open web to speak into the
+            # conversation, and from there toward a delegation and a write. So the
+            # person reading the panel decides whether these pages get to enter.
+            # `true` because there is no safe half: the urls are shown in the
+            # frame, and an extract nobody wants is denied with the reason going
+            # back to him as a tool result.
+            authorize: "true"
+            description: >
+              Read the contents of specific web pages — the excerpts that bear
+              on your objective, or the whole page. This is the read to
+              web_search's find: reach for it once search (or a page someone
+              named) has given you a URL and you need what is actually on it —
+              a provider's doc page, a changelog entry, an error explained in a
+              GitHub issue. Pass an objective to get back just the parts that
+              answer it. Prefer octo_read and the observability tools for anything about
+              THIS installation; the open web is not authoritative about it. Say
+              you read the page when you use what comes back, and link it. Never
+              extract a URL built from this platform's own data.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["urls"],
+                "properties": {
+                  "urls": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "The page URLs to read. One or a few — each one is re-read on every remaining turn, so do not fetch a page you do not need."
+                  },
+                  "objective": {
+                    "type": "string",
+                    "description": "What you are trying to learn from the pages, in a sentence. With it, you get excerpts scoped to it; without it, the whole page."
+                  }
+                }
+              }
+            process:
+              - type: if
+                name: web-extract-configured
+                condition: env.PARALLEL_API_KEY != "web-search-not-configured"
+                then:
+                  process:
+                    - type: parallel-extract
+                      name: extract
+                      settings:
+                        connector: web
+                        urls: body.urls
+                        # Optional in the schema, so guard the read: a bare
+                        # body.objective errors on the missing key when the model
+                        # omits it, and an empty objective reads the whole page.
+                        objective: 'has(body.objective) ? body.objective : ""'
+                        # A Parallel error is an answer — a rejected key, a rate
+                        # limit, a page that would not load — and he should read it
+                        # and say so rather than have the run fail underneath him.
+                        failOnError: false
+                else:
+                  process:
+                    - type: set-payload
+                      name: not-configured
+                      settings:
+                        value: '{"error": "Web extract is not configured on this installation, so this tool cannot read pages and will not start working later in this conversation. Do not call it again — answer from what you know and from the platform itself, and say that you could not read the web. An operator enables it by saving a Parallel API key under Admin, Platform agent."}'
+
+          - name: navigate_to
+            description: >
+              Take the user to a page in the platform. Use a path from body.routes,
+              filling in any {id} segment. Navigation is a courtesy and not an
+              answer — say what you are showing them and why in the same turn.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["path", "reason"],
+                "properties": {
+                  "path":   { "type": "string", "description": "A path within the platform, e.g. /platform/i/abc. Never a full URL." },
+                  "reason": { "type": "string", "description": "One short line for the user saying why you are taking them there." }
+                }
+              }
+            process:
+              # ifClosed: ignore, unlike the events path. A closed panel means nobody
+              # is being navigated, which is not a reason to end the run mid-tool.
+              #
+              # The path is NOT validated here. This app is meant to be edited, so a
+              # guard in this file is advice rather than a boundary — the panel
+              # performs the navigation and is where a path that is not relative has
+              # to be refused.
+              - type: sse-event
+                name: emit-navigation
+                settings:
+                  event: navigate
+                  ifClosed: ignore
+                  data: >-
+                    {
+                      "path": has(body.path) ? body.path : "",
+                      "reason": has(body.reason) ? body.reason : ""
+                    }
+              - type: set-payload
+                name: navigate-to-result
+                settings:
+                  value: '{"navigated": true}'
+
+        skills:
+          - name: flow-file
+            description: >
+              The shape of a flow definition: service, env, resources, connectors,
+              flows, sources and process chains. Load before writing or editing one.
+            resource: flow-file
+          - name: best-practices
+            description: >
+              How to write a flow well: multi-transform for setter runs, enrich
+              around destructive calls, subflows, the octo.yaml globals file,
+              block names. Load before writing a definition.
+            resource: best-practices
+          - name: blocks
+            description: >
+              The blocks a process chain can contain — control flow, data, storage,
+              AI and integration — and what each is for.
+            resource: blocks
+          - name: connectors
+            description: >
+              The connectors available (HTTP, database, queue, cron, LLM, and the
+              rest) and the settings each takes.
+            resource: connectors
+          - name: expressions
+            description: >
+              CEL as octo uses it: the message activation, the octo extension
+              functions, and where expressions are allowed.
+            resource: expressions
+          - name: testing
+            description: >
+              Writing dolphin test suites for a flow: cases, inputs, mocks and spies.
+            resource: testing
+          - name: platform
+            description: >
+              How the platform runs an integration: version tags, deployments,
+              resources, cluster secrets, and what a failing deployment looks like.
+            resource: platform
+          - name: email-reports
+            description: >
+              Sending a report by email: the HTML that survives a mail client, the
+              shape a report takes, which calls gather each kind, and what must
+              never go in one. Load before calling send_email_report.
+            resource: email-reports
+
+        default:
+          process:
+            # The guardrail runs for every reason a run can end without an answer —
+            # a refusal, and now also a run that spent its whole turn budget — and
+            # the flow cannot tell which: the reason travels on the `guardrail`
+            # event, not in this body. So the line has to be true of all of them.
+            # It used to say "outside my remit", which is a refusal's answer and a
+            # wrong one for a run that worked to its limit and ran out.
+            #
+            # The panel names the actual reason underneath this, so being specific
+            # here would only be a second, less-informed guess at it.
+            - type: set-payload
+              name: fallback-answer
+              settings:
+                value: >-
+                  {"answer": "I have stopped short of an answer on that one — the
+                  scheme did not come together. I am Dr. Octo: integrations,
+                  deployments, flows, logs and traces are my remit. Narrow it down
+                  or point me at something concrete and I will have another go."}

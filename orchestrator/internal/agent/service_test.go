@@ -38,6 +38,7 @@ func (f *fakeRepo) Mutate(_ context.Context, fn func(stored) (stored, error)) er
 
 type fakeIntegrations struct {
 	items    map[string]integration.Integration
+	files    map[string][]projectfile.File
 	creates  int
 	updates  int
 	deletes  int
@@ -46,7 +47,7 @@ type fakeIntegrations struct {
 }
 
 func newFakeIntegrations() *fakeIntegrations {
-	return &fakeIntegrations{items: map[string]integration.Integration{}}
+	return &fakeIntegrations{items: map[string]integration.Integration{}, files: map[string][]projectfile.File{}}
 }
 
 func (f *fakeIntegrations) Create(_ context.Context, name, definition, _ string) (integration.Integration, error) {
@@ -60,6 +61,9 @@ func (f *fakeIntegrations) Create(_ context.Context, name, definition, _ string)
 	id := "int-" + string(rune('a'+f.nextID-1))
 	it := integration.Integration{ID: id, Name: name, Definition: definition}
 	f.items[id] = it
+	if definition != "" {
+		f.files[id] = []projectfile.File{{Path: integration.DefaultConfigPath, Content: definition}}
+	}
 	return it, nil
 }
 
@@ -95,7 +99,38 @@ func (f *fakeIntegrations) ReplaceFiles(_ context.Context, id string, files []pr
 	it := f.items[id]
 	it.Definition = definition
 	f.items[id] = it
+	f.files[id] = append([]projectfile.File(nil), files...)
 	return nil
+}
+
+// edit changes one config file in place, the way the editor saves a file, and keeps
+// the merged definition in step with it.
+func (f *fakeIntegrations) edit(t *testing.T, id, path, suffix string) string {
+	t.Helper()
+	files := f.files[id]
+	for i := range files {
+		if files[i].Path == path {
+			files[i].Content += suffix
+			definition, err := projectfile.Merge(files)
+			if err != nil {
+				t.Fatalf("merge edited files: %v", err)
+			}
+			it := f.items[id]
+			it.Definition = definition
+			f.items[id] = it
+			return files[i].Content
+		}
+	}
+	t.Fatalf("integration %s has no config file %q", id, path)
+	return ""
+}
+
+func (f *fakeIntegrations) ListFiles(_ context.Context, id string) ([]integration.ConfigFile, error) {
+	out := make([]integration.ConfigFile, 0, len(f.files[id]))
+	for _, file := range f.files[id] {
+		out = append(out, integration.ConfigFile{Path: file.Path, Content: file.Content})
+	}
+	return out, nil
 }
 
 func (f *fakeIntegrations) Delete(_ context.Context, id string) error {
@@ -988,14 +1023,15 @@ func TestRolloutPublishesTheBundleAndRollsTheDeployment(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 	h.repo.row.InstalledDigest = "stale"
+	installWrites := h.integrations.updates
 
 	got, err := h.svc.Rollout(ctx, "user-1")
 	if err != nil {
 		t.Fatalf("Rollout: %v", err)
 	}
 
-	if h.integrations.updates != 1 {
-		t.Errorf("integration updates = %d, want the definition republished", h.integrations.updates)
+	if writes := h.integrations.updates - installWrites; writes != 1 {
+		t.Errorf("integration updates = %d, want the definition republished", writes)
 	}
 	if len(h.deployments.rollouts) != 1 {
 		t.Fatalf("rollouts = %d, want 1", len(h.deployments.rollouts))
@@ -1028,11 +1064,8 @@ func TestRolloutFreezesTheEditedDefinitionBeforeReplacingIt(t *testing.T) {
 	}
 	tagsAfterInstall := len(h.snapshots.items)
 
-	// Edit the agent the way the editor does: change the working copy in place.
-	it := h.integrations.items[installed.IntegrationID]
-	edited := it.Definition + "\n# someone changed the prompt\n"
-	it.Definition = edited
-	h.integrations.items[installed.IntegrationID] = it
+	// Edit the agent the way the editor does: change one file of the working copy.
+	edited := h.integrations.edit(t, installed.IntegrationID, "coordinator.yaml", "\n# someone changed the prompt\n")
 
 	if _, err := h.svc.Rollout(ctx, "user-1"); err != nil {
 		t.Fatalf("Rollout: %v", err)
@@ -1053,8 +1086,69 @@ func TestRolloutFreezesTheEditedDefinitionBeforeReplacingIt(t *testing.T) {
 	}
 	// The working copy is stock again, which is the point of the roll-out — the
 	// edits live in the tag above and nowhere else.
-	if got := h.integrations.items[installed.IntegrationID].Definition; got == edited {
-		t.Error("want the working copy replaced by the shipped bundle")
+	for _, f := range h.integrations.files[installed.IntegrationID] {
+		if f.Path == "coordinator.yaml" && f.Content == edited {
+			t.Error("want the working copy replaced by the shipped bundle")
+		}
+	}
+}
+
+// The bundle is a project of several files, and the integration has to hold each of
+// them under its own path — the merged definition alone would leave the editor one
+// 2,800-line file and break the split the bundle is written in.
+func TestInstallWritesEveryBundleFile(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	installed, err := h.svc.Install(ctx, "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	want, err := agentapp.Files()
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	got := h.integrations.files[installed.IntegrationID]
+	if len(got) != len(want) {
+		t.Fatalf("config files = %d, want the bundle's %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Path != want[i].Path || got[i].Content != want[i].Content {
+			t.Errorf("config file %d = %q, want the bundle's %q", i, got[i].Path, want[i].Path)
+		}
+	}
+}
+
+// An agent installed before the split is one file at the default path, recorded
+// under the digest the single-file bundle computed. Untouched, it must not read as
+// edited just because the bundle it came from was laid out differently.
+func TestStatusDoesNotReportASingleFileInstallAsEdited(t *testing.T) {
+	h := newHarness(t, true)
+	ctx := context.Background()
+
+	installed, err := h.svc.Install(ctx, "")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	const old = "service:\n  name: dr-octo\n"
+	h.integrations.files[installed.IntegrationID] = []projectfile.File{{Path: integration.DefaultConfigPath, Content: old}}
+
+	skills, err := agentapp.Skills()
+	if err != nil {
+		t.Fatalf("Skills: %v", err)
+	}
+	digested := map[string]string{"config.yaml": old}
+	for name, content := range skills {
+		digested[name] = content
+	}
+	h.repo.row.InstalledDigest = agentapp.DigestFiles(digested)
+
+	got, err := h.svc.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.Edited {
+		t.Error("an untouched single-file install was reported as edited")
 	}
 }
 
@@ -1096,9 +1190,7 @@ func TestStatusReportsAnEditedIntegration(t *testing.T) {
 		t.Fatal("a freshly installed agent is not edited")
 	}
 
-	it := h.integrations.items[installed.IntegrationID]
-	it.Definition += "\n# someone changed the prompt\n"
-	h.integrations.items[installed.IntegrationID] = it
+	h.integrations.edit(t, installed.IntegrationID, "coordinator.yaml", "\n# someone changed the prompt\n")
 
 	got, err := h.svc.Status(ctx)
 	if err != nil {
@@ -1645,7 +1737,7 @@ func TestLLMKeySecretIsAValidPlatformSecretName(t *testing.T) {
 }
 
 // The sentinel is a contract between this package and the agent's own definition:
-// the installer binds it, and every web_search branch in config.yaml compares
+// the installer binds it, and every web_search branch in its config files compares
 // against it. Written in two files, so held together by a test rather than by
 // memory.
 func TestWebSearchSentinelMatchesTheAgentDefinition(t *testing.T) {
@@ -1665,7 +1757,7 @@ func TestWebSearchSentinelMatchesTheAgentDefinition(t *testing.T) {
 }
 
 // Every environment name the installer binds is also an env var in the agent's
-// own config.yaml, and the same rule applies to all of them.
+// own octo.yaml, and the same rule applies to all of them.
 func TestBoundEnvironmentNamesAreValid(t *testing.T) {
 	for _, name := range []string{envConnectorType, envModel, envAPIKey, envOrchestrator, envWebSearchKey} {
 		if !secret.ValidName(name) {

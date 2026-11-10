@@ -1,0 +1,350 @@
+service:
+  name: dr-octo
+
+# Dr. Octo — the platform's own agent.
+#
+# The joke is load-bearing: this is an Octo App. Not a service with a flow engine
+# bolted on, not a sidecar — a config folder with an ai-agent block in it, deployed
+# by the same POST /integrations/{id}/deployments that deploys anything a user
+# builds. That is what makes tracing, pod logs, scaling, version tags and rollback
+# work on the agent without any of them being written for it. And it is why you can
+# open this in the editor and change the prompt, add a tool, or take one away.
+#
+# The chat flow is a coordinator and two specialist subagents rather than one
+# agent holding twenty tools — see "the specialists" below for what that buys and
+# what it costs.
+#
+# Run it standalone exactly as the orchestrator runs it:
+#
+#   export LLM_CONNECTOR_TYPE=llm-anthropic LLM_API_KEY=sk-ant-... \
+#          LLM_MODEL=claude-sonnet-4-6 ORCHESTRATOR_URL=http://localhost:8090
+#   export AGENT_WORKSPACE=$(mktemp -d) \
+#          AGENT_OCTO_BIN=$PWD/bin/octo AGENT_DOLPHIN_BIN=$PWD/bin/dolphin \
+#          AGENT_CURL_BIN=$(command -v curl) AGENT_FIND_BIN=$(command -v find) \
+#          AGENT_JQ_BIN=$(command -v jq)
+#   bin/octo run --config orchestrator/agent
+#
+# The folder is one project, merged at load:
+#
+#   octo.yaml             this file: service, env, the skills and every connector
+#   coordinator.yaml      chat, the coordinator the panel talks to
+#   builders.yaml         integration-builder and platform-operator, the specialists
+#   troubleshooting.yaml  troubleshooter and report-troubleshoot, the alert path
+#
+# The suites beside them are named after the flow they drive (chat_test.yaml), never
+# after a file: dolphin pairs x_test.yaml with x.yaml alone, which would load a flow
+# without the connectors declared here.
+
+env:
+  # Which provider to talk to, as a connector type. The orchestrator binds this
+  # from the site's LLM settings at install. It is an env var and not three
+  # connectors because every declared connector is started eagerly and each LLM
+  # connector fails startup on an empty apiKey — so declaring all three would mean
+  # two guaranteed failures. Substitution rewrites the parsed YAML before it is
+  # decoded, so a connector's *type* can come from a variable like anything else.
+  - name: LLM_CONNECTOR_TYPE # llm-anthropic | llm-openai | llm-gemini | llm-openrouter
+    required: true
+  - name: LLM_API_KEY
+    required: true
+  - name: LLM_MODEL
+    required: true
+
+  # Where the orchestrator lives. Required *and* bound at deploy time: the
+  # orchestrator injects ORCHESTRATOR_URL into every pod, but the deploy-time check
+  # for required variables looks only at bindings and .env resources, so an unbound
+  # declaration is refused before the pod is ever created.
+  - name: ORCHESTRATOR_URL
+    required: true
+
+  # Where stored logs and traces are queried. Deliberately NOT required, and it has
+  # no counterpart binding: OBSERVABILITY_URL is orchestrator-managed, injected only into a
+  # deployment granted the observability API, and the deploy-time check for required
+  # variables reads bindings and .env resources only — so declaring it required would
+  # refuse every deploy, including the ones that were granted it.
+  #
+  # The default is a sentinel, and it is load-bearing twice over.
+  #
+  # It exists at all because connectors start eagerly and http-client refuses an
+  # empty baseURL, which would crash-loop the whole agent on an install that never
+  # granted him the API. And every observability tool below compares against it before doing
+  # anything, so "not granted" is answered from a CEL check rather than from a failed
+  # request — no waiting on a connection, and an explanation instead of a transport
+  # error the model has to interpret.
+  #
+  # The host is under .invalid, reserved by RFC 2606 to never resolve, so the
+  # sentinel is also a safe address: anything that ever slipped past the checks
+  # fails to connect rather than reaching something real.
+  - name: OBSERVABILITY_URL
+    default: http://observability-not-granted.invalid
+
+  # The key Dr. Octo searches the open web with, from Admin -> Platform agent.
+  #
+  # Optional, and the default is a sentinel for the same reason OBSERVABILITY_URL's is: the
+  # parallel connector below is started eagerly and refuses an empty API key, so an
+  # installation that never configured web search would crash-loop the whole agent
+  # rather than lose one tool. The web_search tool compares against this value and
+  # answers that it is unavailable — which costs no request, and tells the model
+  # something it can act on instead of an authentication error to interpret.
+  #
+  # The sentinel is also a safe value: it is not a Parallel key, so anything that
+  # ever slipped past the check is refused by the API rather than billed to someone.
+  #
+  # The orchestrator binds this on every install and roll-out — as a cluster secret
+  # when a key is stored, as this same sentinel when one is not. Saving a key in
+  # Admin therefore takes effect on the agent's next roll-out, not immediately.
+  - name: PARALLEL_API_KEY
+    default: web-search-not-configured
+
+  # How long a conversation runs before it is compacted. Half a million rather than
+  # a million: this is what the model is billed to re-read on every turn of a long
+  # thread, and the compaction is a summary, so the tail of the conversation stays
+  # verbatim either way.
+  # Injected into every runtime pod by the orchestrator. Declared here so CEL can
+  # read it: the naming flow addresses agent memory by this deployment, and the
+  # orchestrator resolves the integration the conversation actually belongs to.
+  - name: OCTO_DEPLOYMENT_ID
+    default: ""
+  - name: AGENT_MEMORY_TOKENS
+    default: "500000"
+
+  # How many tool-calling turns one run may take before the guardrail ends it.
+  #
+  # Sixty rather than twenty-four because twenty-four was not enough for the work
+  # he is actually asked to do. A single real request — read the traces for a
+  # failing deployment, work out why, write a fix and prove it with a test suite —
+  # spends a turn per tool call, and the loop above is docs, then API, then write,
+  # then run, then read, then fix.
+  #
+  # It is a ceiling and not a budget: a run that finishes in four takes four. What
+  # it costs is the tail — a genuinely stuck run now burns sixty turns before the
+  # guardrail catches it, which is the trade being made deliberately.
+  #
+  # Under the split below this counts the COORDINATOR's turns only. A delegation is
+  # one turn here and up to forty inside the specialist.
+  #
+  # Overridable per installation from Admin, Platform agent; that binding, when
+  # set, replaces this default.
+  - name: AGENT_MAX_ITERATIONS
+    default: "60"
+
+  # Where his workspace is, and where the programs he runs live.
+  #
+  # These are variables and not literals, and that is load-bearing rather than
+  # tidy. A `cli-run` allow list is resolved when the flow is BUILT — every entry
+  # goes through the same PATH lookup the program will, and an entry that resolves
+  # to nothing fails the build (buildAllowList, runtime/blocks/cli/cli.go).
+  # So a literal /opt/octo/bin/dolphin here would make this whole app fail to load
+  # anywhere that path does not exist: on a laptop, in the dolphin suite beside this
+  # file, and on any install without the agentic runner. Wrapping the blocks in an
+  # `if` would not help — the builder builds both branches.
+  #
+  # The defaults are the agentic runner's layout, which is the only image the
+  # installer deploys him on. Everywhere else, override them; see the header above.
+  # The troubleshooter's own loop budget, separate from the chat agent's and much
+  # larger. Nobody is waiting through this one: it starts from an alert, not a
+  # question, and the work is a sequence of reads that each answer a little of
+  # "what is wrong" before anything is changed. The chat default of a dozen or so
+  # is sized for a person watching a panel; this is sized for finishing.
+  - name: AGENT_TROUBLESHOOT_ITERATIONS
+    default: "60"
+
+  # The subject the troubleshooter listens on. It is the same name an alert
+  # watch's topic action publishes to, and the two have to agree — the alerting
+  # side scopes it to this deployment, so `alerts` here is `octo.<id>.t.alerts`
+  # on the broker.
+  - name: ALERT_SUBJECT
+    default: "alerts"
+
+  # Whether the troubleshooter may change anything, or only look and report.
+  #
+  # Off by default, and that is not timidity. Everything it could do to fix an
+  # incident it does by delegating to the platform operator, which holds the
+  # unrestricted API — so "on" means a model acting on this installation with
+  # nobody watching, started by an alert that fired at four in the morning. That
+  # is a decision an operator makes deliberately, once, and it should not arrive
+  # as a side effect of deploying an agent.
+  #
+  # Off, it still triages, still reads everything, and still reports twice. What
+  # it stops is the third act.
+  - name: AGENT_TROUBLESHOOT_FIX
+    default: "false"
+
+  # Where the octo documentation lives, so the troubleshooter can look up what a
+  # block does or what an error means rather than inferring it. Public, static and
+  # read-only, which is why it needs no key and gets no guard.
+  - name: OCTO_DOCS_URL
+    default: "https://juancavallotti.github.io/octo"
+
+  - name: AGENT_WORKSPACE
+    default: /workspace
+  # The STANDALONE octo, deliberately not the /usr/local/bin/octo that is this pod's
+  # own entrypoint. That one is the k8s build and exits without a runtime-services
+  # module, so it cannot run a flow on its own.
+  - name: AGENT_OCTO_BIN
+    default: /opt/octo/bin/octo
+  - name: AGENT_DOLPHIN_BIN
+    default: /opt/octo/bin/dolphin
+  - name: AGENT_CURL_BIN
+    default: /usr/bin/curl
+  - name: AGENT_FIND_BIN
+    default: /usr/bin/find
+  - name: AGENT_JQ_BIN
+    default: /usr/bin/jq
+
+  # How long any one command may run. A command holds a flow worker while it runs,
+  # so cli-run has no unbounded option at all — which is why `octo run` is not
+  # something this agent does: he invokes a flow once and runs a suite, both of
+  # which end. Longer than cli-run's own 30s default because a cold `octo invoke`
+  # starts every connector the definition declares before it runs anything.
+  - name: AGENT_CLI_TIMEOUT
+    default: 120s
+  # curl's own --max-time, in seconds. Comfortably inside AGENT_CLI_TIMEOUT so a
+  # slow endpoint is reported by curl, with a status line, rather than killed by the
+  # block with nothing to show for it.
+  - name: AGENT_HTTP_MAX_TIME
+    default: "20"
+
+  - name: HTTP_HOST
+    default: 0.0.0.0
+  # Declaring HTTP_PORT with a numeric default is what makes this deployment
+  # networked, which is what earns it a stable internal address for the platform to
+  # proxy the chat panel to.
+  - name: HTTP_PORT
+    default: "8080"
+
+resources:
+  templates:
+    - resource: skills/flow-file.md
+      as: flow-file
+    - resource: skills/best-practices.md
+      as: best-practices
+    - resource: skills/blocks.md
+      as: blocks
+    - resource: skills/connectors.md
+      as: connectors
+    - resource: skills/expressions.md
+      as: expressions
+    - resource: skills/testing.md
+      as: testing
+    - resource: skills/platform.md
+      as: platform
+    - resource: skills/email-reports.md
+      as: email-reports
+    - resource: skills/troubleshooting.md
+      as: troubleshooting
+    - resource: skills/alerts.md
+      as: alerts
+
+connectors:
+  - name: llm
+    type: ${LLM_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${LLM_API_KEY}
+      model: ${LLM_MODEL}
+      maxTokens: 8192
+
+  # The same provider, key and model as `llm` above, for the one call that wants
+  # none of its reasoning: naming a conversation in five words. `llm` cannot carry
+  # this setting, because the chat agent it serves reasons for a living.
+  #
+  # Reasoning tokens are spent before any answer and count against the same
+  # ceiling, so a reasoning model asked for a handful of tokens spends them all
+  # thinking and returns an empty body. That is not hypothetical — it is what the
+  # title call did in production against a reasoning model, surfacing as
+  # `ai-mapping: response is not valid JSON: unexpected end of JSON input`.
+  #
+  # Both spellings of the setting are set, because the type is chosen at deploy
+  # time by an environment variable and each provider names this differently.
+  # Settings decode through a plain json.Unmarshal, so whichever connector starts
+  # reads the key it knows and ignores the other; getting one of them wrong would
+  # be silent, which is why the pairing is written down here rather than inferred.
+  #
+  #   reasoning: none   llm-openrouter, llm-openai — genuinely suppresses it
+  #   thinking: off     llm-anthropic — sends no thinking field, and that API
+  #                     reasons only when asked, so not asking is off
+  #                     llm-gemini — also sends nothing, but a 2.5 model reasons
+  #                     by default and the connector cannot express a zero budget,
+  #                     so there the ceiling below is what saves the call
+  #
+  # 1024 rather than the 100 the title block used to ask for: enough that a model
+  # which reasons anyway still has room to emit the object, and small enough that
+  # a runaway costs nothing. See issue #344 for the general fix in the connectors.
+  - name: llm-fast
+    type: ${LLM_CONNECTOR_TYPE}
+    settings:
+      apiKey: ${LLM_API_KEY}
+      model: ${LLM_MODEL}
+      reasoning: none
+      # Quoted: bare off is a YAML 1.1 boolean, and this setting is a string.
+      thinking: "off"
+      maxTokens: 1024
+
+  - name: api
+    type: http
+    settings:
+      host: ${HTTP_HOST}
+      port: ${HTTP_PORT}
+
+  # The orchestrator's own API. baseURL is the security boundary for every tool
+  # below: rest-dynamic can build any path under it and no path at all outside it.
+  - name: octo
+    type: http-client
+    settings:
+      baseURL: ${ORCHESTRATOR_URL}
+      timeout: 60s
+
+  # The observability service's API — stored logs, traces and pod stats, for every
+  # deployment on the install. A second boundary, restrictable independently of the
+  # one above. Read-only by the tool's allowMethods, not by the API: it also serves
+  # the retention policy and the sweep behind it, and one of those deletes.
+  - name: observability
+    type: http-client
+    settings:
+      baseURL: ${OBSERVABILITY_URL}
+      # Shorter than the orchestrator's. A query that has to reach an address this
+      # deployment was never granted should come back while someone is still reading
+      # the answer, not sixty seconds later.
+      timeout: 20s
+
+  # Parallel's search API — the open web, as ranked pages with the excerpts that
+  # answer the objective rather than as a list of links to go and fetch.
+  #
+  # Declared unconditionally, on a sentinel key when none is configured: see
+  # PARALLEL_API_KEY above. Nothing is called at startup, so a connector holding a
+  # sentinel costs nothing until a tool tries to use it, and the tool checks first.
+  - name: web
+    type: parallel
+    settings:
+      apiKey: ${PARALLEL_API_KEY}
+      # Shorter than the orchestrator's, longer than the log query's. A search is a
+      # live call to someone else's service on a turn a person is waiting through.
+      timeout: 30s
+
+  # His workspace: somewhere to draft a definition, write a test suite beside it,
+  # and read back what a run produced.
+  #
+  # The root is a real boundary, and the only one in this file that is. Paths
+  # resolve through os.OpenRoot, so containment is the kernel's answer about the
+  # path actually walked rather than a string comparison — a symlink inside the
+  # workspace cannot name a file outside it — and an absolute path is refused
+  # outright instead of being folded back under the root. Contrast the `allow`
+  # lists below, which are a guardrail and not a boundary; see run_command.
+  #
+  # It is scratch. The volume is an emptyDir that dies with the pod, so anything
+  # worth keeping goes back through octo_api, and what he remembers about a person
+  # is already the KV store.
+  # The published octo documentation. A plain GET against a static site: no key,
+  # no guard and nothing to grant, which is why it sits apart from the web search
+  # above rather than being folded into it. What comes back is still text from
+  # outside this process, so the tool that reads it says so.
+  - name: docs
+    type: http-client
+    settings:
+      baseURL: ${OCTO_DOCS_URL}
+      timeout: 20s
+
+  - name: workspace
+    type: file
+    settings:
+      root: ${AGENT_WORKSPACE}
+      createDirs: true

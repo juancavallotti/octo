@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,10 +25,7 @@ func TestDefinitionIsTheApp(t *testing.T) {
 // installs and then fails to build in the cluster — the one failure this package
 // can prevent and the pod cannot.
 func TestEverySkillTheDefinitionDeclaresIsBundled(t *testing.T) {
-	definition, err := Definition()
-	if err != nil {
-		t.Fatalf("Definition: %v", err)
-	}
+	definition := rawConfig(t)
 	skills, err := Skills()
 	if err != nil {
 		t.Fatalf("Skills: %v", err)
@@ -48,12 +47,69 @@ func TestEverySkillTheDefinitionDeclaresIsBundled(t *testing.T) {
 	}
 }
 
-// The dolphin suite lives beside the app. Shipping it would put a test file in
+// The dolphin suites live beside the app. Shipping one would put a test file in
 // every install's integration.
-func TestTheTestSuiteIsNotBundled(t *testing.T) {
-	if _, err := bundleFS.ReadFile("config_test.yaml"); err == nil {
-		t.Error("config_test.yaml is embedded; it should not be")
+func TestNoTestSuiteIsBundled(t *testing.T) {
+	suites, err := filepath.Glob("*_test.yaml")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
 	}
+	if len(suites) == 0 {
+		t.Fatal("no suites found beside the app, so this test proves nothing")
+	}
+	for _, suite := range suites {
+		if _, err := bundleFS.ReadFile(suite); err == nil {
+			t.Errorf("%s is embedded; it should not be", suite)
+		}
+	}
+}
+
+// Every config file beside the app has to ship. The embed list is written out by
+// hand to keep the suites out, so a flow file added to the folder runs under
+// `octo run --config orchestrator/agent` and in every dolphin suite, and is then
+// silently missing from every install.
+func TestEveryConfigFileIsBundled(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	bundled := map[string]bool{}
+	for _, name := range configFiles {
+		bundled[name] = true
+	}
+	found := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, "_test.yaml") {
+			continue
+		}
+		found++
+		if !bundled[name] {
+			t.Errorf("%s is a config file of the app but not in configFiles", name)
+		}
+	}
+	if found != len(configFiles) {
+		t.Errorf("configFiles names %d files, the folder holds %d", len(configFiles), found)
+	}
+	if _, err := Files(); err != nil {
+		t.Errorf("Files: %v — a name in configFiles is not embedded", err)
+	}
+}
+
+// rawConfig is every config file as written, concatenated. The line-scanning tests
+// read it rather than the merged definition, which is re-encoded YAML.
+func rawConfig(t *testing.T) string {
+	t.Helper()
+	files, err := Files()
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	var b strings.Builder
+	for _, f := range files {
+		b.WriteString(f.Content)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func TestDigestIsStable(t *testing.T) {
@@ -133,10 +189,7 @@ func TestIsSkillRecognisesTheBundlesOwnResources(t *testing.T) {
 // still loaded "a" skill. It was found by review, which is not a repeatable way
 // to find it.
 func TestEverySkillSlotNamesADeclaredAlias(t *testing.T) {
-	definition, err := Definition()
-	if err != nil {
-		t.Fatalf("Definition: %v", err)
-	}
+	definition := rawConfig(t)
 
 	// The aliases the templates block declares: an `as:` is only one when it
 	// follows a `- resource:` line, which is exactly the adjacency that broke.
