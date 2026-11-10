@@ -1,0 +1,59 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # POST /quotes: a sales order for an existing contact with one order line, then
+  # confirmed. Order lines are an x2many field, so they are written as Odoo's
+  # command list: [0, 0, values] creates a line.
+  - name: create-quote
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /quotes
+        methods: [POST]
+    process:
+      - type: odoo-search-read
+        name: find-customer
+        settings:
+          connector: odoo
+          model: '"res.partner"'
+          domain: '[["email", "=ilike", body.email]]'
+          fields: [id]
+          limit: 1
+          resultVar: customers
+
+      - type: if
+        name: customer-known
+        condition: size(vars.customers) > 0
+        then:
+          process:
+            - type: odoo-create
+              name: create-order
+              settings:
+                connector: odoo
+                model: '"sale.order"'
+                values: |
+                  {"partner_id": vars.customers[0].id,
+                   "order_line": [[0, 0, {"product_id": body.productId,
+                                          "product_uom_qty": body.quantity}]]}
+                resultVar: order
+            - type: odoo-call
+              name: confirm-order
+              settings:
+                connector: odoo
+                model: '"sale.order"'
+                method: '"action_confirm"'
+                ids: vars.order
+                resultVar: confirmed
+            - type: odoo-read
+              name: read-order
+              settings:
+                connector: odoo
+                model: '"sale.order"'
+                ids: vars.order
+                fields: [name, state, amount_total]
+        else:
+          process:
+            - type: set-payload
+              name: unknown-customer
+              settings:
+                value: '{"error": "no contact with email " + body.email}'

@@ -1,0 +1,39 @@
+# Tests close-won's claim: the amount is recorded before the deal is marked won,
+# and every call reads the event's opportunityId.
+#
+# Each call sets a resultVar, so the real block leaves the body alone. A mock
+# replaces the body it is given, so each one hands the event back as the body to
+# stand in for that.
+flow: close-won
+
+inputs:
+  a won deal:
+    data: &won { opportunityId: 7, outcome: won, amount: 12000 }
+
+mocks:
+  close-won.write-amount:
+    default: { body: *won, vars: { amountWritten: true } }
+  close-won.set-won:
+    default: { body: *won, vars: { wonResult: true } }
+  close-won.post-won-note:
+    default: { body: *won, vars: { noteIds: [90] } }
+
+cases:
+  - name: the amount is written, then the deal is marked won and noted
+    input: a won deal
+    spies:
+      close-won.write-amount:
+        count: 1
+        records:
+          - input:
+              body: *won
+      close-won.set-won:
+        count: 1
+        records:
+          # The write ran first: its result is already in vars.
+          - input:
+              that:
+                - 'body.opportunityId == 7'
+                - 'vars.amountWritten == true'
+      close-won.post-won-note:
+        count: 1

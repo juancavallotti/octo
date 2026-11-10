@@ -114,6 +114,7 @@ flows:
 
       # Wire tap: the final body is what gets written back to the caller as JSON 200.
       - type: log
+        name: log-response
         settings:
           message: '"responding to " + vars.method + " /orders/" + vars.id'
 
@@ -151,10 +152,12 @@ flows:
         then:
           process:
             - type: set-variable
+              name: mark-high
               settings: { name: priority, value: '"high"' }
         else:
           process:
             - type: set-variable
+              name: mark-normal
               settings: { name: priority, value: '"normal"' }
       - type: set-payload
         name: wrap-response

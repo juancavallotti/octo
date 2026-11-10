@@ -1,0 +1,76 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # Retrieval, on its own: {query} in, the closest documents out. No source —
+  # it is called, by the agent's tool below and by `octo invoke`, not triggered.
+  - name: search
+    process:
+      - type: ai-embed
+        name: embed-query
+        settings:
+          connector: gemini
+          text: body.query
+          model: gemini-embedding-001
+          dimensions: 768
+          resultVar: queryVector
+      - type: pinecone-query
+        name: find-similar
+        settings:
+          connector: pinecone
+          vector: vars.queryVector
+          topK: 3
+          includeMetadata: true
+          # No resultVar: the matches become the body, which is this flow's
+          # result — and, through the flow-ref below, the agent's tool result.
+
+  # POST /ask {question} — the generation half. The agent decides what to search
+  # for, calls the tool as many times as it needs (maxIterations caps it), and
+  # answers from what came back. Retrieval is a tool rather than a fixed step
+  # before the model, so a question needing two different searches gets them.
+  - name: ask
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /ask
+    process:
+      - type: ai-agent
+        name: answer-question
+        connector: gemini
+        maxIterations: 5
+        prompt: >
+          Answer the user's question in body.question about their knowledge base.
+          Call search_documents with a short phrase describing what you need; it
+          returns the closest documents, each with its id and its text under
+          metadata. Answer using ONLY the text those documents contain, and
+          respond with a JSON object {"answer": "...", "sources": ["id", ...]}
+          listing the ids you used.
+        guardrail: >
+          If the documents that come back do not contain the answer, do not guess
+          from your own knowledge — take the default path instead.
+        tools:
+          - name: search_documents
+            description: >
+              Search the knowledge base for the documents most similar in meaning
+              to a phrase. Returns a list of {id, score, metadata}.
+            inputSchema: |
+              {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                  "query": { "type": "string" }
+                }
+              }
+            process:
+              # The tool's arguments arrive as this branch's body — {query: ...},
+              # which is exactly what `search` reads — and the branch's output
+              # body is what the model gets back. So the tool is one line.
+              - type: flow-ref
+                name: retrieve
+                settings:
+                  flow: search
+        default:
+          process:
+            - type: set-payload
+              name: fallback-answer
+              settings:
+                value: '{"answer": "I could not find that in the knowledge base.", "sources": []}'

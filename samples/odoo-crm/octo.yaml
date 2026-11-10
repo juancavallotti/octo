@@ -1,0 +1,58 @@
+service:
+  name: odoo-crm
+
+# An Odoo integration over HTTP: capture a lead from a web form, read it back,
+# and turn a request into a confirmed sales order. Between them the flows use
+# every odoo block, and show the pattern the connector rests on — every Odoo app
+# is a set of models, and every model takes the same calls — so the blocks that
+# reach CRM here reach Inventory, Invoicing or a custom module the same way.
+#
+# octo.yaml (this file) holds the service, env and connectors; leads.yaml holds
+# capture-lead and get-lead, and sales.yaml holds create-quote. One suite per
+# flow, each named after its flow.
+#
+# It needs the Contacts, CRM and Sales apps installed, and an API key
+# (Preferences > Account Security > New API Key in Odoo).
+#
+#   export ODOO_URL=https://mycompany.odoo.com
+#   export ODOO_API_KEY=...
+#   # Odoo 18 and earlier: the legacy endpoint needs the database and login too.
+#   # export ODOO_VERSION=18 ODOO_DATABASE=mycompany ODOO_USERNAME=admin@example.com
+#   octo run --config samples/odoo-crm
+#
+#   # capture a lead; the contact is reused when one already has that email:
+#   curl -s -X POST localhost:8080/leads \
+#     -d '{"name":"Ada Lovelace","email":"ada@example.com","subject":"Engines","message":"Need a quote"}'
+#   # read it back, with the id from the response:
+#   curl -s localhost:8080/leads/42
+#   # quote a product to a contact and confirm it in one step:
+#   curl -s -X POST localhost:8080/quotes -d '{"email":"ada@example.com","productId":7,"quantity":3}'
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+  - name: ODOO_VERSION
+    default: "19"
+  # Empty is right for Odoo 19 on a server with one database.
+  - name: ODOO_DATABASE
+    default: ""
+  - name: ODOO_USERNAME
+    default: ""
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+  - name: odoo
+    type: odoo
+    settings:
+      version: "${ODOO_VERSION}"
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+      database: ${ODOO_DATABASE}
+      username: ${ODOO_USERNAME}

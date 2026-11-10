@@ -26,6 +26,7 @@ flows:
     process:
       # This log block writes through the named "audit" logger connector.
       - type: log
+        name: log-tick
         settings:
           logger: audit
           message: '"tick at " + body.date'

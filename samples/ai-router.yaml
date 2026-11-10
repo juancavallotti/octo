@@ -39,16 +39,19 @@ flows:
             description: Payment failures, refunds, invoices, subscription changes.
             process:
               - type: set-payload
+                name: assign-billing
                 settings:
                   value: '{"team": "billing"}'
           - name: technical
             description: Bugs, outages, API errors, integration problems.
             process:
               - type: set-payload
+                name: assign-technical
                 settings:
                   value: '{"team": "technical"}'
         default:
           process:
             - type: set-payload
+              name: assign-human-triage
               settings:
                 value: '{"team": "human-triage"}'

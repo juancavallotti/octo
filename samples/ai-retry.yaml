@@ -51,5 +51,6 @@ flows:
                 }
         error:
           - type: set-payload
+            name: degraded-result
             settings:
               value: '{"status": "degraded", "reason": vars.error.message}'

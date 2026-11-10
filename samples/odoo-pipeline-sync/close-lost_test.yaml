@@ -1,0 +1,44 @@
+# Tests close-lost's claim: the lost reason the event names is passed when Odoo
+# knows it, and the deal is still marked lost when it does not.
+#
+# The lookup sets a resultVar, so the real block leaves the body alone; its mock
+# hands the event back as the body to stand in for that, with the reasons Odoo
+# would have found in vars.
+flow: close-lost
+
+inputs:
+  too expensive:
+    data: &expensive { opportunityId: 7, outcome: lost, reason: too expensive }
+  went quiet:
+    data: &quiet { opportunityId: 7, outcome: lost, reason: went quiet }
+
+mocks:
+  close-lost.set-lost:
+    default: { body: *expensive, vars: { lostResult: true } }
+  close-lost.post-lost-note:
+    default: { body: *expensive, vars: { noteIds: [91] } }
+
+cases:
+  - name: a known reason is passed to action_set_lost
+    input: too expensive
+    mocks:
+      close-lost.find-reason:
+        default: { body: *expensive, vars: { reasons: [{ id: 1 }] } }
+    spies:
+      close-lost.set-lost:
+        count: 1
+        records:
+          - input:
+              vars: { reasons: [{ id: 1 }] }
+
+  - name: an unknown reason marks the deal lost without one
+    input: went quiet
+    mocks:
+      close-lost.find-reason:
+        default: { body: *quiet, vars: { reasons: [] } }
+    spies:
+      close-lost.set-lost:
+        count: 1
+        records:
+          - input:
+              vars: { reasons: [] }

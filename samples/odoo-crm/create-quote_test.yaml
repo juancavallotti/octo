@@ -1,0 +1,47 @@
+# Tests create-quote's claim: a known customer gets an order that is created,
+# confirmed and read back, and an unknown email gets an error without an order.
+#
+# The lookup, create and confirm report through result variables and leave the
+# body alone, so each mock hands back the request beside the variable the real
+# block would have set.
+flow: create-quote
+
+inputs:
+  a quote request:
+    data: &request { email: ada@example.com, productId: 7, quantity: 3 }
+
+mocks:
+  create-quote.customer-known[then].create-order:
+    default: { body: *request, vars: { order: [1] } }
+  create-quote.customer-known[then].confirm-order:
+    default: { body: *request, vars: { confirmed: true } }
+  create-quote.customer-known[then].read-order:
+    default:
+      body: [{ id: 1, name: S00001, state: sale, amount_total: 86.25 }]
+
+cases:
+  - name: a known customer's order is created, confirmed and read back
+    input: a quote request
+    mocks:
+      create-quote.find-customer:
+        default: { body: *request, vars: { customers: [{ id: 12 }] } }
+    spies:
+      create-quote.customer-known[then].confirm-order:
+        count: 1
+        records:
+          # Confirmed is the order just created, by the ids the create answered.
+          - input:
+              vars: { order: [1] }
+    expect:
+      body: [{ id: 1, name: S00001, state: sale, amount_total: 86.25 }]
+
+  - name: an unknown email gets no order
+    input: a quote request
+    mocks:
+      create-quote.find-customer:
+        default: { body: *request, vars: { customers: [] } }
+    spies:
+      create-quote.customer-known[then].create-order:
+        count: 0
+    expect:
+      body: { error: no contact with email ada@example.com }

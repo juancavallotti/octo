@@ -88,6 +88,7 @@ flows:
             # stop that ends the agent — so a client that closes the tab does not
             # leave a model running at full price with nobody reading it.
             - type: sse-event
+              name: stream-event
               settings:
                 event: agent
                 ifClosed: stop
@@ -110,10 +111,12 @@ flows:
               # A real tool would call an API; this echoes a fixed order so the
               # sample runs with no external dependencies.
               - type: set-payload
+                name: lookup-order-result
                 settings:
                   value: '{"status": "shipped", "carrier": "UPS", "eta": "2026-08-11"}'
         default:
           process:
             - type: set-payload
+              name: fallback-answer
               settings:
                 value: '{"answer": "could not answer from the order data"}'

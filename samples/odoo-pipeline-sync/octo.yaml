@@ -1,0 +1,80 @@
+service:
+  name: odoo-pipeline-sync
+
+# Keep an Odoo CRM in step with the systems around it. Three flows, each a job
+# integrations commonly hand to Odoo:
+#
+#   1. sync-contacts       POST /contacts/sync — a batch of people from another
+#                          system (a signup database, a billing tool) is upserted
+#                          into Contacts by email: updated when the email is
+#                          known, created when it is not.
+#   2. opportunity-outcome POST /opportunities/outcome — an outside event decides
+#                          a deal (a contract signed, a quote declined), and the
+#                          opportunity is marked won or lost, with the amount or
+#                          the reason, and a note on its chatter saying why.
+#   3. stale-followups     weekday mornings — open opportunities whose stage has
+#                          not moved in 14 days, and that have nothing planned,
+#                          get a to-do activity for their salesperson.
+#
+# octo.yaml (this file) declares what the flows share: the service, env and
+# connectors. The flows live beside it: contacts.yaml, opportunities.yaml and
+# followups.yaml. Each suite is named after the flow it tests, never after a
+# file, so dolphin runs it against the whole folder.
+#
+# It needs the Contacts and CRM apps, and an API key (Preferences > Account
+# Security > New API Key in Odoo).
+#
+#   export ODOO_URL=https://mycompany.odoo.com
+#   export ODOO_API_KEY=...
+#   # Odoo 18 and earlier: the legacy endpoint needs the database and login too.
+#   # export ODOO_VERSION=18 ODOO_DATABASE=mycompany ODOO_USERNAME=admin@example.com
+#   octo run --config samples/odoo-pipeline-sync
+#
+#   curl -s -X POST localhost:8080/contacts/sync -d '{"contacts": [
+#     {"name": "Ada Lovelace", "email": "ada@example.com", "phone": "+44 20 7946 0001"},
+#     {"name": "Grace Hopper", "email": "grace@example.com", "phone": "+1 202 555 0143"}]}'
+#   # {"created": 1, "updated": 1, "contacts": [{"email": "ada@example.com", "id": 12, "action": "updated"}, ...]}
+#
+#   curl -s -X POST localhost:8080/opportunities/outcome \
+#     -d '{"opportunityId": 2, "outcome": "won", "amount": 12000}'
+#   curl -s -X POST localhost:8080/opportunities/outcome \
+#     -d '{"opportunityId": 3, "outcome": "lost", "reason": "Too expensive"}'
+#
+#   # run the follow-up sweep now instead of waiting for the schedule:
+#   octo invoke --config samples/odoo-pipeline-sync --flow stale-followups
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+  - name: ODOO_VERSION
+    default: "19"
+  # Empty is right for Odoo 19 on a server with one database.
+  - name: ODOO_DATABASE
+    default: ""
+  - name: ODOO_USERNAME
+    default: ""
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+  - name: schedule
+    type: cron
+  - name: odoo
+    type: odoo
+    settings:
+      version: "${ODOO_VERSION}"
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+      database: ${ODOO_DATABASE}
+      username: ${ODOO_USERNAME}
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info

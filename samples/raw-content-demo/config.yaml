@@ -49,6 +49,7 @@ flows:
         path: /page/{name}          # {name} -> vars.name
     process:
       - type: template-resource
+        name: render-page
         settings:
           id: page
           rawBody: true
@@ -66,6 +67,7 @@ flows:
         rawBody: true               # accept any content type, store as raw
     process:
       - type: set-payload
+        name: parse-form
         settings:
           value: 'fromFormData(body.rawData)'
 
@@ -88,6 +90,7 @@ flows:
         maxBodyBytes: 10485760    # 10 MiB; the 1 MiB default is small for uploads
     process:
       - type: set-payload
+        name: describe-upload
         settings:
           value: |
             {

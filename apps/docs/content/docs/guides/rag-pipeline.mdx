@@ -59,7 +59,7 @@ fails at boot rather than on the first upsert.
 `pinecone-upsert` writes it into the index, keyed by `body.id`. Upserting the
 same id again overwrites it, so ingestion is idempotent by id.
 
-```yaml title="samples/rag-pipeline/config.yaml (excerpt)"
+```yaml title="samples/rag-pipeline/indexing.yaml (excerpt)"
 - name: ingest
   source:
     connector: api
@@ -110,7 +110,7 @@ curl -s localhost:8080/documents -d '{
 and it has **no source**: it is the retrieval step, named once so everything
 needing retrieval refers to it.
 
-```yaml title="samples/rag-pipeline/config.yaml (excerpt)"
+```yaml title="samples/rag-pipeline/retrieval.yaml (excerpt)"
 - name: search
   process:
     - type: ai-embed
@@ -146,7 +146,7 @@ keywords.
 A fixed chain (embed, query, prompt) fails a question that needs two searches,
 or none, so `ask` hands retrieval to the model as a **tool**:
 
-```yaml title="samples/rag-pipeline/config.yaml (excerpt)"
+```yaml title="samples/rag-pipeline/retrieval.yaml (excerpt)"
 - name: ask
   source:
     connector: api

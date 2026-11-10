@@ -28,12 +28,14 @@ flows:
       # 1) The template-resource block renders the "welcome" template (declared
       #    above) into a variable. The template embeds {{ }} CEL over the message.
       - type: template-resource
+        name: render-welcome
         settings:
           id: welcome
           target: rendered
       # 2) templateResource(alias) renders the same template inline in a CEL
       #    expression, using the current message as context. Both paths agree.
       - type: set-payload
+        name: build-response
         settings:
           value: |
             {

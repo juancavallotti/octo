@@ -84,6 +84,7 @@ flows:
               # A real tool would call a weather API; here we echo a fixed
               # forecast so the server runs without external dependencies.
               - type: set-payload
+                name: forecast-result
                 settings:
                   value: '{"city": body.city, "summary": "Sunny, 24C"}'
         resources:

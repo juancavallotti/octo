@@ -22,6 +22,10 @@ flows:
           value: '{"firedAt": body.firedAt, "orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}'
 
       # set-variable: stash a threshold the switch below compares against.
+      #
+      # Real flows fold a run of setters into one multi-transform; this demo keeps
+      # the two apart because showing each builtin on its own is its whole point.
+      # practices: allow multi-transform
       - type: set-variable
         name: set-threshold
         settings:
@@ -35,11 +39,13 @@ flows:
         then:
           process:
             - type: log
+              name: log-batch
               settings:
                 message: '"processing " + string(size(body.orders)) + " orders at " + body.firedAt'
         else:
           process:
             - type: log
+              name: log-empty
               settings:
                 message: '"no orders to process"'
 
@@ -57,11 +63,13 @@ flows:
                 - when: "vars.order.amount >= vars.threshold"
                   process:
                     - type: log
+                      name: log-high
                       settings:
                         message: '"HIGH order " + string(vars.order.id) + " amount=" + string(vars.order.amount)'
               default:
                 process:
                   - type: log
+                    name: log-low
                     settings:
                       message: '"low  order " + string(vars.order.id) + " amount=" + string(vars.order.amount)'
 
