@@ -72,6 +72,12 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   "notion-query-datasource": "io",
   "notion-retrieve-page": "io",
   "notion-retrieve-blocks": "io",
+  "odoo-call": "io",
+  "odoo-search-read": "io",
+  "odoo-read": "io",
+  "odoo-create": "io",
+  "odoo-write": "io",
+  "odoo-delete": "io",
   // Both call a provider. Their own llm.* records nest inside them, at which
   // point tree position takes over and the model call carries the time.
   "ai-embed": "io",
