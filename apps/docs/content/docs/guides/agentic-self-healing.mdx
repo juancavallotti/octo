@@ -250,7 +250,7 @@ An `object-read` on `slack-thread:<threadTs>` finds the incident; a reply in a t
             - setVar: authorizeId
               value: vars.pending.authorizationId
             - setVar: authorizeAllow
-              value: string(body.text).lowerAscii().contains("approve")
+              value: 'string(body.text).trim().lowerAscii().matches("^approve\\b")'
       - type: object-delete
         name: forget-pending
         settings: { key: '"pending-auth:" + vars.incidentId' }
@@ -260,7 +260,7 @@ An `object-read` on `slack-thread:<threadTs>` finds the incident; a reply in a t
     flow: triage
 ```
 
-With a pending question, the reply becomes the answer: `authorizeId` names the parked call and `authorizeAllow` is true only for a reply containing "approve". Anything else denies, and so does silence past `AUTHORIZE_TIMEOUT` (30 minutes in the sample). Without a pending question, the reply is an ordinary turn: the agent reads it, looks again, and posts a refined finding into the same thread.
+With a pending question, the reply becomes the answer: `authorizeId` names the parked call and `authorizeAllow` is true only for a reply that opens with the word "approve", such as "Approve, go ahead". Anything else denies, including "do not approve" and "disapprove", and so does silence past `AUTHORIZE_TIMEOUT` (30 minutes in the sample). Without a pending question, the reply is an ordinary turn: the agent reads it, looks again, and posts a refined finding into the same thread.
 
 **Set it up.**
 
