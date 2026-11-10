@@ -1,0 +1,68 @@
+# Tests sync-contacts' claim: every contact in a batch is matched by email, the
+# known ones are updated and the unknown ones created, and the response counts
+# both.
+#
+# The lookup runs once per contact, so its mock answers per contact: the cases
+# match on vars.contact, the loop variable foreach binds. A mock replaces the
+# body too, and inside the loop the body is still the batch, so each mock hands
+# the batch back unchanged.
+flow: sync-contacts
+
+inputs:
+  batch:
+    data: &batch
+      contacts:
+        - { name: Ada Lovelace, email: ada@example.com, phone: "+44 20 7946 0001" }
+        - { name: Grace Hopper, email: grace@example.com, phone: "+1 202 555 0143" }
+
+mocks:
+  sync-contacts.each-contact[body].find-existing:
+    cases:
+      - when: vars.contact.email == "ada@example.com"
+        body: *batch
+        vars: { existing: [{ id: 12 }] }
+    default:
+      body: *batch
+      vars: { existing: [] }
+  sync-contacts.each-contact[body].contact-known[then].update-contact:
+    default:
+      body: true
+  sync-contacts.each-contact[body].contact-known[else].create-contact:
+    default:
+      body: *batch
+      vars: { created: [31] }
+
+cases:
+  - name: a known email is updated and an unknown one created
+    input: batch
+    spies:
+      sync-contacts.each-contact[body].contact-known[then].update-contact:
+        count: 1
+      sync-contacts.each-contact[body].contact-known[else].create-contact:
+        count: 1
+    expect:
+      body:
+        created: 1
+        updated: 1
+        contacts:
+          - { email: ada@example.com, id: 12, action: updated }
+          - { email: grace@example.com, id: 31, action: created }
+
+  - name: an empty batch touches nothing
+    input:
+      data: { contacts: [] }
+    spies:
+      sync-contacts.each-contact[body].find-existing:
+        count: 0
+    expect:
+      body: { created: 0, updated: 0, contacts: [] }
+
+  - name: the lookup really reaches Odoo, and an unreachable server fails the flow
+    input: batch
+    mocks:
+      sync-contacts.each-contact[body].find-existing: null
+    env:
+      # Nothing listens on the discard port. The lookup is deliberately NOT mocked.
+      ODOO_URL: http://127.0.0.1:9
+    expect:
+      error: "odoo-search-read"

@@ -1,0 +1,40 @@
+# Tests stale-followups' claim: every opportunity the stale query returns gets
+# exactly one follow-up scheduled, and an empty result schedules nothing.
+#
+# The query itself (14 days, open, nothing planned) is Odoo's to evaluate, so it
+# is mocked here; what is pinned is that each row it returns reaches
+# activity_schedule once, with the row bound as vars.opportunity.
+flow: stale-followups
+
+mocks:
+  stale-followups.each-stale[body].schedule-followup:
+    default: { body: [5] }
+
+cases:
+  - name: each stale opportunity gets one follow-up
+    mocks:
+      stale-followups.find-stale:
+        default:
+          body: {}
+          vars:
+            stale:
+              - { id: 2, name: Engines, user_id: [2, Administrator] }
+              - { id: 3, name: Looms, user_id: false }
+    spies:
+      stale-followups.each-stale[body].schedule-followup:
+        count: 2
+        records:
+          - input:
+              vars: { opportunity: { id: 2, name: Engines, user_id: [2, Administrator] } }
+          - input:
+              vars: { opportunity: { id: 3, name: Looms, user_id: false } }
+
+  - name: nothing stale schedules nothing
+    mocks:
+      stale-followups.find-stale:
+        default:
+          body: {}
+          vars: { stale: [] }
+    spies:
+      stale-followups.each-stale[body].schedule-followup:
+        count: 0
