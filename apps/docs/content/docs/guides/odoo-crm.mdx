@@ -185,7 +185,7 @@ curl -s -X POST localhost:8080/quotes -d '{"email":"ada@example.com","productId"
 # [{"id":1,"name":"S00001","state":"sale","amount_total":86.25}]
 ```
 
-`state: "sale"` is a confirmed order. The same pattern drives the other apps: create an `account.move` and call `action_post` to post an invoice, or call `button_validate` on a `stock.picking` to validate a delivery. The [connector reference](/reference/connectors/odoo#common-models) lists the models behind the common apps.
+`state: "sale"` is a confirmed order. The same pattern drives the other apps: create an `account.move` and call `action_post` to post an invoice, or call `button_validate` on a `stock.picking` to validate a delivery. The [connector reference](/reference/connectors/odoo#common-models) lists the models behind the common apps, and [Sync Contacts and Opportunities with Odoo](/guides/odoo-pipeline-sync) builds bulk contact sync and deal updates on the same blocks.
 
 ## Test it
 

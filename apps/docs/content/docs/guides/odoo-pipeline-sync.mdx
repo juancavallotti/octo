@@ -1,0 +1,232 @@
+---
+title: "Sync Contacts and Opportunities with Odoo"
+description: "Upsert contacts in bulk, close opportunities from outside events, and schedule follow-ups on stale deals."
+---
+
+This guide keeps an Odoo CRM in step with the systems around it: a batch of contacts is upserted by email, an outside event marks an opportunity won or lost, and a weekday sweep plans a follow-up on deals that have stopped moving. It follows
+[`samples/odoo-pipeline-sync`](https://github.com/juancavallotti/octo/tree/main/samples/odoo-pipeline-sync).
+For connector setup and the lead-capture basics, start with [Odoo CRM and Sales](/guides/odoo-crm).
+
+You need the Contacts and CRM apps installed and an API key. Run the sample with:
+
+```bash
+export ODOO_URL=https://mycompany.odoo.com
+export ODOO_API_KEY=...
+octo run --config samples/odoo-pipeline-sync
+```
+
+## Upsert a batch of contacts
+
+`POST /contacts/sync` takes a list of people from another system and matches each one to a contact by email. `foreach` in `map` mode turns the batch into one result per contact. Each iteration runs on its own scope, so one contact's lookup never leaks into the next:
+
+```yaml
+- type: foreach
+  name: each-contact
+  items: body.contacts
+  as: contact
+  mode: map
+  body:
+    process:
+      - type: odoo-search-read
+        name: find-existing
+        settings:
+          connector: odoo
+          model: '"res.partner"'
+          domain: '[["email", "=ilike", vars.contact.email]]'
+          fields: [id]
+          limit: 1
+          resultVar: existing
+      - type: if
+        name: contact-known
+        condition: size(vars.existing) > 0
+        then:
+          process:
+            - type: odoo-write
+              name: update-contact
+              settings:
+                connector: odoo
+                model: '"res.partner"'
+                ids: vars.existing[0].id
+                values: '{"name": vars.contact.name, "phone": vars.contact.phone}'
+            - type: set-payload
+              settings:
+                value: '{"email": vars.contact.email, "id": vars.existing[0].id, "action": "updated"}'
+        else:
+          process:
+            - type: odoo-create
+              name: create-contact
+              settings:
+                connector: odoo
+                model: '"res.partner"'
+                values: '{"name": vars.contact.name, "email": vars.contact.email, "phone": vars.contact.phone}'
+                resultVar: created
+            - type: set-payload
+              settings:
+                value: '{"email": vars.contact.email, "id": vars.created[0], "action": "created"}'
+```
+
+The loop's body is the list of per-contact results, so one `set-payload` counts them:
+
+```yaml
+- type: set-payload
+  name: summarize
+  settings:
+    value: |
+      {"created": body.filter(r, r.action == "created").size(),
+       "updated": body.filter(r, r.action == "updated").size(),
+       "contacts": body}
+```
+
+```bash
+curl -s -X POST localhost:8080/contacts/sync -d '{"contacts": [
+  {"name": "Ada Lovelace", "email": "ada@example.com", "phone": "+44 20 7946 0001"},
+  {"name": "Grace Hopper", "email": "grace@example.com", "phone": "+1 202 555 0143"}]}'
+# {"created": 1, "updated": 1, "contacts": [{"action": "updated", "email": "ada@example.com", "id": 12}, ...]}
+```
+
+## Close an opportunity from an outside event
+
+`POST /opportunities/outcome` receives an event such as a signed contract or a declined quote, and closes the opportunity it names. Won and lost are workflow actions on `crm.lead`, not field writes: `action_set_won` moves the deal to the won stage at 100% probability, and `action_set_lost` archives it with an optional reason. Both go through `odoo-call`.
+
+An odoo block puts its result in the message body, and every step here needs the event's `opportunityId`. Wrap each call in an [`enrich`](/reference/blocks/control-flow#enrich): the call's result stays inside the enrich's scope, and the event remains the body for the next step.
+
+```yaml
+- when: body.outcome == "won"
+  process:
+    - type: enrich
+      name: record-amount
+      body:
+        process:
+          - type: odoo-write
+            name: write-amount
+            settings:
+              connector: odoo
+              model: '"crm.lead"'
+              ids: body.opportunityId
+              values: '{"expected_revenue": body.amount}'
+    - type: enrich
+      name: mark-won
+      body:
+        process:
+          - type: odoo-call
+            name: set-won
+            settings:
+              connector: odoo
+              model: '"crm.lead"'
+              method: '"action_set_won"'
+              ids: body.opportunityId
+```
+
+A lost reason is a record of `crm.lost.reason`, so the flow looks up the name the event sends. `setVars` lifts just the ids out of the lookup's scope, and the reason is passed only when one matched:
+
+```yaml
+- type: enrich
+  name: find-reason
+  setVars:
+    reasonIds: body.map(r, r.id)
+  body:
+    process:
+      - type: odoo-search-read
+        name: search-reason
+        settings:
+          connector: odoo
+          model: '"crm.lost.reason"'
+          domain: '[["name", "=ilike", body.reason]]'
+          fields: [id]
+          limit: 1
+- type: enrich
+  name: mark-lost
+  body:
+    process:
+      - type: odoo-call
+        name: set-lost
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"action_set_lost"'
+          ids: body.opportunityId
+          params: 'size(vars.reasonIds) > 0 ? {"lost_reason_id": vars.reasonIds[0]} : {}'
+```
+
+Each case ends by posting a note to the opportunity's chatter with `message_post`, and the flow answers with the opportunity as it now stands:
+
+```bash
+curl -s -X POST localhost:8080/opportunities/outcome -d '{"opportunityId": 3, "outcome": "lost", "reason": "too expensive"}'
+# [{"id": 3, "active": false, "probability": 0, "lost_reason_id": [1, "Too expensive"], ...}]
+```
+
+Reading a lost opportunity by id works even though it is archived. Reason names match case-insensitively; a name with no matching reason marks the deal lost without one.
+
+## Follow up on stale deals
+
+`stale-followups` runs at 08:00 on weekdays (`0 0 8 * * 1-5`, six fields with seconds). It finds open opportunities whose stage has not changed in 14 days. Odoo compares datetimes as `YYYY-MM-DD HH:MM:SS` in UTC, so the cutoff is computed from `now` in that shape:
+
+```yaml
+- type: odoo-search-read
+  name: find-stale
+  settings:
+    connector: odoo
+    model: '"crm.lead"'
+    domain: |
+      [["type", "=", "opportunity"],
+       ["probability", "<", 100],
+       ["activity_ids", "=", false],
+       ["date_last_stage_update", "<",
+        string(now - duration("336h")).substring(0, 19).replace("T", " ")]]
+    fields: [id, name, user_id]
+    limit: 100
+    resultVar: stale
+```
+
+`["activity_ids", "=", false]` skips deals that already have something planned, so running the sweep twice schedules nothing new. Each stale deal then gets a to-do activity through `activity_schedule`, a method every record with a chatter has. Without a `user_id` Odoo leaves the activity unassigned, so the flow passes the salesperson when the opportunity has one:
+
+```yaml
+- type: foreach
+  name: each-stale
+  items: vars.stale
+  as: opportunity
+  body:
+    process:
+      - type: odoo-call
+        name: schedule-followup
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"activity_schedule"'
+          ids: vars.opportunity.id
+          params: |
+            type(vars.opportunity.user_id) == list
+              ? {"act_type_xmlid": "mail.mail_activity_data_todo",
+                 "summary": "Follow up: no stage change in 14 days",
+                 "date_deadline": string(now + duration("48h")).substring(0, 10),
+                 "user_id": vars.opportunity.user_id[0]}
+              : {"act_type_xmlid": "mail.mail_activity_data_todo",
+                 "summary": "Follow up: no stage change in 14 days",
+                 "date_deadline": string(now + duration("48h")).substring(0, 10)}
+```
+
+Run the sweep now instead of waiting for the schedule:
+
+```bash
+octo invoke --config samples/odoo-pipeline-sync --flow stale-followups
+```
+
+## Test it
+
+The sample has one suite per flow. Each mocks the `odoo-*` blocks. In the contact sync, the lookup's mock answers per contact by matching on the loop variable, so one batch exercises both the update and the create path:
+
+```yaml
+mocks:
+  sync-contacts.each-contact[body].find-existing:
+    cases:
+      - when: vars.contact.email == "ada@example.com"
+        body: *batch
+        vars: { existing: [{ id: 12 }] }
+    default:
+      body: *batch
+      vars: { existing: [] }
+```
+
+```bash
+dolphin test samples/odoo-pipeline-sync/*_test.yaml --env-file samples/.env.test
+```
