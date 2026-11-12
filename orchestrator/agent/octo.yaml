@@ -32,8 +32,8 @@ service:
 #   troubleshooting.yaml  troubleshooter and report-troubleshoot, the alert path
 #
 # The suites beside them are named after the flow they drive (chat_test.yaml), never
-# after a file: dolphin pairs x_test.yaml with x.yaml alone, which would load a flow
-# without the connectors declared here.
+# after a file: a suite run by name loads its companion x.yaml alone when one exists,
+# which would load a flow without the connectors declared here.
 
 env:
   # Which provider to talk to, as a connector type. The orchestrator binds this

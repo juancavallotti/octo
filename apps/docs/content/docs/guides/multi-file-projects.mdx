@@ -119,9 +119,10 @@ octo invoke --config samples/multi-file-project --flow intake \
   --data '{"id": 7, "qty": 3, "price": 5}'
 ```
 
-A test suite beside the files runs against the whole folder, so the flows and
-connections from every file are loaded. That holds only while the suite's name
-matches no flow file: dolphin pairs `x_test.yaml` with `x.yaml` alone. Name
+`dolphin test <folder>` runs every suite beside the files against the whole
+folder, so the flows and connections from every file are loaded. A suite run by
+name (`dolphin test x_test.yaml`) gets the same folder only while its name matches
+no flow file: otherwise dolphin loads its companion `x.yaml` alone. Name
 suites after the flow they test (`intake_test.yaml` here, for a flow that lives
 in `orders.yaml`):
 

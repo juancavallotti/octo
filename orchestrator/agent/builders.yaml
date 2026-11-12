@@ -122,7 +122,8 @@ flows:
                written from memory is a guess.
             2. write_workspace_file the definition to <dir>/config.yaml.
             3. write_workspace_file a suite to <dir>/config_test.yaml —
-               dolphin pairs x.yaml with x_test.yaml beside it.
+               run_flow_tests runs every *_test.yaml in <dir> against the
+               whole directory.
             4. run_flow_tests <dir>. Exit 0 is passed; exit 1 means the FLOW
                is wrong, which is the answer you asked for; exit 2 means the
                SUITE did not parse, so nothing ran and nothing there is about
@@ -305,8 +306,9 @@ flows:
           - name: run_flow_tests
             description: >
               Run the dolphin suite for the definitions in a workspace
-              directory. dolphin pairs each `x.yaml` with the `x_test.yaml`
-              beside it, so write both and pass the directory.
+              directory. Every `*_test.yaml` in it runs against the whole
+              directory, so write the definitions and their suites side by
+              side and pass the directory.
 
               Exit 0 means every case passed. Exit 1 means the FLOWS are
               wrong — that is the answer you asked for. Exit 2 means the

@@ -72,9 +72,11 @@ vars.
 In a multi-file project, `octo.yaml` holds `service`, `env`, `resources`, shared
 connectors and `processors`; flows live in sibling files named for their area
 (`contacts.yaml`). Name each suite after the flow it tests and NEVER after a flow
-file: dolphin pairs `x_test.yaml` with `x.yaml` alone, which loads the flow
-without octo.yaml's connectors. `sync-contacts_test.yaml` beside `contacts.yaml`
-runs against the folder. A single-file draft (`<dir>/config.yaml` with
+file. `run_flow_tests <dir>` loads the whole folder for every suite, but a suite
+run by name (`dolphin test x_test.yaml`, which is how CI runs the samples) loads
+its companion `x.yaml` alone, without octo.yaml's connectors.
+`sync-contacts_test.yaml` beside `contacts.yaml` runs against the folder either
+way. A single-file draft (`<dir>/config.yaml` with
 `config_test.yaml`) is fine until it outgrows one file.
 
 ## one-suite-per-flow — every flow with logic gets a suite
@@ -115,8 +117,9 @@ the rest, referenced as `${NAME}`. Never inline a key or URL.
 ## errors-deliberate — decide how each risky step fails
 
 `handle-errors` to recover locally, a flow-level `error:` chain to recover the
-flow, or `failOnError: false` plus an explicit check of the result. Letting it fail
-the flow is fine when intended — say so in a comment.
+flow, or `failOnError: false` plus an explicit check of the result on a block that
+has it (check `blocks`). Letting it fail the flow is fine when intended — say so
+in a comment.
 
 ## idempotent-side-effects — scheduled and retried work filters what is done
 

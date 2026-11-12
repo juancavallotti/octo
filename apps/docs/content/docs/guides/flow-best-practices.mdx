@@ -117,7 +117,7 @@ flows:
 When a project spans several files, put everything the flows share in `octo.yaml`: `service`, `env`, `resources`, the shared connectors, and `processors`. Put the flows in sibling files named for their area, such as `contacts.yaml` or `opportunities.yaml`. The runtime merges every file in the folder, so a flow in `contacts.yaml` uses the `odoo` connector declared in `octo.yaml`. See [Multi-file Projects](/guides/multi-file-projects).
 
 <Callout type="warn">
-Name a suite after the flow it tests, and never give it the same base name as a flow file. dolphin pairs `x_test.yaml` with `x.yaml` alone, and that file without `octo.yaml` has no connectors. `sync-contacts_test.yaml` next to `contacts.yaml` runs against the whole folder; `contacts_test.yaml` would not.
+Name a suite after the flow it tests, and never give it the same base name as a flow file. `dolphin test <folder>` loads the whole folder for every suite, but a suite run by name (`dolphin test x_test.yaml`, which is how CI runs the samples) loads its companion `x.yaml` alone when one exists, and that file without `octo.yaml` has no connectors. `sync-contacts_test.yaml` next to `contacts.yaml` runs against the whole folder either way; `contacts_test.yaml` run by name would not.
 </Callout>
 
 ```text
@@ -191,7 +191,7 @@ env:
 
 ## Handle errors on purpose [#errors-deliberate]
 
-For each step that can fail, choose how: a [`handle-errors`](/concepts/error-handling) block that recovers locally, a flow-level `error:` chain that recovers the whole flow, or `failOnError: false` on the block followed by an explicit check of its result. A step that can fail with none of these fails the flow, which is fine when that is the intent. Say so in a comment.
+For each step that can fail, choose how: a [`handle-errors`](/concepts/error-handling) block that recovers locally, a flow-level `error:` chain that recovers the whole flow, or, on a block that has the setting (the REST, Odoo, Slack, Notion, Tavily and Parallel blocks), `failOnError: false` followed by an explicit check of its result. A step that can fail with none of these fails the flow, which is fine when that is the intent. Say so in a comment.
 
 ## Make scheduled and retried work idempotent [#idempotent-side-effects]
 
