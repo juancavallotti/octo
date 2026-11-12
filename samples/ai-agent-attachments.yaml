@@ -75,11 +75,13 @@ flows:
               # A real tool would store the note; here we echo it back so the
               # sample runs without external dependencies.
               - type: set-payload
+                name: file-notes-result
                 settings:
                   value: '{"recorded": true}'
 
         default:
           process:
             - type: set-payload
+              name: fallback-answer
               settings:
                 value: '{"status": "cannot-read-the-files"}'

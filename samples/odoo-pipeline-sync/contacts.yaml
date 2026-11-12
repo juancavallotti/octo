@@ -1,0 +1,69 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # 1. Upsert a batch of contacts by email. foreach in map mode turns the batch
+  #    into one result per contact, so the response reports what happened to
+  #    each, and the summary counts them.
+  - name: sync-contacts
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /contacts/sync
+        methods: [POST]
+    process:
+      - type: foreach
+        name: each-contact
+        items: body.contacts
+        as: contact
+        mode: map
+        body:
+          process:
+            - type: odoo-search-read
+              name: find-existing
+              settings:
+                connector: odoo
+                model: '"res.partner"'
+                domain: '[["email", "=ilike", vars.contact.email]]'
+                fields: [id]
+                limit: 1
+                resultVar: existing
+
+            - type: if
+              name: contact-known
+              condition: size(vars.existing) > 0
+              then:
+                process:
+                  - type: odoo-write
+                    name: update-contact
+                    settings:
+                      connector: odoo
+                      model: '"res.partner"'
+                      ids: vars.existing[0].id
+                      values: '{"name": vars.contact.name, "phone": vars.contact.phone}'
+                  - type: set-payload
+                    name: report-updated
+                    settings:
+                      value: '{"email": vars.contact.email, "id": vars.existing[0].id, "action": "updated"}'
+              else:
+                process:
+                  - type: odoo-create
+                    name: create-contact
+                    settings:
+                      connector: odoo
+                      model: '"res.partner"'
+                      values: |
+                        {"name": vars.contact.name, "email": vars.contact.email,
+                         "phone": vars.contact.phone}
+                      resultVar: created
+                  - type: set-payload
+                    name: report-created
+                    settings:
+                      value: '{"email": vars.contact.email, "id": vars.created[0], "action": "created"}'
+
+      - type: set-payload
+        name: summarize
+        settings:
+          value: |
+            {"created": body.filter(r, r.action == "created").size(),
+             "updated": body.filter(r, r.action == "updated").size(),
+             "contacts": body}

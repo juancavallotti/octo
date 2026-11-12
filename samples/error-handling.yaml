@@ -56,6 +56,7 @@ flows:
               body: '{"amount": body.amount}'
         error:
           - type: set-payload
+            name: degraded-result
             settings:
               value: '{"status": "degraded", "reason": vars.error.message}'
 
@@ -77,13 +78,15 @@ flows:
           path: /charges
           body: '{"amount": body.amount}'
     error:
-      - type: set-variable
-        settings: { name: httpStatus, value: "502" }
-      - type: set-payload
+      - type: multi-transform
+        name: degraded-result
         settings:
-          value: >
-            {
-              "error":       vars.error.message,
-              "failedBlock": vars.error.block,
-              "flow":        vars.error.flow
-            }
+          transforms:
+            - setVar: httpStatus
+              value: "502"
+            - setBody: >
+                {
+                  "error":       vars.error.message,
+                  "failedBlock": vars.error.block,
+                  "flow":        vars.error.flow
+                }

@@ -239,11 +239,13 @@ flow, set `vars.httpStatus` to control the response status.
 
 ```yaml
     error:
-      - type: set-variable
-        settings: { name: httpStatus, value: "502" }
-      - type: set-payload
+      - type: multi-transform
+        name: report-failure
         settings:
-          value: '{"error": vars.error.message}'
+          transforms:
+            - setVar: httpStatus
+              value: "502"
+            - setBody: '{"error": vars.error.message}'
 ```
 
 `error` (like `workers`, `buffer`, `pool`, and `source`) is valid on **root
@@ -500,10 +502,12 @@ flows:
         then:
           process:
             - type: set-variable
+              name: flag-review
               settings: { name: review, value: "true" }
         else:
           process:
             - type: set-variable
+              name: skip-review
               settings: { name: review, value: "false" }
 
       # enrich: fetch on an isolated copy, write back only chosen vars
@@ -512,6 +516,7 @@ flows:
         body:
           process:
             - type: sql
+              name: query-tier
               settings:
                 connector: orders-db
                 query: "SELECT 1 AS tier"
@@ -532,6 +537,7 @@ flows:
               body: '{"amount": body.amount}'
         error:
           - type: set-payload
+            name: degraded-result
             settings:
               value: '{"item": body.item, "amount": body.amount, "status": "degraded", "reason": vars.error.message}'
 
@@ -545,6 +551,7 @@ flows:
           - name: receipt-branch
             process:
               - type: log
+                name: render-receipt
                 settings:
                   logger: out
                   message: 'templateResource("receipt")'
@@ -556,10 +563,12 @@ flows:
           - when: 'vars.review == "true"'
             process:
               - type: log
+                name: log-flagged
                 settings: { logger: out, message: '"order flagged for review"' }
         default:
           process:
             - type: log
+              name: log-accepted
               settings: { logger: out, message: '"order accepted"' }
 
       # foreach: iterate an expression's list, element bound to vars.tag
@@ -570,6 +579,7 @@ flows:
         body:
           process:
             - type: log
+              name: log-tag
               settings:
                 logger: out
                 message: '"tag: " + vars.tag'
@@ -582,16 +592,19 @@ flows:
         body:
           process:
             - type: set-payload
+              name: fetch-rate
               settings:
                 value: '{"rate": 0.92, "amount": body.amount}'
 
     # flow-level error path (root only): recovery + response status
     error:
-      - type: set-variable
-        settings: { name: httpStatus, value: "502" }
-      - type: set-payload
+      - type: multi-transform
+        name: report-failure
         settings:
-          value: '{"error": vars.error.message, "flow": vars.error.flow}'
+          transforms:
+            - setVar: httpStatus
+              value: "502"
+            - setBody: '{"error": vars.error.message, "flow": vars.error.flow}'
 ```
 
 Exercise it without binding the HTTP port:

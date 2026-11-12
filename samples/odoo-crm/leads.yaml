@@ -1,0 +1,92 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # POST /leads: find or create the contact by email, open a lead for it, and
+  # note on the lead's chatter where it came from.
+  - name: capture-lead
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /leads
+        methods: [POST]
+    process:
+      - type: odoo-search-read
+        name: find-contact
+        settings:
+          connector: odoo
+          model: '"res.partner"'
+          domain: '[["email", "=ilike", body.email]]'
+          fields: [id]
+          limit: 1
+          resultVar: contacts
+
+      - type: if
+        name: contact-exists
+        condition: size(vars.contacts) > 0
+        then:
+          process:
+            - type: set-variable
+              name: reuse-contact
+              settings:
+                name: partnerId
+                value: vars.contacts[0].id
+        else:
+          process:
+            # odoo-create answers a list of new ids, one record or many.
+            - type: odoo-create
+              name: create-contact
+              settings:
+                connector: odoo
+                model: '"res.partner"'
+                values: '{"name": body.name, "email": body.email}'
+                resultVar: newContact
+            - type: set-variable
+              name: new-contact
+              settings:
+                name: partnerId
+                value: vars.newContact[0]
+
+      - type: odoo-create
+        name: create-lead
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          values: |
+            {"name": body.subject, "partner_id": vars.partnerId,
+             "email_from": body.email, "description": body.message}
+          resultVar: lead
+
+      # Anything a model offers beyond create/read/write/delete goes through
+      # odoo-call — here, posting an internal note to the lead's chatter.
+      - type: odoo-call
+        name: note-source
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"message_post"'
+          ids: vars.lead
+          params: '{"body": "Captured from the website form", "subtype_xmlid": "mail.mt_note"}'
+          resultVar: note
+
+      - type: set-payload
+        name: respond
+        settings:
+          value: '{"leadId": vars.lead[0], "partnerId": vars.partnerId}'
+
+  # GET /leads/{id}: the lead's pipeline fields. Relational fields come back as
+  # Odoo sends them — stage_id is [id, "Name"].
+  - name: get-lead
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /leads/{id}
+        methods: [GET]
+    process:
+      - type: odoo-read
+        name: read-lead
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          ids: int(vars.id)
+          fields: [name, partner_id, email_from, stage_id, probability, expected_revenue]

@@ -85,6 +85,7 @@ flows:
                 logger: out
                 message: '"cache MISS — generating report"'
             - type: set-payload
+              name: generate-report
               settings:
                 value: '{"report": "generated", "event": eventID}'
       - type: log
@@ -102,6 +103,7 @@ flows:
         settings:
           key: '"report"'
       - type: set-payload
+        name: confirm-reset
         settings:
           value: '{"reset": true}'
 

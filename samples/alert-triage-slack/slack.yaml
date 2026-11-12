@@ -1,0 +1,115 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # ---------------------------------------------------------------------------
+  # 2. A person replies in the incident's Slack thread.
+  # ---------------------------------------------------------------------------
+  - name: on-slack-event
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /slack/events
+        headers: [X-Slack-Signature, X-Slack-Request-Timestamp]
+        rawBodyVar: rawBody
+    process:
+      - type: slack-verify-request
+        name: verify
+        settings:
+          connector: slack
+
+      - type: if
+        name: challenge-or-event
+        condition: has(vars.slackChallenge)
+        then:
+          process:
+            - type: set-payload
+              name: echo-challenge
+              settings:
+                value: '{"challenge": body.challenge}'
+        else:
+          process:
+            # Only human messages inside a thread. The bot's own posts carry a
+            # botId, and a top-level message is not an answer to anything.
+            - type: slack-event
+              name: thread-replies
+              settings:
+                eventTypes: [message]
+                filter: body.botId == null && body.threadTs != null
+
+            # Which incident is this thread? The triage flow wrote the mapping
+            # when it opened the thread.
+            - type: object-read
+              name: find-incident
+              settings:
+                key: '"slack-thread:" + string(body.threadTs)'
+                as: incident
+                existsVar: knownThread
+                default: '{}'
+
+            - type: validate
+              name: known-threads-only
+              settings:
+                rules:
+                  - expr: vars.knownThread
+                    message: not an incident thread
+                onReject:
+                  process:
+                    - type: log
+                      name: skip-unknown-thread
+                      settings:
+                        level: debug
+                        message: '"reply in " + string(body.threadTs) + " is not about an incident"'
+
+            - type: multi-transform
+              name: reply-facts
+              settings:
+                transforms:
+                  - setVar: incidentId
+                    value: vars.incident.incidentId
+                  - setVar: watchName
+                    value: vars.incident.watchName
+                  - setVar: reportTo
+                    value: vars.incident.reportTo
+                  - setVar: threadTs
+                    value: string(body.threadTs)
+                  - setVar: turn
+                    value: '"A reply from the Slack thread:\n\n" + string(body.text)'
+
+            # Is the agent waiting on this person? Then the reply is an answer
+            # to that question rather than a new turn.
+            - type: object-read
+              name: pending-authorization
+              settings:
+                key: '"pending-auth:" + vars.incidentId'
+                as: pending
+                existsVar: hasPending
+                default: '{}'
+
+            - type: if
+              name: answer-or-followup
+              condition: vars.hasPending
+              then:
+                process:
+                  - type: multi-transform
+                    name: answer-pending
+                    settings:
+                      transforms:
+                        - setVar: authorizeId
+                          value: vars.pending.authorizationId
+                        # Only a bare approval allows the change: "approve",
+                        # "approved" or "approve, go ahead", in any case, with
+                        # an optional closing "." or "!". Anything else denies
+                        # — "do not approve" and "Approve? No" included — and
+                        # so does a reply that never comes: the run's
+                        # authorizeTimeout has the last word.
+                        - setVar: authorizeAllow
+                          value: 'string(body.text).trim().lowerAscii().matches("^approved?(,? go ahead)?[.!]?$")'
+                  - type: object-delete
+                    name: forget-pending
+                    settings:
+                      key: '"pending-auth:" + vars.incidentId'
+
+            - type: flow-ref
+              name: triage
+              settings:
+                flow: triage

@@ -92,6 +92,7 @@ flows:
           - when: 'vars.method == "POST"'
             process:
               - type: log
+                name: log-store
                 settings:
                   logger: debug
                   level: debug

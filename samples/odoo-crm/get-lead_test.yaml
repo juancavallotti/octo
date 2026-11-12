@@ -1,0 +1,21 @@
+# Tests get-lead's claim: the path parameter, which arrives as a string, is read
+# as the lead's id, and Odoo's answer is the response as it comes.
+flow: get-lead
+
+cases:
+  - name: the lead is read by the id in the path
+    input:
+      data: {}
+      vars: { id: "42" }
+    mocks:
+      get-lead.read-lead:
+        default:
+          body: [{ id: 42, name: Engines, stage_id: [1, New] }]
+    spies:
+      get-lead.read-lead:
+        count: 1
+        records:
+          - input:
+              vars: { id: "42" }
+    expect:
+      body: [{ id: 42, name: Engines, stage_id: [1, New] }]

@@ -6,14 +6,14 @@ description: "Capture leads and confirm sales orders in Odoo with the odoo conne
 import { Callout } from 'fumadocs-ui/components/callout';
 
 This guide wires an HTTP API to Odoo: capture a lead from a web form, read it back, and turn a request into a confirmed sales order. It follows
-[`samples/odoo-crm.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/odoo-crm.yaml)
+[`samples/odoo-crm`](https://github.com/juancavallotti/octo/tree/main/samples/odoo-crm)
 and uses every block of the [`odoo`](/reference/connectors/odoo) connector.
 
 You need an Odoo server with the Contacts, CRM and Sales apps installed, and an API key from **Preferences → Account Security → New API Key**.
 
 ## Declare the connector
 
-The connector needs the server URL and the API key. On Odoo 18 and earlier, it also needs the database and the login the key belongs to, so the sample reads all of them from the environment:
+The connector needs the server URL and the API key. On Odoo 18 and earlier, it also needs the database and the login the key belongs to, so the sample reads all of them from the environment. They live in `octo.yaml`, the file every flow in the folder shares; the flows are in `leads.yaml` and `sales.yaml`:
 
 ```yaml
 env:
@@ -46,7 +46,7 @@ export ODOO_URL=https://mycompany.odoo.com
 export ODOO_API_KEY=...
 # Odoo 18 and earlier:
 # export ODOO_VERSION=18 ODOO_DATABASE=mycompany ODOO_USERNAME=admin@example.com
-octo run --config samples/odoo-crm.yaml
+octo run --config samples/odoo-crm
 ```
 
 ## Capture a lead
@@ -74,6 +74,7 @@ Then branch. `odoo-create` answers a list of new ids even for one record, so the
   then:
     process:
       - type: set-variable
+        name: reuse-contact
         settings:
           name: partnerId
           value: vars.contacts[0].id
@@ -87,6 +88,7 @@ Then branch. `odoo-create` answers a list of new ids even for one record, so the
           values: '{"name": body.name, "email": body.email}'
           resultVar: newContact
       - type: set-variable
+        name: new-contact
         settings:
           name: partnerId
           value: vars.newContact[0]
@@ -135,6 +137,7 @@ Send it again with the same email and you get a second lead with the same `partn
 
 ```yaml
 - type: odoo-read
+  name: read-lead
   settings:
     connector: odoo
     model: '"crm.lead"'
@@ -173,6 +176,7 @@ Relational fields come back as Odoo sends them: `stage_id` is `[id, "Name"]`. An
     ids: vars.order
     resultVar: confirmed
 - type: odoo-read
+  name: read-order
   settings:
     connector: odoo
     model: '"sale.order"'
@@ -189,10 +193,10 @@ curl -s -X POST localhost:8080/quotes -d '{"email":"ada@example.com","productId"
 
 ## Test it
 
-[`samples/odoo-crm_test.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/odoo-crm_test.yaml) tests the lead flow without a server. It mocks each `odoo-*` block, checks that a known email reuses the contact and an unknown one creates it, and runs one case against a refused port to prove the lookup really goes out:
+The sample has one suite per flow, each named after the flow it tests: `capture-lead_test.yaml`, `get-lead_test.yaml` and `create-quote_test.yaml`. They run without a server. `capture-lead_test.yaml` mocks each `odoo-*` block, checks that a known email reuses the contact and an unknown one creates it, and runs one case against a refused port to prove the lookup really goes out:
 
 ```bash
-dolphin test samples/odoo-crm_test.yaml --env-file samples/.env.test
+dolphin test samples/odoo-crm --env-file samples/.env.test
 ```
 
 <Callout type="info">

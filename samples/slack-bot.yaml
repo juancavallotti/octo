@@ -64,6 +64,7 @@ flows:
           process:
             # Slack's one-time handshake: reply 200 with the challenge value.
             - type: set-payload
+              name: answer-challenge
               settings:
                 value: '{"challenge": body.challenge}'
         else:

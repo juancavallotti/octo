@@ -1,0 +1,130 @@
+# Connectors and env are declared in octo.yaml.
+#
+# Close an opportunity from an outside event. Won and lost are workflow actions
+# on crm.lead rather than field writes — they move the stage, set the probability
+# and, for lost, archive the record — so they go through odoo-call. Each outcome
+# is its own sourceless flow, close-won and close-lost, with its own suite;
+# opportunity-outcome only routes the event and answers with the opportunity as
+# it now stands.
+flows:
+  - name: opportunity-outcome
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /opportunities/outcome
+        methods: [POST]
+    process:
+      # A flow-ref answers with the subflow's body, and the read below still
+      # needs the event's opportunityId. The enrich keeps the event as the body
+      # and the subflow's result inside its scope.
+      - type: switch
+        name: by-outcome
+        cases:
+          - when: body.outcome == "won"
+            process:
+              - type: enrich
+                name: close-won
+                body:
+                  process:
+                    - type: flow-ref
+                      name: call-close-won
+                      settings:
+                        flow: close-won
+          - when: body.outcome == "lost"
+            process:
+              - type: enrich
+                name: close-lost
+                body:
+                  process:
+                    - type: flow-ref
+                      name: call-close-lost
+                      settings:
+                        flow: close-lost
+        default:
+          process:
+            - type: set-payload
+              name: unknown-outcome
+              settings:
+                value: '{"error": "outcome must be won or lost"}'
+
+      # Answer with the opportunity as it now stands. A lost opportunity is
+      # archived, and reading it by id still works.
+      - type: if
+        name: closed
+        condition: has(body.outcome)
+        then:
+          process:
+            - type: odoo-read
+              name: read-opportunity
+              settings:
+                connector: odoo
+                model: '"crm.lead"'
+                ids: body.opportunityId
+                fields: [name, stage_id, probability, expected_revenue, active, lost_reason_id]
+
+  # A won deal: record the amount, mark it won, and say so on its chatter. Each
+  # call is one odoo block, so resultVar keeps its result out of the body and the
+  # event stays there for the next call to read.
+  - name: close-won
+    process:
+      - type: odoo-write
+        name: write-amount
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          ids: body.opportunityId
+          values: '{"expected_revenue": body.amount}'
+          resultVar: amountWritten
+      - type: odoo-call
+        name: set-won
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"action_set_won"'
+          ids: body.opportunityId
+          resultVar: wonResult
+      - type: odoo-call
+        name: post-won-note
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"message_post"'
+          ids: body.opportunityId
+          params: |
+            {"body": "Won: contract signed for " + string(body.amount),
+             "subtype_xmlid": "mail.mt_note"}
+          resultVar: noteIds
+
+  # A lost deal. Lost reasons are records (crm.lost.reason): match the reason the
+  # event names, and mark the deal lost with it, or without one when nothing
+  # matched.
+  - name: close-lost
+    process:
+      - type: odoo-search-read
+        name: find-reason
+        settings:
+          connector: odoo
+          model: '"crm.lost.reason"'
+          domain: '[["name", "=ilike", body.reason]]'
+          fields: [id]
+          limit: 1
+          resultVar: reasons
+      - type: odoo-call
+        name: set-lost
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"action_set_lost"'
+          ids: body.opportunityId
+          params: 'size(vars.reasons) > 0 ? {"lost_reason_id": vars.reasons[0].id} : {}'
+          resultVar: lostResult
+      - type: odoo-call
+        name: post-lost-note
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"message_post"'
+          ids: body.opportunityId
+          params: '{"body": "Lost: " + body.reason, "subtype_xmlid": "mail.mt_note"}'
+          resultVar: noteIds

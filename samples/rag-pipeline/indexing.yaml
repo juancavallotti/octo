@@ -1,0 +1,30 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # POST /documents {id, text} — embed the text and upsert it, keyed by id.
+  # Upserting again with the same id overwrites it (Pinecone's upsert is
+  # idempotent by id), so re-ingesting a document updates it in place.
+  #
+  # The vector goes to a VARIABLE here, on purpose: pinecone-upsert still needs
+  # body.id and body.text to build the record, so the body has to survive the
+  # embed step. The upsert's own count then replaces it — {"upserted": 1} is the
+  # endpoint's answer, and no set-payload is needed to say it.
+  - name: ingest
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /documents
+    process:
+      - type: ai-embed
+        name: embed-document
+        settings:
+          connector: gemini
+          text: body.text
+          model: gemini-embedding-001
+          dimensions: 768
+          resultVar: vector
+      - type: pinecone-upsert
+        name: store
+        settings:
+          connector: pinecone
+          vectors: '[{"id": body.id, "values": vars.vector, "metadata": {"text": body.text}}]'

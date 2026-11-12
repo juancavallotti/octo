@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Ask **Dr. Octo** about this installation and he answers: he reads and explains your integrations, writes and fixes flow definitions, and investigates deployments that will not start. Install him from **Admin → Platform agent** at `/platform/admin/agent`.
 
-**Dr. Octo is an ordinary integration.** He is not a service, a sidecar, or a bundled image. He is a `config.yaml` with an [`ai-agent`](/reference/blocks/ai) block in it, installed as a real integration and deployed like anything else. His logs, traces, scaling and [version history](/platform/snapshots) are where every deployment's are, and the link on the status card opens him in the editor, where you can change the prompt, add or remove a tool, or rewrite a skill.
+**Dr. Octo is an ordinary integration.** He is not a service, a sidecar, or a bundled image. He is a multi-file project (`octo.yaml` for what his flows share, one file per area) with an [`ai-agent`](/reference/blocks/ai) block in it, installed as a real integration and deployed like anything else. His logs, traces, scaling and [version history](/platform/snapshots) are where every deployment's are, and the link on the status card opens him in the editor, where you can change the prompt, add or remove a tool, or rewrite a skill.
 
 ## Before you install
 

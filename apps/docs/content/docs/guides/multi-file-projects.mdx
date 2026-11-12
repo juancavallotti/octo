@@ -39,7 +39,8 @@ connections more than one flow uses. Then give each domain its own file.
   Nothing enforces this layout: the runtime, the editor and the platform accept
   any split. It gives the integration one obvious place for its identity and its
   shared configuration, so a reader never has to search for where a connection
-  is declared.
+  is declared. The samples and Dr. Octo follow it as the
+  [`globals-file`](/guides/flow-best-practices#globals-file) rule.
 </Callout>
 
 The project file declares the service, an environment variable and a logger:
@@ -118,8 +119,12 @@ octo invoke --config samples/multi-file-project --flow intake \
   --data '{"id": 7, "qty": 3, "price": 5}'
 ```
 
-A test suite beside the files runs against the whole folder, so the flows and
-connections from every file are loaded:
+`dolphin test <folder>` runs every suite beside the files against the whole
+folder, so the flows and connections from every file are loaded. A suite run by
+name (`dolphin test x_test.yaml`) gets the same folder only while its name matches
+no flow file: otherwise dolphin loads its companion `x.yaml` alone. Name
+suites after the flow they test (`intake_test.yaml` here, for a flow that lives
+in `orders.yaml`):
 
 ```yaml title="samples/multi-file-project/intake_test.yaml"
 flow: intake

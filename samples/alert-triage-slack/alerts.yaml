@@ -1,0 +1,50 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # ---------------------------------------------------------------------------
+  # 1. An alert arrives.
+  # ---------------------------------------------------------------------------
+  - name: on-alert
+    # One at a time: a run can take minutes and may change the installation.
+    workers: 1
+    source:
+      type: events
+      settings:
+        subject: ${ALERT_SUBJECT}
+    process:
+      # A watch announces open, repeat, resolve and close on the same subject.
+      # The last two are good news; a failed rule stops the flow here.
+      - type: validate
+        name: only-bad-news
+        settings:
+          rules:
+            - expr: 'body.kind == "open" || body.kind == "repeat"'
+              message: a recovery or a close carries nothing to triage
+          onReject:
+            process:
+              - type: log
+                name: skip-good-news
+                settings:
+                  message: '"alert " + string(body.watchName) + " is " + string(body.kind) + ": nothing to triage"'
+
+      # Lift what the rest of the loop needs out of the alert while the alert is
+      # still the body. After the agent the body is its answer.
+      - type: multi-transform
+        name: alert-facts
+        settings:
+          transforms:
+            - setVar: incidentId
+              value: 'has(body.incidentId) ? string(body.incidentId) : string(body.watchId)'
+            - setVar: watchName
+              value: 'has(body.watchName) ? string(body.watchName) : "unnamed watch"'
+            - setVar: reportTo
+              value: 'has(body.reportTo) ? body.reportTo : []'
+            - setVar: turn
+              value: >-
+                "An alert has fired. Here it is, verbatim:\n\n" + toJson(body) +
+                "\n\nTriage it: find out what is wrong and how bad it is, and say what you" +
+                " would do about it. Do not change anything yet."
+
+      - type: flow-ref
+        name: triage
+        settings:
+          flow: triage

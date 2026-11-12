@@ -35,6 +35,7 @@ type (
 		Get(ctx context.Context, id string) (integration.Integration, error)
 		List(ctx context.Context) ([]integration.Integration, error)
 		Update(ctx context.Context, id, name, actorID string) (integration.Integration, error)
+		ListFiles(ctx context.Context, id string) ([]integration.ConfigFile, error)
 		ReplaceFiles(ctx context.Context, id string, files []projectfile.File, actorID string) error
 		Delete(ctx context.Context, id string) error
 	}
@@ -293,10 +294,14 @@ func (s *Service) edited(ctx context.Context, cur stored) bool {
 	return live != cur.InstalledDigest
 }
 
+// legacyDefinitionPath is the name the single-file bundle digested its definition
+// under, before it was split into octo.yaml and one file per area.
+const legacyDefinitionPath = "config.yaml"
+
 // liveDigest digests the integration's current definition and skill resources the
 // same way the bundle is digested, so the two are comparable.
 func (s *Service) liveDigest(ctx context.Context, integrationID string) (string, error) {
-	it, err := s.integrations.Get(ctx, integrationID)
+	configs, err := s.integrations.ListFiles(ctx, integrationID)
 	if err != nil {
 		return "", err
 	}
@@ -305,7 +310,19 @@ func (s *Service) liveDigest(ctx context.Context, integrationID string) (string,
 		return "", err
 	}
 
-	files := map[string]string{"config.yaml": it.Definition}
+	// Every config file counts, a user's added file included: the roll-out replaces
+	// the whole set, so an added file is an edit it would discard.
+	files := make(map[string]string, len(configs)+len(items))
+	for _, f := range configs {
+		files[f.Path] = f.Content
+	}
+	// An agent installed before the bundle was split is one file at the default
+	// path, and its recorded digest named that file config.yaml, as the bundle did
+	// then. Digesting it under that name keeps an untouched old install from reading
+	// as edited until its next roll-out moves it to the split files.
+	if len(configs) == 1 && configs[0].Path == integration.DefaultConfigPath {
+		files = map[string]string{legacyDefinitionPath: configs[0].Content}
+	}
 	for _, item := range items {
 		// Only the bundle's own resources count. A template a user added is theirs,
 		// and a roll-out does not remove it, so it must not read as an edit.
@@ -397,6 +414,17 @@ func (s *Service) ensureIntegration(ctx context.Context, cur stored, actorID str
 	}
 	if err != nil {
 		return cur, err
+	}
+	// Create stores the definition as a single file; the bundle is several. Writing
+	// them over it here, before the id is recorded, means a created or adopted
+	// integration always ends this step holding the app as its files — an earlier
+	// attempt that got no further than Create leaves nothing the retry trusts.
+	files, err := agentapp.Files()
+	if err != nil {
+		return cur, err
+	}
+	if err := s.integrations.ReplaceFiles(ctx, it.ID, files, actorID); err != nil {
+		return cur, fmt.Errorf("write the agent's config files: %w", err)
 	}
 
 	next := cur
@@ -839,19 +867,18 @@ func (s *Service) deploymentExists(ctx context.Context, deploymentID string) (bo
 	}
 }
 
-// republish writes the bundle's name, definition and skills over the integration,
-// the definition as its only config file. This is what "rolling out replaces local
-// edits" means, and it is only ever called from a roll-out — an install must not
-// overwrite a definition on a retry.
+// republish writes the bundle's name, config files and skills over the integration,
+// the bundle's files as its whole set of config files. This is what "rolling out
+// replaces local edits" means, and it is only ever called from a roll-out — an
+// install must not overwrite a definition on a retry.
 func (s *Service) republish(ctx context.Context, integrationID, actorID string) error {
-	definition, err := agentapp.Definition()
+	files, err := agentapp.Files()
 	if err != nil {
 		return err
 	}
 	if _, err := s.integrations.Update(ctx, integrationID, agentapp.Name, actorID); err != nil {
 		return err
 	}
-	files := []projectfile.File{{Path: integration.DefaultConfigPath, Content: definition}}
 	if err := s.integrations.ReplaceFiles(ctx, integrationID, files, actorID); err != nil {
 		return err
 	}

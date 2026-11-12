@@ -52,7 +52,9 @@ describe("prompts", () => {
     expect(text).toContain("flow-ref");
     expect(text).toContain("queue-dispatch");
     expect(text).toContain("publish-event");
-    expect(text).toContain("multi-transform");
+    expect(text).toContain("[multi-transform]");
+    expect(text).toContain("[enrich-context]");
+    expect(text).toContain("[globals-file]");
     expect(text).toContain("handle-errors");
     expect(text).toMatch(/workers/);
     expect(text.toLowerCase()).toContain("mermaid");

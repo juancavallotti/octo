@@ -77,6 +77,7 @@ flows:
           awaitReply: true             # wait for the worker's reply and fold it back
 
       - type: log
+        name: log-response
         settings:
           message: '"responded to order " + vars.id + " priority=" + vars.priority'
 
@@ -107,10 +108,12 @@ flows:
         then:
           process:
             - type: set-variable
+              name: mark-high
               settings: { name: priority, value: '"high"' }
         else:
           process:
             - type: set-variable
+              name: mark-normal
               settings: { name: priority, value: '"normal"' }
       - type: set-payload
         name: wrap-response

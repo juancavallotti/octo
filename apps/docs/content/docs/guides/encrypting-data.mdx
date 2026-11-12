@@ -144,18 +144,19 @@ block:
   name: open-or-reject
   process:
     - type: decrypt
+      name: open-sealed
       settings:
         crypto: vault
         value: body.sealed
         target: opened
   error:
-    - type: set-variable
+    - type: multi-transform
+      name: reject
       settings:
-        name: httpStatus
-        value: "400"
-    - type: set-payload
-      settings:
-        value: '{"error": "the sealed value could not be read"}'
+        transforms:
+          - setVar: httpStatus
+            value: "400"
+          - setBody: '{"error": "the sealed value could not be read"}'
 ```
 
 `vars.error.message` carries what went wrong, which is worth logging and not worth

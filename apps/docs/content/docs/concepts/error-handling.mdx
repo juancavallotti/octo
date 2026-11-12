@@ -44,16 +44,18 @@ flows:
           path: /charges
           body: '{"amount": body.amount}'
     error:
-      - type: set-variable
-        settings: { name: httpStatus, value: "502" }
-      - type: set-payload
+      - type: multi-transform
+        name: degraded-result
         settings:
-          value: >
-            {
-              "error":       vars.error.message,
-              "failedBlock": vars.error.block,
-              "flow":        vars.error.flow
-            }
+          transforms:
+            - setVar: httpStatus
+              value: "502"
+            - setBody: >
+                {
+                  "error":       vars.error.message,
+                  "failedBlock": vars.error.block,
+                  "flow":        vars.error.flow
+                }
 ```
 
 The `rest` call fails and nothing caught it inline, so the error pipeline sets a 502 status and returns the error detail to the caller.

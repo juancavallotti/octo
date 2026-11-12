@@ -124,6 +124,7 @@ flows:
             # gate reads that as a denial straight away rather than holding the
             # conversation open for somebody who has already left.
             - type: sse-event
+              name: stream-event
               settings:
                 event: agent
                 ifClosed: stop
@@ -149,6 +150,7 @@ flows:
               }
             process:
               - type: set-payload
+                name: lookup-order-result
                 settings:
                   value: '{"status": "shipped", "carrier": "UPS", "eta": "2026-09-01"}'
 
@@ -185,6 +187,7 @@ flows:
               }
             process:
               - type: set-payload
+                name: refund-order-result
                 settings:
                   value: '{"refunded": true}'
 
@@ -202,11 +205,13 @@ flows:
               }
             process:
               - type: set-payload
+                name: cancel-order-result
                 settings:
                   value: '{"cancelled": true}'
 
         default:
           process:
             - type: set-payload
+              name: fallback-answer
               settings:
                 value: '{"answer": "could not answer from the order data"}'

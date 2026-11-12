@@ -55,14 +55,17 @@ flows:
     process:                        # the pipeline, run block by block
       - ref: greeter                # reference a named processor
       - type: set-payload
+        name: accept                # names are what logs, errors and tests use
         settings:
           value: '{"orderId": vars.id, "status": "accepted"}'
     error:                          # recovery pipeline (root flows only)
-      - type: set-variable
-        settings: { name: httpStatus, value: "502" }
-      - type: set-payload
+      - type: multi-transform       # one block for a run of setters
+        name: report-failure
         settings:
-          value: '{"error": vars.error.message}'
+          transforms:
+            - setVar: httpStatus
+              value: "502"
+            - setBody: '{"error": vars.error.message}'
 ```
 
 ## Flow fields
@@ -151,4 +154,4 @@ In invoke mode no sources are started, so only the requested flow runs. Sourcele
 
 ## Next steps
 
-Learn how connectors, blocks, and composites fit together in [Connectors and Blocks](/concepts/connectors-and-blocks), or browse the complete catalogue in the [Reference](/reference).
+Learn how connectors, blocks, and composites fit together in [Connectors and Blocks](/concepts/connectors-and-blocks), or browse the complete catalogue in the [Reference](/reference). [Flow Best Practices](/guides/flow-best-practices) covers when to split a flow and which block to reach for.

@@ -51,6 +51,7 @@ flows:
               {"type":"object","required":["note"],"properties":{"note":{"type":"string"}}}
             process:
               - type: set-variable
+                name: save-note
                 settings:
                   name: note
                   value: body.note
@@ -63,5 +64,6 @@ flows:
         settings:
           threadId: body.threadId
       - type: set-payload
+        name: confirm-cleared
         settings:
           value: '{"cleared": true}'

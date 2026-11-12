@@ -94,7 +94,7 @@ That is the whole integration. The flow subscribes with an ordinary `events` sou
     # … write the finding into the history, email the final report
 ```
 
-The full flow is in [`orchestrator/agent/config.yaml`](https://github.com/juancavallotti/octo/blob/main/orchestrator/agent/config.yaml). What he does with an alert is described under [he also triages alerts](/platform/agent#he-also-triages-alerts); the short version is triage, report, and then fix only if the installation permits it.
+The full flow is in [`orchestrator/agent/troubleshooting.yaml`](https://github.com/juancavallotti/octo/blob/main/orchestrator/agent/troubleshooting.yaml). What he does with an alert is described under [he also triages alerts](/platform/agent#he-also-triages-alerts); the short version is triage, report, and then fix only if the installation permits it.
 
 You get two emails per run. The agent sends the first when it has a finding, and the flow sends the second when the run ends, with a transcript of every tool call. The second one is sent by the flow rather than the model so that a run which gave up still reports. Both go to `reportTo` only.
 
@@ -125,7 +125,7 @@ The mechanism underneath is [tool authorization](/ai/tool-authorization): a tool
 
 ### Your own triage agent
 
-The sample is [`samples/alert-triage-slack/config.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/alert-triage-slack/config.yaml). Download it and **Import** it from the Integrations page, or read it alongside this section. It is one integration with three flows.
+The sample is the [`samples/alert-triage-slack`](https://github.com/juancavallotti/octo/tree/main/samples/alert-triage-slack) folder. Zip the folder and **Import** the `.zip` from the Integrations page, or read it alongside this section. It is one integration in four files: `octo.yaml` declares the service, env and connectors, and `alerts.yaml`, `slack.yaml` and `agent.yaml` hold its four flows.
 
 A user integration cannot call Dr. Octo's specialist flows: `flow-ref` reaches flows in the same integration only. So this agent holds its own tools, and they are narrower than his.
 
@@ -239,21 +239,28 @@ An `object-read` on `slack-thread:<threadTs>` finds the incident; a reply in a t
     existsVar: hasPending
     default: '{}'
 - type: if
+  name: answer-or-followup
   condition: vars.hasPending
   then:
     process:
-      - type: set-variable
-        settings: { name: authorizeId, value: vars.pending.authorizationId }
-      - type: set-variable
-        settings: { name: authorizeAllow, value: string(body.text).lowerAscii().contains("approve") }
+      - type: multi-transform
+        name: answer-pending
+        settings:
+          transforms:
+            - setVar: authorizeId
+              value: vars.pending.authorizationId
+            - setVar: authorizeAllow
+              value: 'string(body.text).trim().lowerAscii().matches("^approved?(,? go ahead)?[.!]?$")'
       - type: object-delete
+        name: forget-pending
         settings: { key: '"pending-auth:" + vars.incidentId' }
 - type: flow-ref
+  name: triage
   settings:
     flow: triage
 ```
 
-With a pending question, the reply becomes the answer: `authorizeId` names the parked call and `authorizeAllow` is true only for a reply containing "approve". Anything else denies, and so does silence past `AUTHORIZE_TIMEOUT` (30 minutes in the sample). Without a pending question, the reply is an ordinary turn: the agent reads it, looks again, and posts a refined finding into the same thread.
+With a pending question, the reply becomes the answer: `authorizeId` names the parked call and `authorizeAllow` is true only for a bare approval: "approve", "approved" or "approve, go ahead", in any case, with an optional closing period or exclamation mark. Anything else denies, including "do not approve" and "Approve? No, do not proceed.", and so does silence past `AUTHORIZE_TIMEOUT` (30 minutes in the sample). Without a pending question, the reply is an ordinary turn: the agent reads it, looks again, and posts a refined finding into the same thread.
 
 **Set it up.**
 
@@ -261,7 +268,7 @@ With a pending question, the reply becomes the answer: `authorizeId` names the p
 2. Deploy the integration with both platform access grants ticked, and point the Slack app's Events API request URL at the deployment's `/slack/events` route.
 3. Create a watch whose **Send it to an app** action names **this** deployment and uses subject `triage`.
 
-The suites next to the sample (`on-alert_test.yaml`, `on-slack-event_test.yaml`, `triage_test.yaml`) run under `task runtime:test:samples` and pin the loop without a model: the gate, the thread bookkeeping, the approve and deny paths, and that the email goes to `reportTo` only.
+The suites next to the sample (`on-alert_test.yaml`, `on-slack-event_test.yaml`, `triage_test.yaml`, `report-finding_test.yaml`), one per flow, run under `task runtime:test:samples` and pin the loop without a model: the gate, the thread bookkeeping, the approve and deny paths, and that the email goes to `reportTo` only.
 
 ### Or extend Dr. Octo
 

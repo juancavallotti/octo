@@ -27,14 +27,14 @@ flow: integration-builder
 #
 # What is NOT pinned: the specialist's own loop. Mocking the agent replaces the
 # block and takes its tool sub-flows with it — the same honest limit
-# config_test.yaml states for the coordinator.
+# chat_test.yaml states for the coordinator.
 
 env:
   LLM_CONNECTOR_TYPE: llm-anthropic
   LLM_API_KEY: sk-ant-not-a-real-key
   LLM_MODEL: claude-sonnet-4-6
   ORCHESTRATOR_URL: http://127.0.0.1:9
-  # Same reasoning as config_test.yaml: the workspace must exist because the file
+  # Same reasoning as chat_test.yaml: the workspace must exist because the file
   # connector stats its root at startup, and the five binaries must resolve
   # because a cli-run allow list is checked when the flow is BUILT.
   AGENT_WORKSPACE: /tmp

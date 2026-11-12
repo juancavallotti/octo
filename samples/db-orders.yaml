@@ -87,6 +87,7 @@ flows:
           - when: 'vars.method == "POST"'
             process:
               - type: log
+                name: log-create
                 settings:
                   logger: debug
                   level: debug

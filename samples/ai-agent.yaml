@@ -52,10 +52,12 @@ flows:
               # A real tool would call an API; here we just echo a tier so the
               # sample runs without external dependencies.
               - type: set-payload
+                name: classify-size-result
                 settings:
                   value: '{"tier": "smb"}'
         default:
           process:
             - type: set-payload
+              name: fallback-answer
               settings:
                 value: '{"status": "needs-manual-review"}'

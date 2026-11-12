@@ -89,6 +89,10 @@ flows:
           value: '{"orders": [{"id": 1, "amount": 50}, {"id": 2, "amount": 250}]}'
 
       # set-variable: stash a value the switch below compares against.
+      #
+      # Real flows fold a run of setters into one multi-transform; this demo keeps
+      # the two apart because showing each builtin on its own is its whole point.
+      # practices: allow multi-transform
       - type: set-variable
         name: set-threshold
         settings:
@@ -102,11 +106,13 @@ flows:
         then:
           process:
             - type: log
+              name: log-batch
               settings:
                 message: '"processing " + string(size(body.orders)) + " orders"'
         else:
           process:
             - type: log
+              name: log-empty
               settings:
                 message: '"no orders to process"'
 
@@ -123,11 +129,13 @@ flows:
                 - when: "vars.order.amount >= vars.threshold"
                   process:
                     - type: log
+                      name: log-high
                       settings:
                         message: '"HIGH order " + string(vars.order.id)'
               default:
                 process:
                   - type: log
+                    name: log-low
                     settings:
                       message: '"low order " + string(vars.order.id)'
 
@@ -200,6 +208,7 @@ flows:
         default:
           process:
             - type: set-payload
+              name: lookup-order
               settings:
                 value: '{"orderId": vars.id, "status": "found"}'
 
@@ -207,6 +216,7 @@ flows:
   - name: audit
     process:
       - type: log
+        name: audit-log
         settings:
           message: '"AUDIT order " + vars.id + " req=" + correlationID'
 
@@ -223,10 +233,12 @@ flows:
         then:
           process:
             - type: set-variable
+              name: mark-high
               settings: { name: priority, value: '"high"' }
         else:
           process:
             - type: set-variable
+              name: mark-normal
               settings: { name: priority, value: '"normal"' }
       - type: set-payload
         name: wrap-response
@@ -305,6 +317,7 @@ flows:
           subject: '"enrich-work"'
           awaitReply: true
       - type: log
+        name: log-response
         settings:
           message: '"responded to order " + vars.id + " priority=" + vars.priority'
 
@@ -333,10 +346,12 @@ flows:
         then:
           process:
             - type: set-variable
+              name: mark-high
               settings: { name: priority, value: '"high"' }
         else:
           process:
             - type: set-variable
+              name: mark-normal
               settings: { name: priority, value: '"normal"' }
       - type: set-payload
         name: wrap-response
@@ -368,7 +383,7 @@ const ERROR_HANDLING: Example = {
     "handle-errors",
     "rest",
     "set-payload",
-    "set-variable",
+    "multi-transform",
     "http-client (connector)",
   ],
   definition: `service:
@@ -406,6 +421,7 @@ flows:
               body: '{"amount": body.amount}'
         error:
           - type: set-payload
+            name: degraded-result
             settings:
               value: '{"status": "degraded", "reason": vars.error.message}'
 
@@ -426,11 +442,13 @@ flows:
           path: /charges
           body: '{"amount": body.amount}'
     error:
-      - type: set-variable
-        settings: { name: httpStatus, value: "502" }
-      - type: set-payload
+      - type: multi-transform
+        name: degraded-result
         settings:
-          value: '{"error": vars.error.message, "failedBlock": vars.error.block}'
+          transforms:
+            - setVar: httpStatus
+              value: "502"
+            - setBody: '{"error": vars.error.message, "failedBlock": vars.error.block}'
 `,
 };
 
@@ -471,17 +489,20 @@ flows:
             description: Payment failures, refunds, invoices, subscription changes.
             process:
               - type: set-payload
+                name: assign-billing
                 settings:
                   value: '{"team": "billing"}'
           - name: technical
             description: Bugs, outages, API errors, integration problems.
             process:
               - type: set-payload
+                name: assign-technical
                 settings:
                   value: '{"team": "technical"}'
         default:
           process:
             - type: set-payload
+              name: assign-human-triage
               settings:
                 value: '{"team": "human-triage"}'
 `,
@@ -536,27 +557,33 @@ flows:
         rawBodyVar: rawBody
     process:
       - type: slack-verify-request        # authenticate; flag the URL handshake
+        name: verify
         settings:
           connector: slack
       - type: if                          # composite fields sit at the top level
+        name: challenge-or-event
         condition: has(vars.slackChallenge)
         then:
           process:
             - type: set-payload           # echo Slack's challenge -> 200
+              name: answer-challenge
               settings:
                 value: '{"challenge": body.challenge}'
         else:
           process:
             - type: slack-event           # keep only @-mentions from humans
+              name: mentions
               settings:
                 eventTypes: [app_mention]
                 filter: body.botId == null
             - type: slack-lookup-user     # resolve the user id -> vars.slackUser
+              name: whois
               settings:
                 connector: slack
                 by: id
                 user: body.user
             - type: slack-send-message    # reply in the same channel, by name
+              name: reply
               settings:
                 connector: slack
                 target: body.channel
@@ -620,26 +647,32 @@ flows:
         rawBody: true
     process:
       - type: notion-verify-request       # authenticate; capture the handshake token
+        name: verify
         settings:
           connector: notion
       - type: if                          # composite fields sit at the top level
+        name: handshake-or-event
         condition: has(vars.notionVerification)
         then:
           process:
             - type: log                   # onboarding: log the token to paste into Notion
+              name: log-token
               settings:
                 logger: out
                 message: '"notion verification token: " + vars.notionVerification'
         else:
           process:
             - type: notion-event          # keep only page content updates
+              name: page-events
               settings:
                 eventTypes: [page.content_updated]
             - type: notion-retrieve-page  # fetch the page -> vars.notionPage
+              name: fetch-page
               settings:
                 connector: notion
                 page: body.entityId
             - type: log
+              name: log-page
               settings:
                 logger: out
                 message: '"updated page " + vars.notionPage.id'
@@ -651,21 +684,25 @@ flows:
         schedule: "@every 5m"
     process:
       - type: notion-query-datasource     # derive the data source from the database, then query
+        name: query
         settings:
           connector: notion
           database: '"\${NOTION_DATABASE_ID}"'
           pageSize: 10
       - type: log
+        name: log-count
         settings:
           logger: out
           message: '"data source returned " + string(size(vars.notionResults.results)) + " rows"'
   - name: page-to-markdown               # sourceless: invoke with {"pageId": "<id>"}
     process:
       - type: notion-retrieve-blocks     # GET /blocks/{id}/children -> body.results
+        name: fetch-content
         settings:
           connector: notion
           block: body.pageId
       - type: notion-page-to-markdown    # render body.results -> markdown as raw content
+        name: render
         settings:
           source: body.results
 `,
@@ -677,7 +714,7 @@ const ENRICH: Example = {
   title: "enrich — isolated scope with expression-based propagation",
   summary:
     "Runs a body flow on a clone of the message, then enriches the original from the scope's result via CEL: setBody for the body and setVars (name -> expression) for variables, both evaluated against the enriched clone. Here the scope computes a summary body but only the total escapes via setVars; setBody is omitted so the original body is preserved. These fields sit at the block top level, not under settings.",
-  blocks: ["enrich", "set-variable", "set-payload", "log"],
+  blocks: ["enrich", "multi-transform", "log"],
   definition: `service:
   name: enrich
 
@@ -698,14 +735,17 @@ flows:
           total: body.total     # pull just the total out of the scope's summary
         body:
           process:
-            - type: set-variable
+            # The scope sets a variable and rewrites the body on its clone; both
+            # stay isolated.
+            - type: multi-transform
+              name: summarize
               settings:
-                name: workingNote
-                value: '"scope-only, never propagated"'
-            - type: set-payload
-              settings:
-                value: '{"total": body.qty * body.price, "note": "scope-only body"}'
+                transforms:
+                  - setVar: workingNote
+                    value: '"scope-only, never propagated"'
+                  - setBody: '{"total": body.qty * body.price, "note": "scope-only body"}'
       - type: log
+        name: emit
         settings:
           logger: out
           message: '"order " + body.orderId + " total=" + string(vars.total)'
@@ -756,11 +796,13 @@ flows:
         # {error, messages} body; it can read vars.validationErrors. Omit for the default.
         # onReject:
         #   process:
-        #     - type: set-payload
+        #     - type: multi-transform
+        #       name: reject
         #       settings:
-        #         value: '{"error": "bad_request", "details": vars.validationErrors}'
-        #     - type: set-variable
-        #       settings: { name: httpStatus, value: 400 }
+        #         transforms:
+        #           - setBody: '{"error": "bad_request", "details": vars.validationErrors}'
+        #           - setVar: httpStatus
+        #             value: "400"
 
       # Only reached when every rule held (a rejected request stopped here).
       - type: set-payload
@@ -835,6 +877,7 @@ flows:
         path: /.well-known/oauth-protected-resource
     process:
       - type: set-payload
+        name: metadata
         settings:
           value: >
             {"resource": env.RESOURCE_METADATA_URL,
@@ -866,27 +909,32 @@ flows:
     process:
       # Cold read: key absent -> default folded in, objectExists false.
       - type: object-read
+        name: load-before
         settings:
           key: '"profile:" + body.id'
           as: profile
           default: '{"plan": "free"}'
           existsVar: profileExists
       - type: log
+        name: emit-before
         settings:
           logger: out
           message: '"before: exists=" + string(vars.profileExists) + " plan=" + vars.profile.plan'
       - type: object-write
+        name: save-profile
         settings:
           key: '"profile:" + body.id'
           value: '{"plan": body.plan}'
       # Warm read: key now exists -> stored value wins, profileExists true.
       - type: object-read
+        name: load-after
         settings:
           key: '"profile:" + body.id'
           as: profile
           default: '{"plan": "free"}'
           existsVar: profileExists
       - type: log
+        name: emit-after
         settings:
           logger: out
           message: '"after: exists=" + string(vars.profileExists) + " plan=" + vars.profile.plan'
@@ -919,6 +967,7 @@ flows:
         payload: '{"tick": string(now)}'
     process:
       - type: publish-event
+        name: broadcast
         settings:
           subject: '"notifications"'   # CEL subject; constant here
   - name: subscriber-a
@@ -928,6 +977,7 @@ flows:
         subject: notifications
     process:
       - type: log
+        name: emit-a
         settings:
           logger: out
           message: '"A saw tick " + body.tick'
@@ -938,6 +988,7 @@ flows:
         subject: notifications
     process:
       - type: log
+        name: emit-b
         settings:
           logger: out
           message: '"B saw tick " + body.tick'
@@ -973,6 +1024,7 @@ flows:
               value: body.subtotal
             - setBody: '{"orderId": body.orderId, "subtotal": vars.subtotal, "total": vars.subtotal * 1.1}'
       - type: log
+        name: emit
         settings:
           logger: out
           message: '"order " + body.orderId + " total=" + string(body.total)'
@@ -1022,6 +1074,7 @@ flows:
               {"type":"object","required":["note"],"properties":{"note":{"type":"string"}}}
             process:
               - type: set-variable
+                name: save-note
                 settings:
                   name: note
                   value: body.note
@@ -1029,9 +1082,11 @@ flows:
   - name: forget
     process:
       - type: clear-agent-memory
+        name: wipe-thread
         settings:
           threadId: body.threadId
       - type: set-payload
+        name: confirm-cleared
         settings:
           value: '{"cleared": true}'
 `,
@@ -1090,6 +1145,7 @@ flows:
               {"type":"object","required":["orderId"],"properties":{"orderId":{"type":"string"}}}
             process:
               - type: set-payload
+                name: lookup-order-result
                 settings:
                   value: '{"orderId":"A-100","deliveredDaysAgo":14,"type":"physical"}'
 `,
@@ -1131,6 +1187,7 @@ flows:
         path: /page/{name}            # {name} -> vars.name
     process:
       - type: set-payload
+        name: render-page
         settings:
           rawBody: true
           contentType: text/html; charset=utf-8
@@ -1148,6 +1205,7 @@ flows:
         rawBody: true
     process:
       - type: set-payload
+        name: parse-form
         settings:
           value: 'fromFormData(body.rawData)'
 `,
@@ -1200,6 +1258,7 @@ flows:
               {"type":"object","required":["city"],"properties":{"city":{"type":"string"}}}
             process:
               - type: set-payload
+                name: forecast-result
                 settings:
                   value: '{"city": body.city, "summary": "Sunny, 24C"}'
         resources:
@@ -1260,6 +1319,7 @@ flows:
         maxBodyBytes: 10485760      # raise for uploads; the default is 1 MiB
     process:
       - type: set-payload
+        name: describe-upload
         settings:
           value: |
             {
@@ -1284,6 +1344,7 @@ flows:
         maxBodyBytes: 10485760
     process:
       - type: rest
+        name: relay-upload
         settings:
           connector: upstream
           method: POST
@@ -1342,6 +1403,7 @@ flows:
         methods: [POST]
     process:
       - type: tavily-search
+        name: search
         settings:
           connector: web
           query: body.question
@@ -1350,6 +1412,7 @@ flows:
           includeAnswer: advanced
           resultVar: search        # keep the body so body.question survives
       - type: tavily-extract       # read the pages the answer came from
+        name: read-sources
         settings:
           connector: web
           urls: vars.search.results.map(r, r.url)
@@ -1357,6 +1420,7 @@ flows:
           failOnPartial: false     # Tavily reports per-URL failures inside a 200
           resultVar: pages
       - type: set-payload
+        name: answer
         settings:
           value: |
             {
@@ -1375,6 +1439,7 @@ flows:
         methods: [POST]
     process:
       - type: tavily-map
+        name: map-site
         settings:
           connector: web
           url: body.site
@@ -1382,6 +1447,7 @@ flows:
           allowExternal: false
           resultVar: siteUrls
       - type: set-payload
+        name: urls
         settings:
           value: 'vars.siteUrls.results'
 
@@ -1394,6 +1460,7 @@ flows:
         methods: [POST]
     process:
       - type: tavily-crawl
+        name: crawl
         settings:
           connector: web
           url: body.site
@@ -1454,6 +1521,7 @@ flows:
         methods: [POST]
     process:
       - type: parallel-search
+        name: search
         settings:
           connector: research
           objective: body.question       # what the caller is after; results rank against it
@@ -1470,6 +1538,7 @@ flows:
         methods: [POST]
     process:
       - type: parallel-task-run
+        name: start-run
         settings:
           connector: research
           processor: core
@@ -1477,6 +1546,7 @@ flows:
           metadata: '{"correlationId": body.id}'   # comes back on the webhook
           webhookURL: \${PARALLEL_WEBHOOK_URL}
       - type: set-payload            # the handle is in vars, the body survived
+        name: receipt
         settings:
           value: '{"runId": vars.parallelRun.run_id, "status": vars.parallelRun.status}'
 
@@ -1493,12 +1563,112 @@ flows:
         rawBody: true
     process:
       - type: parallel-verify-request   # aborts on a bad or stale signature
+        name: verify
         settings:
           connector: research
       - type: log
+        name: log-result
         settings:
           logger: out
           message: '"run " + body.data.run_id + " is " + body.data.status'
+`,
+};
+
+/**
+ * Subflows and context: a router that calls one sourceless flow per outcome and
+ * keeps its own body with enrich, and subflows that keep each call's result out of
+ * the body with resultVar. Trimmed from samples/odoo-pipeline-sync.
+ */
+const ODOO_PIPELINE: Example = {
+  slug: "odoo-pipeline",
+  title: "odoo-pipeline — subflows, enrich around flow-ref, resultVar",
+  summary:
+    "Closes an Odoo opportunity from an outside event. opportunity-outcome only routes: each outcome is a sourceless flow called with flow-ref inside an enrich, so the event stays the body for the read at the end. Inside close-won every step is one odoo block, so each keeps its result out of the body with resultVar instead of an enrich of its own. Each flow gets its own test suite. In a multi-file project the service/env/connectors would sit in octo.yaml.",
+  blocks: ["switch", "enrich", "flow-ref", "odoo-write", "odoo-call", "odoo-read", "set-payload", "odoo (connector)", "http (source)"],
+  definition: `service:
+  name: odoo-pipeline
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: \${HTTP_PORT}
+  - name: odoo
+    type: odoo
+    settings:
+      url: \${ODOO_URL}
+      apiKey: \${ODOO_API_KEY}
+
+flows:
+  - name: opportunity-outcome
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /opportunities/outcome
+        methods: [POST]
+    process:
+      # A flow-ref answers with the subflow's body; the enrich keeps that inside
+      # its scope, so the event is still the body for the read below.
+      - type: switch
+        name: by-outcome
+        cases:
+          - when: body.outcome == "won"
+            process:
+              - type: enrich
+                name: close-won
+                body:
+                  process:
+                    - type: flow-ref
+                      name: call-close-won
+                      settings:
+                        flow: close-won
+        default:
+          process:
+            - type: set-payload
+              name: unknown-outcome
+              settings:
+                value: '{"error": "outcome must be won"}'
+      - type: if
+        name: closed
+        condition: has(body.outcome)
+        then:
+          process:
+            - type: odoo-read
+              name: read-opportunity
+              settings:
+                connector: odoo
+                model: '"crm.lead"'
+                ids: body.opportunityId
+                fields: [name, stage_id, probability, expected_revenue]
+
+  # No source: reached only by flow-ref and by its own test suite.
+  - name: close-won
+    process:
+      - type: odoo-write
+        name: write-amount
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          ids: body.opportunityId
+          values: '{"expected_revenue": body.amount}'
+          resultVar: amountWritten     # the event stays the body
+      - type: odoo-call
+        name: set-won
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          method: '"action_set_won"'
+          ids: body.opportunityId
+          resultVar: wonResult
 `,
 };
 
@@ -1524,6 +1694,7 @@ export const EXAMPLES: Example[] = [
   MCP_ROUTER,
   RAW_CONTENT,
   FILE_UPLOAD,
+  ODOO_PIPELINE,
 ];
 
 /** The example whose slug matches, or undefined. */

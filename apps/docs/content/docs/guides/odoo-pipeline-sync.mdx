@@ -88,67 +88,83 @@ curl -s -X POST localhost:8080/contacts/sync -d '{"contacts": [
 
 `POST /opportunities/outcome` receives an event such as a signed contract or a declined quote, and closes the opportunity it names. Won and lost are workflow actions on `crm.lead`, not field writes: `action_set_won` moves the deal to the won stage at 100% probability, and `action_set_lost` archives it with an optional reason. Both go through `odoo-call`.
 
-An odoo block puts its result in the message body, and every step here needs the event's `opportunityId`. Wrap each call in an [`enrich`](/reference/blocks/control-flow#enrich): the call's result stays inside the enrich's scope, and the event remains the body for the next step.
+The sample is a folder in the [globals-file](/guides/flow-best-practices#globals-file) layout: `octo.yaml` declares the service, env and connectors, and each area's flows sit beside it. This endpoint lives in `opportunities.yaml`, and each outcome is a [subflow](/guides/flow-best-practices#subflows) of its own, so its suite tests it with an event instead of through the router. `opportunity-outcome` only routes:
 
 ```yaml
-- when: body.outcome == "won"
+- type: switch
+  name: by-outcome
+  cases:
+    - when: body.outcome == "won"
+      process:
+        - type: enrich
+          name: close-won
+          body:
+            process:
+              - type: flow-ref
+                name: call-close-won
+                settings:
+                  flow: close-won
+    - when: body.outcome == "lost"
+      process:
+        - type: enrich
+          name: close-lost
+          body:
+            process:
+              - type: flow-ref
+                name: call-close-lost
+                settings:
+                  flow: close-lost
+```
+
+A `flow-ref` answers with the subflow's body, and the read at the end of the flow still needs the event's `opportunityId`. The [`enrich`](/reference/blocks/control-flow#enrich) around each call keeps the subflow's answer inside its scope, so the event is still the body afterwards.
+
+Inside a subflow every step is one odoo block, so each keeps its result out of the body with `resultVar` instead of an enrich of its own:
+
+```yaml
+- name: close-won
   process:
-    - type: enrich
-      name: record-amount
-      body:
-        process:
-          - type: odoo-write
-            name: write-amount
-            settings:
-              connector: odoo
-              model: '"crm.lead"'
-              ids: body.opportunityId
-              values: '{"expected_revenue": body.amount}'
-    - type: enrich
-      name: mark-won
-      body:
-        process:
-          - type: odoo-call
-            name: set-won
-            settings:
-              connector: odoo
-              model: '"crm.lead"'
-              method: '"action_set_won"'
-              ids: body.opportunityId
+    - type: odoo-write
+      name: write-amount
+      settings:
+        connector: odoo
+        model: '"crm.lead"'
+        ids: body.opportunityId
+        values: '{"expected_revenue": body.amount}'
+        resultVar: amountWritten
+    - type: odoo-call
+      name: set-won
+      settings:
+        connector: odoo
+        model: '"crm.lead"'
+        method: '"action_set_won"'
+        ids: body.opportunityId
+        resultVar: wonResult
 ```
 
-A lost reason is a record of `crm.lost.reason`, so the flow looks up the name the event sends. `setVars` lifts just the ids out of the lookup's scope, and the reason is passed only when one matched:
+A lost reason is a record of `crm.lost.reason`, so `close-lost` looks up the name the event sends, then passes the reason only when one matched:
 
 ```yaml
-- type: enrich
+- type: odoo-search-read
   name: find-reason
-  setVars:
-    reasonIds: body.map(r, r.id)
-  body:
-    process:
-      - type: odoo-search-read
-        name: search-reason
-        settings:
-          connector: odoo
-          model: '"crm.lost.reason"'
-          domain: '[["name", "=ilike", body.reason]]'
-          fields: [id]
-          limit: 1
-- type: enrich
-  name: mark-lost
-  body:
-    process:
-      - type: odoo-call
-        name: set-lost
-        settings:
-          connector: odoo
-          model: '"crm.lead"'
-          method: '"action_set_lost"'
-          ids: body.opportunityId
-          params: 'size(vars.reasonIds) > 0 ? {"lost_reason_id": vars.reasonIds[0]} : {}'
+  settings:
+    connector: odoo
+    model: '"crm.lost.reason"'
+    domain: '[["name", "=ilike", body.reason]]'
+    fields: [id]
+    limit: 1
+    resultVar: reasons
+- type: odoo-call
+  name: set-lost
+  settings:
+    connector: odoo
+    model: '"crm.lead"'
+    method: '"action_set_lost"'
+    ids: body.opportunityId
+    params: 'size(vars.reasons) > 0 ? {"lost_reason_id": vars.reasons[0].id} : {}'
+    resultVar: lostResult
 ```
 
-Each case ends by posting a note to the opportunity's chatter with `message_post`, and the flow answers with the opportunity as it now stands:
+Each subflow ends by posting a note to the opportunity's chatter with `message_post`, and `opportunity-outcome` answers with the opportunity as it now stands:
 
 ```bash
 curl -s -X POST localhost:8080/opportunities/outcome -d '{"opportunityId": 3, "outcome": "lost", "reason": "too expensive"}'
@@ -213,7 +229,7 @@ octo invoke --config samples/odoo-pipeline-sync --flow stale-followups
 
 ## Test it
 
-The sample has one suite per flow. Each mocks the `odoo-*` blocks. In the contact sync, the lookup's mock answers per contact by matching on the loop variable, so one batch exercises both the update and the create path:
+The sample has one suite per flow, each named after its flow and never after a file, so dolphin runs every one against the whole folder: `sync-contacts_test.yaml`, `opportunity-outcome_test.yaml`, `close-won_test.yaml`, `close-lost_test.yaml` and `stale-followups_test.yaml`. Each mocks the `odoo-*` blocks. In the contact sync, the lookup's mock answers per contact by matching on the loop variable, so one batch exercises both the update and the create path:
 
 ```yaml
 mocks:
@@ -227,6 +243,8 @@ mocks:
       vars: { existing: [] }
 ```
 
+`opportunity-outcome_test.yaml` mocks the two `flow-ref` calls and checks the routing and that the event survives them. What each outcome does in Odoo is pinned by `close-won_test.yaml` and `close-lost_test.yaml`, which drive the subflows with an event directly.
+
 ```bash
-dolphin test samples/odoo-pipeline-sync/*_test.yaml --env-file samples/.env.test
+dolphin test samples/odoo-pipeline-sync --env-file samples/.env.test
 ```

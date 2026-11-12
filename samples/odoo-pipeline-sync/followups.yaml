@@ -1,0 +1,60 @@
+# Connectors and env are declared in octo.yaml.
+flows:
+  # 3. Plan a follow-up on every open opportunity that has sat in one stage for
+  #    14 days. Filtering on activity_ids = false skips deals that already have
+  #    something planned, so running the sweep twice schedules nothing new.
+  - name: stale-followups
+    source:
+      connector: schedule
+      type: cron
+      settings:
+        schedule: "0 0 8 * * 1-5"
+    process:
+      - type: odoo-search-read
+        name: find-stale
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          # Odoo compares datetimes as "YYYY-MM-DD HH:MM:SS" in UTC.
+          domain: |
+            [["type", "=", "opportunity"],
+             ["probability", "<", 100],
+             ["activity_ids", "=", false],
+             ["date_last_stage_update", "<",
+              string(now - duration("336h")).substring(0, 19).replace("T", " ")]]
+          fields: [id, name, user_id]
+          limit: 100
+          resultVar: stale
+
+      - type: foreach
+        name: each-stale
+        items: vars.stale
+        as: opportunity
+        body:
+          process:
+            # activity_schedule is a mail.activity.mixin method every CRM record
+            # has. Without a user_id it leaves the activity unassigned, so pass
+            # the salesperson when the opportunity has one (user_id is false when
+            # not).
+            - type: odoo-call
+              name: schedule-followup
+              settings:
+                connector: odoo
+                model: '"crm.lead"'
+                method: '"activity_schedule"'
+                ids: vars.opportunity.id
+                params: |
+                  type(vars.opportunity.user_id) == list
+                    ? {"act_type_xmlid": "mail.mail_activity_data_todo",
+                       "summary": "Follow up: no stage change in 14 days",
+                       "date_deadline": string(now + duration("48h")).substring(0, 10),
+                       "user_id": vars.opportunity.user_id[0]}
+                    : {"act_type_xmlid": "mail.mail_activity_data_todo",
+                       "summary": "Follow up: no stage change in 14 days",
+                       "date_deadline": string(now + duration("48h")).substring(0, 10)}
+
+      - type: log
+        name: report
+        settings:
+          logger: out
+          message: '"scheduled follow-ups on " + string(size(vars.stale)) + " stale opportunities"'

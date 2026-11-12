@@ -65,10 +65,12 @@ flows:
               # A real tool would call an API; here we echo a fixed order so the
               # sample runs without external dependencies.
               - type: set-payload
+                name: lookup-order-result
                 settings:
                   value: '{"orderId": "A-100", "deliveredDaysAgo": 14, "type": "physical"}'
         default:
           process:
             - type: set-payload
+              name: fallback-answer
               settings:
                 value: '{"answer": "Let me connect you with a human agent."}'
