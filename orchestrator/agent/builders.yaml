@@ -201,9 +201,10 @@ flows:
           - name: write_workspace_file
             description: >
               Write a file into your workspace, creating parent directories
-              as needed. Put a flow in `<dir>/config.yaml` and its suite in
-              `<dir>/config_test.yaml`, which is the pairing dolphin looks
-              for. The workspace is scratch and dies with the pod.
+              as needed. Put a single-file draft in `<dir>/config.yaml` and
+              its suite in `<dir>/config_test.yaml`. In a multi-file project
+              name each suite after the flow it tests, never after a flow
+              file. The workspace is scratch and dies with the pod.
             inputSchema: |
               {
                 "type": "object",

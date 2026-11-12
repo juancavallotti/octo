@@ -1,8 +1,11 @@
 # Testing a flow
 
-Tests live beside the flows they exercise, named for them: `orders.yaml` is tested by
-`orders_test.yaml`. The loader skips `_test.yaml`, so a suite sits next to its flows
-without ever being mistaken for one. The runner is `dolphin`.
+Tests live beside the flows they exercise. A single-file draft pairs by name:
+`config.yaml` is tested by `config_test.yaml`. In a multi-file project, name each
+suite after the flow it tests (`submit-order_test.yaml`), never after a flow file:
+run by name, `orders_test.yaml` would load `orders.yaml` alone, without `octo.yaml`
+(see best-practices, globals-file). The loader skips `_test.yaml`, so a suite sits
+next to its flows without ever being mistaken for one. The runner is `dolphin`.
 
 ## The suite
 
