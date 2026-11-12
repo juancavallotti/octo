@@ -195,6 +195,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/notion/notion\.go$
         linters: [gochecknoinits]
+      - path: ^connectors/odoo/odoo\.go$
+        linters: [gochecknoinits]
       - path: ^connectors/parallel/parallel\.go$
         linters: [gochecknoinits]
       - path: ^connectors/pinecone/pinecone\.go$

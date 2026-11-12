@@ -1,0 +1,324 @@
+service:
+  name: odoo-pipeline-sync
+
+# Keep an Odoo CRM in step with the systems around it. Three flows, each a job
+# integrations commonly hand to Odoo:
+#
+#   1. sync-contacts       POST /contacts/sync — a batch of people from another
+#                          system (a signup database, a billing tool) is upserted
+#                          into Contacts by email: updated when the email is
+#                          known, created when it is not.
+#   2. opportunity-outcome POST /opportunities/outcome — an outside event decides
+#                          a deal (a contract signed, a quote declined), and the
+#                          opportunity is marked won or lost, with the amount or
+#                          the reason, and a note on its chatter saying why.
+#   3. stale-followups     weekday mornings — open opportunities whose stage has
+#                          not moved in 14 days, and that have nothing planned,
+#                          get a to-do activity for their salesperson.
+#
+# It needs the Contacts and CRM apps, and an API key (Preferences > Account
+# Security > New API Key in Odoo).
+#
+#   export ODOO_URL=https://mycompany.odoo.com
+#   export ODOO_API_KEY=...
+#   # Odoo 18 and earlier: the legacy endpoint needs the database and login too.
+#   # export ODOO_VERSION=18 ODOO_DATABASE=mycompany ODOO_USERNAME=admin@example.com
+#   octo run --config samples/odoo-pipeline-sync
+#
+#   curl -s -X POST localhost:8080/contacts/sync -d '{"contacts": [
+#     {"name": "Ada Lovelace", "email": "ada@example.com", "phone": "+44 20 7946 0001"},
+#     {"name": "Grace Hopper", "email": "grace@example.com", "phone": "+1 202 555 0143"}]}'
+#   # {"created": 1, "updated": 1, "contacts": [{"email": "ada@example.com", "id": 12, "action": "updated"}, ...]}
+#
+#   curl -s -X POST localhost:8080/opportunities/outcome \
+#     -d '{"opportunityId": 2, "outcome": "won", "amount": 12000}'
+#   curl -s -X POST localhost:8080/opportunities/outcome \
+#     -d '{"opportunityId": 3, "outcome": "lost", "reason": "Too expensive"}'
+#
+#   # run the follow-up sweep now instead of waiting for the schedule:
+#   octo invoke --config samples/odoo-pipeline-sync --flow stale-followups
+
+env:
+  - name: HTTP_PORT
+    default: "8080"
+  - name: ODOO_URL
+    required: true
+  - name: ODOO_API_KEY
+    required: true
+  - name: ODOO_VERSION
+    default: "19"
+  # Empty is right for Odoo 19 on a server with one database.
+  - name: ODOO_DATABASE
+    default: ""
+  - name: ODOO_USERNAME
+    default: ""
+
+connectors:
+  - name: api
+    type: http
+    settings:
+      port: ${HTTP_PORT}
+  - name: schedule
+    type: cron
+  - name: odoo
+    type: odoo
+    settings:
+      version: "${ODOO_VERSION}"
+      url: ${ODOO_URL}
+      apiKey: ${ODOO_API_KEY}
+      database: ${ODOO_DATABASE}
+      username: ${ODOO_USERNAME}
+  - name: out
+    type: logger
+    settings:
+      format: json
+      level: info
+
+flows:
+  # 1. Upsert a batch of contacts by email. foreach in map mode turns the batch
+  #    into one result per contact, so the response reports what happened to
+  #    each, and the summary counts them.
+  - name: sync-contacts
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /contacts/sync
+        methods: [POST]
+    process:
+      - type: foreach
+        name: each-contact
+        items: body.contacts
+        as: contact
+        mode: map
+        body:
+          process:
+            - type: odoo-search-read
+              name: find-existing
+              settings:
+                connector: odoo
+                model: '"res.partner"'
+                domain: '[["email", "=ilike", vars.contact.email]]'
+                fields: [id]
+                limit: 1
+                resultVar: existing
+
+            - type: if
+              name: contact-known
+              condition: size(vars.existing) > 0
+              then:
+                process:
+                  - type: odoo-write
+                    name: update-contact
+                    settings:
+                      connector: odoo
+                      model: '"res.partner"'
+                      ids: vars.existing[0].id
+                      values: '{"name": vars.contact.name, "phone": vars.contact.phone}'
+                  - type: set-payload
+                    name: report-updated
+                    settings:
+                      value: '{"email": vars.contact.email, "id": vars.existing[0].id, "action": "updated"}'
+              else:
+                process:
+                  - type: odoo-create
+                    name: create-contact
+                    settings:
+                      connector: odoo
+                      model: '"res.partner"'
+                      values: |
+                        {"name": vars.contact.name, "email": vars.contact.email,
+                         "phone": vars.contact.phone}
+                      resultVar: created
+                  - type: set-payload
+                    name: report-created
+                    settings:
+                      value: '{"email": vars.contact.email, "id": vars.created[0], "action": "created"}'
+
+      - type: set-payload
+        name: summarize
+        settings:
+          value: |
+            {"created": body.filter(r, r.action == "created").size(),
+             "updated": body.filter(r, r.action == "updated").size(),
+             "contacts": body}
+
+  # 2. Close an opportunity from an outside event. Won and lost are workflow
+  #    actions on crm.lead rather than field writes — they move the stage, set
+  #    the probability and, for lost, archive the record — so they go through
+  #    odoo-call. An odoo block puts its result in the body, so each call runs
+  #    inside an enrich: the call's result stays in the enrich's scope and the
+  #    event stays the body, for the next step to read.
+  - name: opportunity-outcome
+    source:
+      connector: api
+      type: http
+      settings:
+        path: /opportunities/outcome
+        methods: [POST]
+    process:
+      - type: switch
+        name: by-outcome
+        cases:
+          - when: body.outcome == "won"
+            process:
+              - type: enrich
+                name: record-amount
+                body:
+                  process:
+                    - type: odoo-write
+                      name: write-amount
+                      settings:
+                        connector: odoo
+                        model: '"crm.lead"'
+                        ids: body.opportunityId
+                        values: '{"expected_revenue": body.amount}'
+              - type: enrich
+                name: mark-won
+                body:
+                  process:
+                    - type: odoo-call
+                      name: set-won
+                      settings:
+                        connector: odoo
+                        model: '"crm.lead"'
+                        method: '"action_set_won"'
+                        ids: body.opportunityId
+              - type: enrich
+                name: note-won
+                body:
+                  process:
+                    - type: odoo-call
+                      name: post-won-note
+                      settings:
+                        connector: odoo
+                        model: '"crm.lead"'
+                        method: '"message_post"'
+                        ids: body.opportunityId
+                        params: |
+                          {"body": "Won: contract signed for " + string(body.amount),
+                           "subtype_xmlid": "mail.mt_note"}
+
+          - when: body.outcome == "lost"
+            process:
+              # Lost reasons are records (crm.lost.reason). Match the reason the
+              # event names; an unknown one marks the deal lost without a reason.
+              - type: enrich
+                name: find-reason
+                setVars:
+                  reasonIds: body.map(r, r.id)
+                body:
+                  process:
+                    - type: odoo-search-read
+                      name: search-reason
+                      settings:
+                        connector: odoo
+                        model: '"crm.lost.reason"'
+                        domain: '[["name", "=ilike", body.reason]]'
+                        fields: [id]
+                        limit: 1
+              - type: enrich
+                name: mark-lost
+                body:
+                  process:
+                    - type: odoo-call
+                      name: set-lost
+                      settings:
+                        connector: odoo
+                        model: '"crm.lead"'
+                        method: '"action_set_lost"'
+                        ids: body.opportunityId
+                        params: 'size(vars.reasonIds) > 0 ? {"lost_reason_id": vars.reasonIds[0]} : {}'
+              - type: enrich
+                name: note-lost
+                body:
+                  process:
+                    - type: odoo-call
+                      name: post-lost-note
+                      settings:
+                        connector: odoo
+                        model: '"crm.lead"'
+                        method: '"message_post"'
+                        ids: body.opportunityId
+                        params: '{"body": "Lost: " + body.reason, "subtype_xmlid": "mail.mt_note"}'
+
+        default:
+          process:
+            - type: set-payload
+              name: unknown-outcome
+              settings:
+                value: '{"error": "outcome must be won or lost"}'
+
+      # Answer with the opportunity as it now stands. A lost opportunity is
+      # archived, and reading it by id still works.
+      - type: if
+        name: closed
+        condition: has(body.outcome)
+        then:
+          process:
+            - type: odoo-read
+              name: read-opportunity
+              settings:
+                connector: odoo
+                model: '"crm.lead"'
+                ids: body.opportunityId
+                fields: [name, stage_id, probability, expected_revenue, active, lost_reason_id]
+
+  # 3. Plan a follow-up on every open opportunity that has sat in one stage for
+  #    14 days. Filtering on activity_ids = false skips deals that already have
+  #    something planned, so running the sweep twice schedules nothing new.
+  - name: stale-followups
+    source:
+      connector: schedule
+      type: cron
+      settings:
+        schedule: "0 0 8 * * 1-5"
+    process:
+      - type: odoo-search-read
+        name: find-stale
+        settings:
+          connector: odoo
+          model: '"crm.lead"'
+          # Odoo compares datetimes as "YYYY-MM-DD HH:MM:SS" in UTC.
+          domain: |
+            [["type", "=", "opportunity"],
+             ["probability", "<", 100],
+             ["activity_ids", "=", false],
+             ["date_last_stage_update", "<",
+              string(now - duration("336h")).substring(0, 19).replace("T", " ")]]
+          fields: [id, name, user_id]
+          limit: 100
+          resultVar: stale
+
+      - type: foreach
+        name: each-stale
+        items: vars.stale
+        as: opportunity
+        body:
+          process:
+            # activity_schedule is a mail.activity.mixin method every CRM record
+            # has. Without a user_id it leaves the activity unassigned, so pass
+            # the salesperson when the opportunity has one (user_id is false when
+            # not).
+            - type: odoo-call
+              name: schedule-followup
+              settings:
+                connector: odoo
+                model: '"crm.lead"'
+                method: '"activity_schedule"'
+                ids: vars.opportunity.id
+                params: |
+                  type(vars.opportunity.user_id) == list
+                    ? {"act_type_xmlid": "mail.mail_activity_data_todo",
+                       "summary": "Follow up: no stage change in 14 days",
+                       "date_deadline": string(now + duration("48h")).substring(0, 10),
+                       "user_id": vars.opportunity.user_id[0]}
+                    : {"act_type_xmlid": "mail.mail_activity_data_todo",
+                       "summary": "Follow up: no stage change in 14 days",
+                       "date_deadline": string(now + duration("48h")).substring(0, 10)}
+
+      - type: log
+        name: report
+        settings:
+          logger: out
+          message: '"scheduled follow-ups on " + string(size(vars.stale)) + " stale opportunities"'

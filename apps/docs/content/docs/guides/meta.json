@@ -21,6 +21,8 @@
     "serving-html",
     "slack-bot",
     "notion-sync",
+    "odoo-crm",
+    "odoo-pipeline-sync",
     "async-research",
     "running-commands",
     "ai-web-app",

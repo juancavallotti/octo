@@ -20,6 +20,6 @@ describe("listIcons", () => {
   });
 
   it("includes the brand marks the product already ships", () => {
-    expect(listIcons()).toEqual(expect.arrayContaining(["Slack", "Notion"]));
+    expect(listIcons()).toEqual(expect.arrayContaining(["Slack", "Notion", "Odoo"]));
   });
 });

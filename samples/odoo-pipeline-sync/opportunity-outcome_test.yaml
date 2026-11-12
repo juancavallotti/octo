@@ -1,0 +1,80 @@
+# Tests opportunity-outcome's claim: a won event records the amount before
+# marking the deal won, a lost event passes the matching lost reason (or none),
+# and anything else is refused without touching Odoo.
+#
+# Every Odoo call runs inside an enrich, so its mock only shapes the enrich's
+# scope: the event stays the body, which is what the later steps read and what
+# these cases check reaches each call.
+flow: opportunity-outcome
+
+mocks:
+  opportunity-outcome.by-outcome[0].record-amount[body].write-amount: &ok
+    default: { body: true }
+  opportunity-outcome.by-outcome[0].mark-won[body].set-won: *ok
+  opportunity-outcome.by-outcome[0].note-won[body].post-won-note:
+    default: { body: [90] }
+  opportunity-outcome.by-outcome[1].mark-lost[body].set-lost: *ok
+  opportunity-outcome.by-outcome[1].note-lost[body].post-lost-note:
+    default: { body: [91] }
+  opportunity-outcome.closed[then].read-opportunity:
+    default:
+      body: [{ id: 7, name: Engines, stage_id: [4, Won], probability: 100 }]
+
+cases:
+  - name: a won deal records the amount, then is marked won
+    input:
+      data: { opportunityId: 7, outcome: won, amount: 12000 }
+    spies:
+      opportunity-outcome.by-outcome[0].record-amount[body].write-amount:
+        count: 1
+        records:
+          - input:
+              body: { opportunityId: 7, outcome: won, amount: 12000 }
+      opportunity-outcome.by-outcome[0].mark-won[body].set-won:
+        count: 1
+        records:
+          # The write's result stayed inside its enrich: the event is still
+          # the body when the next call reads its id.
+          - input:
+              body: { opportunityId: 7, outcome: won, amount: 12000 }
+    expect:
+      body: [{ id: 7, name: Engines, stage_id: [4, Won], probability: 100 }]
+
+  - name: a lost deal carries the matching lost reason
+    input:
+      data: { opportunityId: 7, outcome: lost, reason: too expensive }
+    mocks:
+      opportunity-outcome.by-outcome[1].find-reason[body].search-reason:
+        default: { body: [{ id: 1 }] }
+    spies:
+      opportunity-outcome.by-outcome[1].mark-lost[body].set-lost:
+        count: 1
+        records:
+          - input:
+              vars: { reasonIds: [1] }
+
+  - name: an unknown lost reason marks the deal lost without one
+    input:
+      data: { opportunityId: 7, outcome: lost, reason: went quiet }
+    mocks:
+      opportunity-outcome.by-outcome[1].find-reason[body].search-reason:
+        default: { body: [] }
+    spies:
+      opportunity-outcome.by-outcome[1].mark-lost[body].set-lost:
+        count: 1
+        records:
+          - input:
+              vars: { reasonIds: [] }
+
+  - name: an unknown outcome is refused without touching Odoo
+    input:
+      data: { opportunityId: 7, outcome: maybe }
+    spies:
+      opportunity-outcome.by-outcome[0].mark-won[body].set-won:
+        count: 0
+      opportunity-outcome.by-outcome[1].mark-lost[body].set-lost:
+        count: 0
+      opportunity-outcome.closed[then].read-opportunity:
+        count: 0
+    expect:
+      body: { error: outcome must be won or lost }
