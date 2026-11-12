@@ -96,13 +96,14 @@ flows:
                       transforms:
                         - setVar: authorizeId
                           value: vars.pending.authorizationId
-                        # Only a reply that opens with the word approve allows
-                        # the change ("Approve, go ahead"). Anything else denies
-                        # — "do not approve" and "disapprove" included — and so
-                        # does a reply that never comes: the run's
+                        # Only a bare approval allows the change: "approve",
+                        # "approved" or "approve, go ahead", in any case, with
+                        # an optional closing "." or "!". Anything else denies
+                        # — "do not approve" and "Approve? No" included — and
+                        # so does a reply that never comes: the run's
                         # authorizeTimeout has the last word.
                         - setVar: authorizeAllow
-                          value: 'string(body.text).trim().lowerAscii().matches("^approve\\b")'
+                          value: 'string(body.text).trim().lowerAscii().matches("^approved?(,? go ahead)?[.!]?$")'
                   - type: object-delete
                     name: forget-pending
                     settings:
