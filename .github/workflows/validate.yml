@@ -59,11 +59,14 @@ jobs:
               - '.github/workflows/validate.yml'
               - '.github/actions/**'
               - 'Taskfile.yml'
+            # The root go.mod's toolchain line is the Go every Go job installs.
+            go-toolchain: &go-toolchain
+              - *ci
+              - 'go.mod'
             # The dolphin suites cover the samples and the three octo apps
             # (the platform agent, the embedding server, the public API).
             runtime: &runtime
-              - *ci
-              - 'go.mod'
+              - *go-toolchain
               - 'go.sum'
               - 'runtime/**'
               - 'samples/**'
@@ -73,21 +76,21 @@ jobs:
               - 'orchestrator/internal/kv/redisrepo.go'
               - '.goreleaser.yaml'
             orchestrator:
-              - *ci
+              - *go-toolchain
               - 'orchestrator/**'
             observability:
-              - *ci
+              - *go-toolchain
               - 'observability/**'
               - 'runtime/services/k8s/topics.go'
               - 'sidecars/stats/internal/**'
             iam:
-              - *ci
+              - *go-toolchain
               - 'iam/**'
             sidecars:
-              - *ci
+              - *go-toolchain
               - 'sidecars/**'
             octopaas:
-              - *ci
+              - *go-toolchain
               - 'octopaas/**'
               - 'api/static/openapi.yaml'
               - 'apps/docs/content/docs/reference/octopaas/**'
