@@ -88,3 +88,5 @@ func newSigningService(
 	}
 	return signing.NewService(repo, cfg)
 }
+
+// gate test
