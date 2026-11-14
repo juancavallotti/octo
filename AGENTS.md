@@ -16,7 +16,14 @@ per-pod helpers. They share one Postgres and one schema (`sql/schema.sql`), and
 find each other by URL. Adding one means registering it in the root
 `Taskfile.yml`, `.github/workflows/validate.yml` and `release.yml`,
 `cloudbuild.yaml`, `devspace.yaml` and the chart — each of those enumerates its
-members rather than discovering them, and the enumeration is the guarantee.
+members rather than discovering them, and the enumeration is the guarantee. In
+`validate.yml` that is a `ci` task in the module's Taskfile, a paths filter in the
+`changes` job, and an entry in that job's module list.
+
+`validate.yml` runs only the areas a pull request touches (main runs them all).
+A test that reads a file outside its own area — a contract test pinning another
+module's source, a drift test over `samples/` — must add that path to its area's
+filter, or it stops running on the pull requests that could break it.
 
 Required reading:
 
@@ -79,7 +86,8 @@ it in sync with code **in the same PR** — CI enforces part of this:
 - **Publishing**: the site goes to GitHub Pages from the release tag, not from
   main, so it describes the version users can install. A docs change merged today
   appears publicly at the next release (`docs-pages.yml`, called by
-  `release-please.yml`). Every PR still builds the docs in `validate.yml`.
+  `release-please.yml`). Every PR that touches the docs or what they are
+  checked against still builds them in `validate.yml`.
 
 ## Layering policy
 
