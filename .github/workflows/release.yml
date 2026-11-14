@@ -28,8 +28,10 @@ jobs:
         with:
           # The release tag for call/dispatch, else the triggering ref (a v* tag).
           ref: ${{ inputs.tag || github.ref }}
-      # Readiness checks only. The tag is a main commit validate already built
-      # and tested, and every publish job below builds its own artifacts.
+      # Readiness checks only, no build. Nothing here waits for validate on the
+      # tagged commit, so a tag that does not compile can publish some images
+      # before the job building the broken one fails; recovery is a fix and a
+      # new tag. Main runs validate in full on every merge, which makes that rare.
       - name: Install Task
         run: |
           mkdir -p "$HOME/bin"
