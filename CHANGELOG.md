@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.17](https://github.com/juancavallotti/octo/compare/v0.11.16...v0.11.17) (2026-11-12)
+
+
+### Features
+
+* **odoo:** add Odoo connector for Odoo 19 (JSON-2) and Odoo 18 (JSON-RPC) ([#614](https://github.com/juancavallotti/octo/issues/614)) ([2586ad9](https://github.com/juancavallotti/octo/commit/2586ad9693407811fe0031831f16e69a856d8871))
+
+
+### Bug Fixes
+
+* **ci:** package the desktop app on macos-15 ([#617](https://github.com/juancavallotti/octo/issues/617)) ([6279e8e](https://github.com/juancavallotti/octo/commit/6279e8eaa71dd447093978e433996c105f951b15))
+* **deps:** update dependency fumadocs-core to v16.18.1 ([#612](https://github.com/juancavallotti/octo/issues/612)) ([d7abb1f](https://github.com/juancavallotti/octo/commit/d7abb1faa392a1a759919e7ecc4b11753f15d2e8))
+* **deps:** update dependency fumadocs-mdx to v15.5.0 ([#613](https://github.com/juancavallotti/octo/issues/613)) ([956bcc3](https://github.com/juancavallotti/octo/commit/956bcc3e709ea2b9c2a1f0f90e33c384654293f7))
+* **deps:** update dependency next to v16.4.5 ([#603](https://github.com/juancavallotti/octo/issues/603)) ([397017a](https://github.com/juancavallotti/octo/commit/397017acaa1f0eee1326f11a0560eac583df27ed))
+* **deps:** update go toolchain directive to v1.27.4 [security] ([#619](https://github.com/juancavallotti/octo/issues/619)) ([dd495bb](https://github.com/juancavallotti/octo/commit/dd495bb90fdfc3ea6e0d01b634985cd8ee1432d9))
+* **deps:** update module github.com/go-jose/go-jose/v4 to v4.1.9 ([#604](https://github.com/juancavallotti/octo/issues/604)) ([fa265c2](https://github.com/juancavallotti/octo/commit/fa265c26005c5f69f0814065741f1d53c66ab4f3))
+* **deps:** update module github.com/prometheus/client_model to v0.6.3 ([#605](https://github.com/juancavallotti/octo/issues/605)) ([5e98370](https://github.com/juancavallotti/octo/commit/5e98370f018838a158721207750328ff70335f43))
+* **deps:** update module github.com/spf13/pflag to v1.1.0 ([#606](https://github.com/juancavallotti/octo/issues/606)) ([5e8e094](https://github.com/juancavallotti/octo/commit/5e8e0947d6dca21f473c72bdfa16a495851a20d4))
+* **deps:** update module golang.org/x/crypto to v0.59.0 [security] ([#620](https://github.com/juancavallotti/octo/issues/620)) ([963c7fe](https://github.com/juancavallotti/octo/commit/963c7fe45e956da9c4bf834a737d89e58d70cb42))
+
 ## [0.11.16](https://github.com/juancavallotti/octo/compare/v0.11.15...v0.11.16) (2026-11-08)
 
 
