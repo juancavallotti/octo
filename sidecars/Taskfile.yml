@@ -49,3 +49,20 @@ tasks:
     desc: 'Run the stats sidecar locally (set REDIS_URL, DEPLOYMENT_ID, POD_NAME; point RUNTIME_ADMIN_ADDR at an octo run --metrics)'
     cmds:
       - '{{.GO}} run ./stats {{.CLI_ARGS}}'
+
+  # Everything the validate workflow checks for this module, in order. It is
+  # listed here rather than in the workflow so `task sidecars:ci` reproduces a CI
+  # failure locally, and it is listed step by step because the list is the
+  # guarantee: a check missing from it is a check nothing runs.
+  ci:
+    desc: Run every check the validate workflow runs for this module
+    cmds:
+      - task: tidy
+      - task: fmt
+      # tidy and fmt repair what they find and still exit 0; fail if they changed anything.
+      - git diff --exit-code -- .
+      - task: lint
+      - task: test
+        vars:
+          CLI_ARGS: -race
+      - task: build

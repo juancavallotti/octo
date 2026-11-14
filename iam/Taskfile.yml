@@ -56,3 +56,19 @@ tasks:
     desc: Run the iam service locally (set DATABASE_URL/OIDC_ISSUER/IAM_ISSUER/PORT as needed)
     cmds:
       - '{{.GO}} run . {{.CLI_ARGS}}'
+
+  # Everything the validate workflow checks for this module, in order. It is
+  # listed here rather than in the workflow so `task iam:ci` reproduces a CI
+  # failure locally, and it is listed step by step because the list is the
+  # guarantee: a check missing from it is a check nothing runs.
+  ci:
+    desc: Run every check the validate workflow runs for this module
+    cmds:
+      - task: tidy
+      - task: fmt
+      # tidy and fmt repair what they find and still exit 0; fail if they changed anything.
+      - git diff --exit-code -- .
+      - task: lint
+      - task: test
+        vars:
+          CLI_ARGS: -race

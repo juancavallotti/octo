@@ -50,3 +50,20 @@ tasks:
       - rm -rf .docs-check && {{.GO}} run ./internal/docsgen .docs-check
       - defer: rm -rf .docs-check
       - diff -ru ../apps/docs/content/docs/reference/octopaas .docs-check || (echo "the octopaas reference is stale; run task octopaas:docs" && exit 1)
+
+  # Everything the validate workflow checks for this module, in order. It is
+  # listed here rather than in the workflow so `task octopaas:ci` reproduces a CI
+  # failure locally, and it is listed step by step because the list is the
+  # guarantee: a check missing from it is a check nothing runs.
+  ci:
+    desc: Run every check the validate workflow runs for this module
+    cmds:
+      - task: tidy
+      - task: fmt
+      # tidy and fmt repair what they find and still exit 0; fail if they changed anything.
+      - git diff --exit-code -- .
+      - task: lint
+      - task: test
+        vars:
+          CLI_ARGS: -race
+      - task: docs:check
