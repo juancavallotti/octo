@@ -1,0 +1,71 @@
+name: Set up Go
+description: >-
+  Installs the Go toolchain go.mod names, Task and optionally golangci-lint, and
+  restores the module, build and lint caches. With `save: 'true'` it does none
+  of that and saves the caches instead, which is the last step of a job.
+
+# One action for both halves so the cache paths and key exist in one place: a
+# restore and a save that disagree on either silently never hit.
+inputs:
+  cache-key:
+    description: >-
+      The job's cache name. Jobs that compile the same packages share one, so a
+      job that only builds can reuse what a job that tests compiled.
+    required: true
+  golangci-lint:
+    description: Install golangci-lint.
+    default: 'false'
+  save:
+    description: Save the caches instead of setting anything up.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    # v6 reads the `toolchain` directive, so it installs go1.27.4 directly
+    # instead of installing the `go` line's 1.27.0 and letting GOTOOLCHAIN
+    # download the real one on the first command.
+    - if: inputs.save != 'true'
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+        cache: false
+
+    - if: inputs.save != 'true'
+      name: Install Task
+      shell: bash
+      run: |
+        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$(go env GOPATH)/bin"
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+    - if: inputs.save != 'true' && inputs.golangci-lint == 'true'
+      name: Install golangci-lint
+      shell: bash
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.14.0
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+    # The key ends in the commit, so every save is a new entry and the newest
+    # one wins the prefix match on restore. A key without it is written once and
+    # then served stale until a dependency changes, so Go's test cache would
+    # never learn which packages are already green.
+    - if: inputs.save != 'true'
+      uses: actions/cache/restore@v5
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/golangci-lint
+        key: go-${{ inputs.cache-key }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          go-${{ inputs.cache-key }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}-
+          go-${{ inputs.cache-key }}-${{ runner.os }}-
+
+    - if: inputs.save == 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/golangci-lint
+        key: go-${{ inputs.cache-key }}-${{ runner.os }}-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
