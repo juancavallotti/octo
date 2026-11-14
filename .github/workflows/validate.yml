@@ -75,6 +75,9 @@ jobs:
               - 'api/**'
               - 'orchestrator/internal/kv/redisrepo.go'
               - '.goreleaser.yaml'
+              # runtime-lint runs policy-check, which requires these to exist.
+              - 'AGENTS.md'
+              - 'docs/*.md'
             orchestrator:
               - *go-toolchain
               - 'orchestrator/**'
