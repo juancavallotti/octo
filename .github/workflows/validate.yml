@@ -225,7 +225,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           # renovate: datasource=github-releases depName=hashicorp/terraform extractVersion=^v(?<version>.*)$
-          terraform_version: 1.17.1
+          terraform_version: 1.17.2
           terraform_wrapper: false
       - name: Install Task
         run: |
