@@ -239,7 +239,7 @@ steps:
         fi
         # Matches the version CI validates with (.github/workflows/validate.yml).
         # renovate: datasource=github-releases depName=hashicorp/terraform extractVersion=^v(?<version>.*)$
-        TF_VERSION=1.17.1
+        TF_VERSION=1.17.2
         curl -fsSL "https://releases.hashicorp.com/terraform/$${TF_VERSION}/terraform_$${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
         # The gcloud image has no `unzip`, but it ships python3; extract with stdlib.
         python3 -c "import zipfile; zipfile.ZipFile('/tmp/tf.zip').extractall('/usr/local/bin')"
