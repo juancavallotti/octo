@@ -93,7 +93,7 @@ COPY --from=prebuilt linux_${TARGETARCH}/dolphin  /out/dolphin
 FROM bin-${BIN_SOURCE} AS bin
 
 # --- Final stage: a userland an agent can actually use -------------------------
-FROM alpine:3.22
+FROM alpine:3.24
 
 # ca-certificates so curl and the runtime can verify TLS, tzdata so the cron
 # connector can resolve a named zone, curl and jq because troubleshooting an
