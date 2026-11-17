@@ -95,6 +95,9 @@ func TestValidateProviderToolsRefusals(t *testing.T) {
 			"searchContextSize": "huge",
 		}}, "searchContextSize must be one of"},
 		{"no vector store", core.LLMProviderTool{Type: toolFileSearch}, "requires at least one vector store"},
+		{"too many file results", core.LLMProviderTool{Type: toolFileSearch, Settings: types.Settings{
+			"vectorStoreIds": []any{"vs_1"}, "maxNumResults": 51,
+		}}, "between 1 and 50"},
 		{"bad image format", core.LLMProviderTool{Type: toolImageGeneration, Settings: types.Settings{
 			"outputFormat": "gif",
 		}}, "outputFormat must be one of"},

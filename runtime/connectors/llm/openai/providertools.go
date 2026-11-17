@@ -14,7 +14,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/core"
 )
 
-// The server-side tools this connector runs, by the type a block names them with.
+// The server-side tools this connector runs, by their catalogue type.
 const (
 	toolWebSearch       = "web_search"
 	toolFileSearch      = "file_search"
@@ -27,6 +27,9 @@ const webLocationType = "approximate"
 
 // enumAuto is the image setting value that leaves the choice to the model.
 const enumAuto = "auto"
+
+// maxFileSearchResults is the most results one file search may return.
+const maxFileSearchResults = 50
 
 // serverToolItems are the output item types the server ran on the turn's behalf.
 // A turn carrying one is kept verbatim, because the portable fields have nowhere
@@ -64,7 +67,7 @@ type webSearchSettings struct {
 type fileSearchSettings struct {
 	// Vector stores to search. At least one is required.
 	VectorStoreIDs []string `json:"vectorStoreIds" octo:"label=Vector store IDs,type=string-list,required"`
-	// Most results one search returns. Empty leaves it to the provider.
+	// Most results one search returns, 1 to 50. Empty leaves it to the provider.
 	MaxNumResults int `json:"maxNumResults" octo:"label=Max results"`
 }
 
@@ -76,7 +79,7 @@ type codeInterpreterSettings struct {
 }
 
 // imageGenerationSettings configures the image_generation tool. The images it
-// produces are written to the block's response media variable.
+// produces are returned as the response's generated media.
 type imageGenerationSettings struct {
 	// Image dimensions. Empty leaves it to the provider.
 	Size string `json:"size" octo:"label=Size,type=enum,enum=auto|1024x1024|1024x1536|1536x1024"`
@@ -98,8 +101,7 @@ var (
 	providerTypes = []string{toolWebSearch, toolFileSearch, toolCodeInterpreter, toolImageGeneration}
 )
 
-// providerToolMeta is the catalogue this connector advertises to the editor, in
-// the order it offers the tools.
+// providerToolMeta describes this connector's catalogue, in catalogue order.
 func providerToolMeta() []core.ProviderToolMeta {
 	return []core.ProviderToolMeta{
 		{
@@ -123,7 +125,7 @@ func providerToolMeta() []core.ProviderToolMeta {
 		{
 			Type:        toolImageGeneration,
 			Label:       "Image generation",
-			Description: "Generates images, written to the block's response media variable.",
+			Description: "Generates images, returned with the response as generated media.",
 			Settings:    reflect.TypeFor[imageGenerationSettings](),
 		},
 	}
@@ -214,8 +216,9 @@ func fileSearchTool(set fileSearchSettings) (responses.ToolUnionParam, error) {
 	if len(set.VectorStoreIDs) == 0 {
 		return responses.ToolUnionParam{}, errors.New("vectorStoreIds requires at least one vector store")
 	}
-	if set.MaxNumResults < 0 {
-		return responses.ToolUnionParam{}, fmt.Errorf("maxNumResults must not be negative, got %d", set.MaxNumResults)
+	if set.MaxNumResults < 0 || set.MaxNumResults > maxFileSearchResults {
+		return responses.ToolUnionParam{}, fmt.Errorf(
+			"maxNumResults must be between 1 and %d, got %d", maxFileSearchResults, set.MaxNumResults)
 	}
 	tool := responses.FileSearchToolParam{VectorStoreIDs: set.VectorStoreIDs}
 	if set.MaxNumResults > 0 {
