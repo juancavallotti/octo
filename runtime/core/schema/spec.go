@@ -28,7 +28,7 @@ var validFieldTypes = map[FieldType]bool{
 	"string-list": true, "string-map": true, TypeFlow: true, "flow-list": true,
 	"case-list": true, "route-list": true, "tool-list": true, "skill-list": true,
 	"mcp-resource-list": true, "mcp-prompt-list": true, "block-list": true,
-	TypeObject: true, "transform-list": true, "rule-list": true,
+	TypeObject: true, "transform-list": true, "rule-list": true, "provider-tool-list": true,
 }
 
 // Reference mirrors types.ts ReferenceSpec: a field that points at another named
@@ -100,14 +100,24 @@ type Source struct {
 	Fields []Field `json:"fields"`
 }
 
+// ProviderTool mirrors types.ts ProviderToolSpec: one server-side tool an LLM
+// connector runs, and the fields that configure it.
+type ProviderTool struct {
+	Type        string  `json:"type"`
+	Label       string  `json:"label"`
+	Description string  `json:"description,omitempty"`
+	Fields      []Field `json:"fields"`
+}
+
 // Connector mirrors types.ts ConnectorSpec.
 type Connector struct {
-	Type     string   `json:"type"`
-	Label    string   `json:"label"`
-	Icon     string   `json:"icon,omitempty"`
-	Category string   `json:"category,omitempty"`
-	Settings []Field  `json:"settings"`
-	Sources  []Source `json:"sources"`
+	Type          string         `json:"type"`
+	Label         string         `json:"label"`
+	Icon          string         `json:"icon,omitempty"`
+	Category      string         `json:"category,omitempty"`
+	Settings      []Field        `json:"settings"`
+	Sources       []Source       `json:"sources"`
+	ProviderTools []ProviderTool `json:"providerTools,omitempty"`
 }
 
 // Capabilities mirrors types.ts Capabilities: the full catalogue.

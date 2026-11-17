@@ -77,6 +77,9 @@ type ConnectorMeta struct {
 	Category string
 	Settings reflect.Type
 	Sources  []SourceMeta
+	// ProviderTools is the catalogue of server-side tools an LLM connector runs,
+	// in the order the editor offers them. Empty for every other connector.
+	ProviderTools []ProviderToolMeta
 	// SrcDir is captured automatically by RegisterConnectorMeta.
 	SrcDir string
 }

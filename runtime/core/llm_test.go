@@ -65,3 +65,26 @@ func TestLLMToolChoiceZeroValueIsAuto(t *testing.T) {
 		t.Errorf("zero ToolChoice mode = %q, want auto (empty)", tc.Mode)
 	}
 }
+
+func TestOpaqueForMatchesOnlyItsProvider(t *testing.T) {
+	content := json.RawMessage(`[{"type":"server_tool_use"}]`)
+	msg := LLMMessage{Role: LLMRoleAssistant, Opaque: &LLMOpaqueTurn{Provider: ProviderAnthropic, Content: content}}
+
+	cases := []struct {
+		name     string
+		msg      LLMMessage
+		provider string
+		want     string
+	}{
+		{"same family", msg, ProviderAnthropic, string(content)},
+		{"other family", msg, ProviderOpenAI, ""},
+		{"no opaque turn", LLMMessage{Role: LLMRoleAssistant}, ProviderAnthropic, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := string(tc.msg.OpaqueFor(tc.provider)); got != tc.want {
+				t.Errorf("OpaqueFor(%q) = %q, want %q", tc.provider, got, tc.want)
+			}
+		})
+	}
+}

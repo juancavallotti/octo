@@ -85,7 +85,31 @@ func connectorSpec(c core.ConnectorMeta) (Connector, error) {
 		}
 		conn.Sources = append(conn.Sources, src)
 	}
+	for _, t := range c.ProviderTools {
+		tool, err := providerToolSpec(c.Type, c.SrcDir, t)
+		if err != nil {
+			return Connector{}, err
+		}
+		conn.ProviderTools = append(conn.ProviderTools, tool)
+	}
 	return conn, nil
+}
+
+// providerToolSpec builds one ProviderTool from its metadata. connType names the
+// owning connector for error context; srcDir is where its settings struct's doc
+// comments are read from.
+func providerToolSpec(connType, srcDir string, t core.ProviderToolMeta) (ProviderTool, error) {
+	tool := ProviderTool{Type: t.Type, Label: t.Label, Description: t.Description, Fields: []Field{}}
+	if t.Settings == nil {
+		return tool, nil
+	}
+	fields, err := fieldsOf(t.Settings)
+	if err != nil {
+		return ProviderTool{}, fmt.Errorf("connector %q provider tool %q: %w", connType, t.Type, err)
+	}
+	applyDescriptions(fields, srcDir, t.Settings)
+	tool.Fields = fields
+	return tool, nil
 }
 
 // sourceSpec builds one Source from its metadata. connType names the owning
