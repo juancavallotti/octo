@@ -46,7 +46,8 @@ Lets an LLM accomplish a task by calling flow branches as tools in a loop. Each 
 | `history` | enum `record` \| `off` | No | `record` with `agentId` | Whether completed turns are appended to durable conversation history. Unlike working memory this record is **never compacted**, so it stays readable after the agent has summarized its own context away. Requires `agentId`; defaults to `off` when the block declares no `agentId`, and when `memoryVolatile` is set. |
 | `forwardContext` | `expression` (map) | No | none | Opaque context forwarded with every agent memory call. Evaluated once per run against the inbound message, so a value the flow already holds — an encryption key, a tenant — reaches the memory service without the runtime keeping a copy of it. What the service does with it is the service's business; the runtime only carries it. Requires `agentId`. |
 | `userMemory` | `bool` | No | `false` | Give the agent `remember`, `forget` and `search_memory` tools so it can keep curated facts about a person and carry them into later conversations. Requires `agentId` and `userId`. |
-| `tools` | list | Yes | none | Tool branches (below). At least one required. |
+| `tools` | list | Yes, unless `providerTools` is set | none | Tool branches (below). |
+| `providerTools` | list | No | none | Server-side tools the connector's provider runs during a turn, such as web search: a list of `{type, settings}` from the connector's catalogue. A type or setting the connector does not know **fails the build**. See [provider tools](#provider-tools). |
 | `skills` | list | No | none | Loadable instruction resources (below). |
 | `nameThread` | flow | No | none | Names a conversation, once, on the exchange that opened it (below). Requires `agentId`. |
 | `events` | flow | No | none | Observer path, run once per agent event with the event as the body (below). |
@@ -174,6 +175,37 @@ over the trace payload cap also costs you every *other* variable on that record
 
 A streamed turn reports its media only when the turn ends, not progressively
 ([#517](https://github.com/juancavallotti/octo/issues/517)).
+
+### Provider tools
+
+Give the agent tools the provider runs itself with `providerTools`. Unlike
+`tools`, they need no branch: the provider searches, fetches or runs code inside
+the model call, and your flow sees only the answer. An agent may have provider
+tools and no tool branches at all:
+
+```yaml
+- type: ai-agent
+  name: researcher
+  connector: claude
+  answer: text
+  input: body.question
+  prompt: Answer from current information and name your sources.
+  providerTools:
+    - type: web_search
+      settings:
+        maxUses: 3
+        blockedDomains: [pinterest.com]
+    - type: web_fetch
+      settings:
+        citations: true
+```
+
+Which types exist, and what each takes, is up to the connector. See
+[provider tools](/reference/connectors/llm#provider-tools) for each connector's
+catalogue. A provider tool's `type` must not match the `name` of one of the
+agent's own `tools`. With `stream: true`, the provider's own tool activity
+reaches `events` as [`custom` events](#agent-events) rather than as `tool_input`,
+because your flow does not run those calls.
 
 ### Agent events
 
@@ -381,6 +413,7 @@ Leaf block: reshapes the message body to a target shape described by a prompt, o
 | `outputExample` | JSON | No | none | Example output payload that shapes the result. Same formats. |
 | `outputSchema` | JSON | No | none | JSON Schema the result is validated against; also recorded on the message as its body schema. |
 | `maxTokens` | int | No | `0` (connector default) | Response token cap for this call. |
+| `providerTools` | list | No | none | Server-side tools the provider runs during the call, such as web search, as `{type, settings}` entries from the connector's [catalogue](/reference/connectors/llm#provider-tools). A type or setting the connector does not know fails the build. |
 
 **Errors:** the block errors when the model's response is not valid JSON or fails `outputSchema` validation, so it composes with [ai-retry](#ai-retry), [handle-errors](/reference/blocks/control-flow#handle-errors), or the flow-level error path. A malformed schema or example fails at startup.
 

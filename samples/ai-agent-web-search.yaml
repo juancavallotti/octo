@@ -1,0 +1,47 @@
+service:
+  name: ai-agent-web-search
+
+# Demonstrates provider tools: server-side tools the LLM provider runs itself
+# during a turn. This agent has no tool branches of its own — it answers from the
+# web, using Anthropic's web_search and web_fetch, and cites what it read. The
+# provider runs the searches and fetches; the flow sees only the answer.
+#
+# Which provider tools exist, and what settings each takes, depends on the
+# connector: see the LLM Providers reference. A type the connector does not run,
+# or a setting it does not know, fails the build.
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   octo invoke --config samples/ai-agent-web-search.yaml --flow research \
+#     --data '{"question":"What changed in the latest Go release?"}'
+
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+
+flows:
+  - name: research
+    process:
+      - type: ai-agent
+        name: researcher
+        connector: claude
+        answer: text
+        input: body.question
+        prompt: >
+          Answer the question using current information from the web. Search
+          first, read the most relevant pages, then answer in a short paragraph
+          that names your sources.
+        providerTools:
+          - type: web_search
+            settings:
+              maxUses: 3
+              blockedDomains: [pinterest.com]
+          - type: web_fetch
+            settings:
+              maxUses: 2
+              citations: true

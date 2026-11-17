@@ -28,6 +28,7 @@
     "running-commands",
     "ai-web-app",
     "rag-pipeline",
+    "web-search-agent",
     "human-in-the-loop",
     "agentic-self-healing"
   ],

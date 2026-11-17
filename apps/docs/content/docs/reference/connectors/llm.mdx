@@ -94,7 +94,7 @@ differences are real rather than incidental:
 | | Images | Documents | Audio / video | Returns files |
 |---|---|---|---|---|
 | `llm-anthropic` | jpeg, png, gif, webp | pdf, plain text | — | no |
-| `llm-openai` | png, jpeg, gif, webp | pdf | — | generated images |
+| `llm-openai` | png, jpeg, gif, webp | pdf | — | generated images, with the [`image_generation`](#provider-tools) provider tool |
 | `llm-gemini` | `image/*` | pdf, plain text | `audio/*`, `video/*` | yes |
 | `llm-openrouter` | png, jpeg, webp | pdf | — | generated images |
 
@@ -118,6 +118,95 @@ answers with a provider error.
 for one — so `responseMedia` against it is always empty. Generated media reaches
 a flow only when the turn finishes, never progressively
 ([#517](https://github.com/juancavallotti/octo/issues/517)).
+
+## Provider tools
+
+Provider tools are tools the provider runs itself during a turn — web search,
+web fetch, code execution — as opposed to an agent's `tools`, which the model
+asks your flow to run. You enable them per block with `providerTools` on an
+[ai-agent](/reference/blocks/ai#provider-tools) or
+[ai-mapping](/reference/blocks/ai#ai-mapping); each entry names a `type` from the
+connector's catalogue below and that tool's `settings`.
+
+```yaml
+- type: ai-agent
+  name: researcher
+  connector: claude
+  prompt: Answer from current information and cite your sources.
+  providerTools:
+    - type: web_search
+      settings:
+        maxUses: 3
+    - type: web_fetch
+```
+
+The catalogue belongs to the connector, so the same `type` can mean different
+things on different connectors, and a type a connector does not list **fails the
+build**, as does a setting the tool does not take. Every setting is optional
+unless marked; leaving one out leaves it to the provider.
+
+<Callout type="warn">
+Provider tool calls are billed by the provider on top of tokens: per search, per
+fetch, per container session. Trace pricing counts tokens only, except on
+`llm-openrouter`, whose reported cost already includes them. Cap usage with the
+tools' own limits (`maxUses`, `maxResults`) where they have one.
+</Callout>
+
+### `llm-anthropic`
+
+| Type | Settings |
+| --- | --- |
+| `web_search` | `version` (`latest` \| `basic`, default `latest`), `maxUses`, `allowedDomains`, `blockedDomains`, `userLocation` (`city`, `region`, `country`, `timezone`) |
+| `web_fetch` | `version` (`latest` \| `basic`, default `latest`), `maxUses`, `allowedDomains`, `blockedDomains`, `citations` (bool), `maxContentTokens`. Fetches only URLs already in the conversation. |
+| `code_execution` | none |
+
+`latest` is the dynamic-filtering variant of each web tool, which needs a Claude
+4.6 or later model; set `version: basic` for an older model or for Claude on
+Vertex AI. A `latest` web tool runs code execution itself, so combining it with
+`code_execution` fails the build. `allowedDomains` and `blockedDomains` cannot
+both be set on one tool.
+
+When the provider pauses a long server-side tool loop (`pause_turn`), the
+connector resumes it for you, up to five times, and returns the finished turn.
+
+### `llm-openai`
+
+| Type | Settings |
+| --- | --- |
+| `web_search` | `searchContextSize` (`low` \| `medium` \| `high`), `allowedDomains`, `userLocation` (`city`, `region`, `country`, `timezone`) |
+| `file_search` | `vectorStoreIds` (**required**, list), `maxNumResults` |
+| `code_interpreter` | `fileIds` (list of uploaded files to make available) |
+| `image_generation` | `size` (`auto` \| `1024x1024` \| `1024x1536` \| `1536x1024`), `quality` (`auto` \| `low` \| `medium` \| `high`), `background` (`auto` \| `transparent` \| `opaque`), `outputFormat` (`png` \| `jpeg` \| `webp`) |
+
+Images from `image_generation` are written to the block's `responseMedia`
+variable, like any [generated media](/reference/blocks/ai#generated-media).
+
+### `llm-gemini`
+
+| Type | Settings |
+| --- | --- |
+| `google_search` | none |
+| `code_execution` | none |
+| `url_context` | none. Reads the URLs mentioned in the conversation. |
+
+### `llm-openrouter`
+
+| Type | Settings |
+| --- | --- |
+| `web_search` | `engine` (`auto` \| `native` \| `exa` \| `firecrawl` \| `parallel` \| `perplexity`), `maxResults` (1–25), `maxUses`, `searchContextSize` (`low` \| `medium` \| `high`), `allowedDomains`, `excludedDomains`, `userLocation` (native search only) |
+
+OpenRouter runs its search for any routed model: natively where the upstream
+provider has a search of its own, and through the chosen engine otherwise.
+
+### Multi-turn conversations
+
+A turn in which the provider ran a tool comes back with records of what it did —
+the search it ran, the code it executed — interleaved with the answer. The
+connector keeps that turn exactly as the provider sent it and sends it back
+verbatim on the next turn, so an agent's later turns, and a conversation loaded
+from [memory](/reference/blocks/ai#ai-agent), keep the context the tools
+produced. A stored turn replayed against a different provider falls back to its
+text and tool calls.
 
 ## Streaming and thinking
 

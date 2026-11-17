@@ -1,0 +1,42 @@
+flow: research
+
+# HONEST LIMITS: the sample's claim is that the provider searches and fetches the web
+# during the turn. That happens on the provider's side, inside one model call, so no
+# case here can prove a search ran or what it found — that needs a model, and no test
+# may call one.
+#
+# What is pinned: that the agent builds with provider tools and no tool branches —
+# the connector accepted web_search and web_fetch and their settings, since a type or
+# setting it does not know fails the build before any call — and that it really does
+# drive the model.
+
+cases:
+  # Not mocked, so the agent is built and run for real, against the discard port
+  # (the Anthropic SDK honours ANTHROPIC_BASE_URL). Reaching "llm-anthropic complete"
+  # proves the block was constructed, provider tools included.
+  - name: the agent builds with its provider tools and calls the model
+    input:
+      data: { question: "What changed in the latest Go release?" }
+    env:
+      ANTHROPIC_BASE_URL: http://127.0.0.1:9
+    expect:
+      # The discard port, named in full so a live call could not satisfy it.
+      error: 'llm-anthropic complete: Post "http://127.0.0.1:9/v1/messages"'
+
+  # The question is what the agent is given; the answer is the mock's, asserted only
+  # to pin that the agent's text answer is the flow's answer.
+  - name: the question reaches the agent and its answer is the flow result
+    input:
+      data: { question: "What changed in the latest Go release?" }
+    mocks:
+      research.researcher:
+        default:
+          body: "Go 1.27 shipped. (Source: go.dev)"
+    expect:
+      body: "Go 1.27 shipped. (Source: go.dev)"
+    spies:
+      research.researcher:
+        count: 1
+        records:
+          - input:
+              body: { question: "What changed in the latest Go release?" }

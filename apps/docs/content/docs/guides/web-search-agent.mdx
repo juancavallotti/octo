@@ -1,0 +1,115 @@
+---
+title: "A Web Search Agent"
+description: "Give an agent the provider's own web search and fetch, with no tool branches to write."
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+This guide builds an agent that answers questions from the live web using the
+search and fetch tools Anthropic runs on its side. You write no tool branches:
+you enable **provider tools** on the block, and the provider searches and reads
+pages inside the model call. It follows
+[`samples/ai-agent-web-search.yaml`](https://github.com/juancavallotti/octo/blob/main/samples/ai-agent-web-search.yaml).
+
+## Build the agent
+
+<Steps>
+<Step>
+Declare an Anthropic connector.
+
+```yaml title="samples/ai-agent-web-search.yaml (excerpt)"
+env:
+  - name: ANTHROPIC_API_KEY
+    required: true
+
+connectors:
+  - name: claude
+    type: llm-anthropic
+    settings:
+      apiKey: ${ANTHROPIC_API_KEY}
+```
+</Step>
+<Step>
+Add an `ai-agent` whose opening turn is the question and whose answer is plain
+text.
+
+```yaml
+flows:
+  - name: research
+    process:
+      - type: ai-agent
+        name: researcher
+        connector: claude
+        answer: text
+        input: body.question
+        prompt: >
+          Answer the question using current information from the web. Search
+          first, read the most relevant pages, then answer in a short paragraph
+          that names your sources.
+```
+</Step>
+<Step>
+Enable the provider tools. Each entry names a `type` from the connector's
+catalogue and that tool's `settings`.
+
+```yaml
+        providerTools:
+          - type: web_search
+            settings:
+              maxUses: 3
+              blockedDomains: [pinterest.com]
+          - type: web_fetch
+            settings:
+              maxUses: 2
+              citations: true
+```
+
+`maxUses` caps how many searches and fetches one turn may run, which is also
+what caps their cost: the provider bills each one on top of tokens.
+</Step>
+</Steps>
+
+<Callout type="info">
+The agent has no `tools` at all. An `ai-agent` needs at least one tool branch
+**or** one provider tool; this one only has provider tools.
+</Callout>
+
+## Run it
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+octo invoke --config samples/ai-agent-web-search.yaml --flow research \
+  --data '{"question":"What changed in the latest Go release?"}'
+```
+
+The result body is the agent's answer, with its sources named in the text.
+
+## Check it builds
+
+Provider tools are validated when the flow builds, not when the model is first
+called. A type the connector does not run, or a setting the tool does not take,
+stops the flow before it starts, naming the tool:
+
+```text
+build flow "research": block "researcher": ai-agent block: connector "claude":
+provider tool "image_generation": not one of: web_search, web_fetch, code_execution
+```
+
+The sample's test suite relies on this. It runs the agent unmocked against an
+unreachable endpoint, so reaching the model call proves the block, provider tools
+included, was built:
+
+```bash
+dolphin test samples/ai-agent-web-search_test.yaml
+```
+
+## Use another provider
+
+Provider tools are per connector. To search with OpenAI, point the block at an
+`llm-openai` connector; its `web_search` takes `searchContextSize` and
+`allowedDomains` instead. Gemini's equivalent is `google_search`, and OpenRouter's
+`web_search` works for any routed model. See
+[provider tools](/reference/connectors/llm#provider-tools) for every connector's
+catalogue, and the [ai-agent reference](/reference/blocks/ai#provider-tools) for
+how they combine with tool branches.
