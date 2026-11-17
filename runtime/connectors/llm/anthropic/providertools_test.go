@@ -94,9 +94,6 @@ func TestValidateProviderToolsRefusals(t *testing.T) {
 		{"bad version", []core.LLMProviderTool{{Type: toolWebSearch, Settings: types.Settings{"version": "v2"}}}, "version must be"},
 		{"negative cap", []core.LLMProviderTool{{Type: toolWebSearch, Settings: types.Settings{"maxUses": -1}}}, "must not be negative"},
 		{"settings on code execution", []core.LLMProviderTool{{Type: toolCodeExecution, Settings: types.Settings{"x": 1}}}, `"code_execution"`},
-		{"code execution beside a filtering web tool", []core.LLMProviderTool{
-			{Type: toolWebSearch}, {Type: toolCodeExecution},
-		}, "runs code execution itself"},
 	}
 	c := &Connector{}
 	for _, tc := range cases {
@@ -107,10 +104,12 @@ func TestValidateProviderToolsRefusals(t *testing.T) {
 			}
 		})
 	}
+	// The API accepts an explicit code_execution beside a dynamic-filtering web
+	// tool, so the connector does too.
 	if err := c.ValidateProviderTools([]core.LLMProviderTool{
-		{Type: toolWebSearch, Settings: types.Settings{"version": "basic"}}, {Type: toolCodeExecution},
+		{Type: toolWebSearch}, {Type: toolCodeExecution},
 	}); err != nil {
-		t.Errorf("code execution beside a basic web tool should validate: %v", err)
+		t.Errorf("code execution beside a latest web tool should validate: %v", err)
 	}
 }
 

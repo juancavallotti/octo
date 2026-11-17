@@ -12,7 +12,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/core"
 )
 
-// The server-side tools this connector runs, by the type a block names them with.
+// The server-side tools this connector runs, by their catalogue type.
 const (
 	toolWebSearch     = "web_search"
 	toolWebFetch      = "web_fetch"
@@ -21,8 +21,8 @@ const (
 
 // The tool variants a web tool's version setting selects between.
 const (
-	// versionLatest is the dynamic-filtering variant, which runs code execution
-	// under the hood to filter what it read. It needs a Claude 4.6 or later model.
+	// versionLatest is the dynamic-filtering variant, which provisions code
+	// execution itself to filter what it read. It needs a Claude 4.6 or later model.
 	versionLatest = "latest"
 	// versionBasic is the original variant, for older models and for platforms
 	// that offer nothing newer.
@@ -77,8 +77,7 @@ type webFetchSettings struct {
 // codeExecutionSettings configures the code_execution tool, which takes no settings.
 type codeExecutionSettings struct{}
 
-// providerToolMeta is the catalogue this connector advertises to the editor, in
-// the order it offers the tools.
+// providerToolMeta describes this connector's catalogue, in catalogue order.
 func providerToolMeta() []core.ProviderToolMeta {
 	return []core.ProviderToolMeta{
 		{
@@ -111,57 +110,47 @@ func (c *Connector) ValidateProviderTools(tools []core.LLMProviderTool) error {
 // toServerTools translates the request's provider tools to SDK tool params.
 func toServerTools(tools []core.LLMProviderTool) ([]sdk.ToolUnionParam, error) {
 	out := make([]sdk.ToolUnionParam, 0, len(tools))
-	filtering := false
-	codeExecution := false
 	for _, t := range tools {
-		tool, latest, err := toServerTool(t)
+		tool, err := toServerTool(t)
 		if err != nil {
 			return nil, fmt.Errorf("provider tool %q: %w", t.Type, err)
 		}
-		filtering = filtering || latest
-		codeExecution = codeExecution || t.Type == toolCodeExecution
 		out = append(out, tool)
-	}
-	if filtering && codeExecution {
-		return nil, fmt.Errorf(
-			"provider tool %q cannot be combined with a %q web tool, which runs code execution itself; "+
-				"use version %q or drop %q", toolCodeExecution, versionLatest, versionBasic, toolCodeExecution)
 	}
 	return out, nil
 }
 
-// toServerTool translates one provider tool. The second return reports whether it
-// is a dynamic-filtering variant, which brings its own code execution.
-func toServerTool(t core.LLMProviderTool) (sdk.ToolUnionParam, bool, error) {
+// toServerTool translates one provider tool.
+func toServerTool(t core.LLMProviderTool) (sdk.ToolUnionParam, error) {
 	switch t.Type {
 	case toolWebSearch:
 		var set webSearchSettings
 		if err := t.Settings.DecodeStrict(&set); err != nil {
-			return sdk.ToolUnionParam{}, false, err
+			return sdk.ToolUnionParam{}, err
 		}
 		return webSearchTool(set)
 	case toolWebFetch:
 		var set webFetchSettings
 		if err := t.Settings.DecodeStrict(&set); err != nil {
-			return sdk.ToolUnionParam{}, false, err
+			return sdk.ToolUnionParam{}, err
 		}
 		return webFetchTool(set)
 	case toolCodeExecution:
 		var set codeExecutionSettings
 		if err := t.Settings.DecodeStrict(&set); err != nil {
-			return sdk.ToolUnionParam{}, false, err
+			return sdk.ToolUnionParam{}, err
 		}
-		return sdk.ToolUnionParam{OfCodeExecutionTool20260120: &sdk.CodeExecutionTool20260120Param{}}, false, nil
+		return sdk.ToolUnionParam{OfCodeExecutionTool20260120: &sdk.CodeExecutionTool20260120Param{}}, nil
 	default:
-		return sdk.ToolUnionParam{}, false, fmt.Errorf("not one of: %s",
+		return sdk.ToolUnionParam{}, fmt.Errorf("not one of: %s",
 			strings.Join([]string{toolWebSearch, toolWebFetch, toolCodeExecution}, ", "))
 	}
 }
 
 // webSearchTool builds the web_search variant the settings name.
-func webSearchTool(set webSearchSettings) (sdk.ToolUnionParam, bool, error) {
+func webSearchTool(set webSearchSettings) (sdk.ToolUnionParam, error) {
 	if err := checkWebLimits(set.Version, set.MaxUses, set.AllowedDomains, set.BlockedDomains); err != nil {
-		return sdk.ToolUnionParam{}, false, err
+		return sdk.ToolUnionParam{}, err
 	}
 	location := toUserLocation(set.UserLocation)
 	if set.Version == versionBasic {
@@ -170,23 +159,23 @@ func webSearchTool(set webSearchSettings) (sdk.ToolUnionParam, bool, error) {
 			AllowedDomains: set.AllowedDomains,
 			BlockedDomains: set.BlockedDomains,
 			UserLocation:   location,
-		}}, false, nil
+		}}, nil
 	}
 	return sdk.ToolUnionParam{OfWebSearchTool20260209: &sdk.WebSearchTool20260209Param{
 		MaxUses:        optInt(set.MaxUses),
 		AllowedDomains: set.AllowedDomains,
 		BlockedDomains: set.BlockedDomains,
 		UserLocation:   location,
-	}}, true, nil
+	}}, nil
 }
 
 // webFetchTool builds the web_fetch variant the settings name.
-func webFetchTool(set webFetchSettings) (sdk.ToolUnionParam, bool, error) {
+func webFetchTool(set webFetchSettings) (sdk.ToolUnionParam, error) {
 	if err := checkWebLimits(set.Version, set.MaxUses, set.AllowedDomains, set.BlockedDomains); err != nil {
-		return sdk.ToolUnionParam{}, false, err
+		return sdk.ToolUnionParam{}, err
 	}
 	if set.MaxContentTokens < 0 {
-		return sdk.ToolUnionParam{}, false, fmt.Errorf("maxContentTokens must not be negative, got %d", set.MaxContentTokens)
+		return sdk.ToolUnionParam{}, fmt.Errorf("maxContentTokens must not be negative, got %d", set.MaxContentTokens)
 	}
 	var citations sdk.CitationsConfigParam
 	if set.Citations {
@@ -199,7 +188,7 @@ func webFetchTool(set webFetchSettings) (sdk.ToolUnionParam, bool, error) {
 			AllowedDomains:   set.AllowedDomains,
 			BlockedDomains:   set.BlockedDomains,
 			Citations:        citations,
-		}}, false, nil
+		}}, nil
 	}
 	return sdk.ToolUnionParam{OfWebFetchTool20260209: &sdk.WebFetchTool20260209Param{
 		MaxUses:          optInt(set.MaxUses),
@@ -207,7 +196,7 @@ func webFetchTool(set webFetchSettings) (sdk.ToolUnionParam, bool, error) {
 		AllowedDomains:   set.AllowedDomains,
 		BlockedDomains:   set.BlockedDomains,
 		Citations:        citations,
-	}}, true, nil
+	}}, nil
 }
 
 // checkWebLimits rejects the settings both web tools share and the API refuses:
