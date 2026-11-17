@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"sort"
 	"strconv"
@@ -41,15 +42,20 @@ func init() {
 	})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
-		Type:     "llm-openai",
-		Label:    "OpenAI",
-		Icon:     "Sparkles",
-		Category: "llm",
-		Settings: reflect.TypeFor[connectorSettings](),
+		Type:          "llm-openai",
+		Label:         "OpenAI",
+		Icon:          "Sparkles",
+		Category:      "llm",
+		Settings:      reflect.TypeFor[connectorSettings](),
+		ProviderTools: providerToolMeta(),
 	})
 }
 
 const defaultModel = "gpt-5.4"
+
+// defaultImageType is the format a generated image comes back in unless the
+// request asked for another.
+const defaultImageType = "image/png"
 
 // connectorSettings is the configuration decoded from the connector's settings.
 type connectorSettings struct {
@@ -86,10 +92,11 @@ type Connector struct {
 }
 
 var (
-	_ core.Connector       = (*Connector)(nil)
-	_ core.LLMClient       = (*Connector)(nil)
-	_ core.LLMStreamClient = (*Connector)(nil)
-	_ core.EmbedClient     = (*Connector)(nil)
+	_ core.Connector        = (*Connector)(nil)
+	_ core.LLMClient        = (*Connector)(nil)
+	_ core.LLMStreamClient  = (*Connector)(nil)
+	_ core.EmbedClient      = (*Connector)(nil)
+	_ core.LLMProviderTools = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -263,6 +270,13 @@ func emitEvent(
 			Kind: core.LLMStreamCustom, Name: "refusal", Text: event.Delta, Index: index,
 		})
 
+	// The code the provider's interpreter is about to run. The caller does not run
+	// it, so it is not a tool call.
+	case "response.code_interpreter_call_code.delta":
+		return on(core.LLMStreamEvent{
+			Kind: core.LLMStreamCustom, Name: "code_interpreter_call", Text: event.Delta, Index: index,
+		})
+
 	default:
 		return nil
 	}
@@ -317,6 +331,13 @@ func (c *Connector) params(req core.LLMRequest) (responses.ResponseNewParams, er
 		if choice, ok := toToolChoice(req.ToolChoice); ok {
 			params.ToolChoice = choice
 		}
+	}
+	if len(req.ProviderTools) > 0 {
+		serverTools, err := toServerTools(req.ProviderTools)
+		if err != nil {
+			return responses.ResponseNewParams{}, fmt.Errorf("llm-openai: %w", err)
+		}
+		params.Tools = append(params.Tools, serverTools...)
 	}
 	return params, nil
 }
@@ -404,7 +425,11 @@ func toInput(msgs []core.LLMMessage) (responses.ResponseInputParam, error) {
 			}
 			out = append(out, item)
 		case core.LLMRoleAssistant:
-			out = append(out, assistantItems(m)...)
+			items, err := assistantItems(m)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, items...)
 		case core.LLMRoleTool:
 			for _, tr := range m.ToolResults {
 				content := tr.Content
@@ -514,14 +539,17 @@ func describeAttachment(a core.LLMAttachment, i int) string {
 	return fmt.Sprintf("at index %d", i)
 }
 
-// assistantItems builds one assistant turn's items: reasoning, then text, then the
-// function calls.
+// assistantItems builds one assistant turn's items: the turn verbatim when this
+// connector kept it opaque, otherwise reasoning, then text, then the function calls.
 //
 // A reasoning block with no signature is dropped rather than sent. The signature is
 // the item id the server matches the echo against, and an item invented without one
 // is not the model's reasoning being returned — it is a new item the server has
 // never seen, which is worse than saying nothing.
-func assistantItems(m core.LLMMessage) []responses.ResponseInputItemUnionParam {
+func assistantItems(m core.LLMMessage) ([]responses.ResponseInputItemUnionParam, error) {
+	if raw := m.OpaqueFor(core.ProviderOpenAI); raw != nil {
+		return opaqueItems(raw)
+	}
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(m.Thinking)+1+len(m.ToolCalls))
 	for _, tb := range m.Thinking {
 		if tb.Signature == "" {
@@ -554,7 +582,7 @@ func assistantItems(m core.LLMMessage) []responses.ResponseInputItemUnionParam {
 		items = append(items, responses.ResponseInputItemParamOfFunctionCall(
 			string(tc.Input), tc.ID, tc.Name))
 	}
-	return items
+	return items, nil
 }
 
 // toTools converts tool definitions to SDK function tools, decoding each JSON
@@ -672,6 +700,7 @@ func translateResponse(resp *responses.Response, configuredModel string) (*core.
 		Text:      out.Text,
 		Thinking:  thinking,
 		ToolCalls: calls,
+		Opaque:    opaqueTurn(resp.Output),
 	}
 	return out, nil
 }
@@ -705,10 +734,9 @@ func messageText(out *strings.Builder, item responses.ResponseOutputItemUnion) b
 // item. ok is false for a call that produced nothing, which is what an item in
 // any state but completed looks like.
 //
-// PNG is stated rather than read: the item carries no content type, and the API
-// returns PNG unless the request asked for something else. The arm fires only
-// when the flow gave the model the image tool, so an ordinary turn never reaches
-// it.
+// The content type is sniffed from the bytes: the item carries none, and the
+// request may have asked for any of the formats the tool produces. Bytes that do
+// not sniff as an image are labelled PNG, the format the API returns by default.
 func generatedImage(item responses.ResponseOutputItemUnion) (core.LLMAttachment, bool, error) {
 	if item.Result == "" {
 		return core.LLMAttachment{}, false, nil
@@ -717,7 +745,23 @@ func generatedImage(item responses.ResponseOutputItemUnion) (core.LLMAttachment,
 	if err != nil {
 		return core.LLMAttachment{}, false, fmt.Errorf("llm-openai: generated image %s: %w", item.ID, err)
 	}
-	return core.LLMAttachment{MimeType: "image/png", Data: raw, Name: item.ID + ".png"}, true, nil
+	mimeType := http.DetectContentType(raw)
+	if !strings.HasPrefix(mimeType, "image/") {
+		mimeType = defaultImageType
+	}
+	return core.LLMAttachment{MimeType: mimeType, Data: raw, Name: item.ID + imageExtension(mimeType)}, true, nil
+}
+
+// imageExtension is the filename extension for a generated image's content type.
+func imageExtension(mimeType string) string {
+	switch mimeType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
 }
 
 // servedBy is the model that answered, preferring what the provider echoed over
