@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// toolWebSearch is the server-side tool this connector runs, by the type a
-	// block names it with.
+	// toolWebSearch is the server-side tool this connector runs, by its catalogue
+	// type.
 	toolWebSearch = "web_search"
 	// wireWebSearch is OpenRouter's own name for it on the wire.
 	wireWebSearch = "openrouter:web_search"
@@ -62,7 +62,7 @@ type webSearchSettings struct {
 	UserLocation searchLocation `json:"userLocation" octo:"label=User location,type=object"`
 }
 
-// providerToolMeta is the catalogue this connector advertises to the editor.
+// providerToolMeta describes this connector's catalogue.
 func providerToolMeta() []core.ProviderToolMeta {
 	return []core.ProviderToolMeta{{
 		Type:        toolWebSearch,
