@@ -39,11 +39,12 @@ func init() {
 	})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
-		Type:     "llm-gemini",
-		Label:    "Gemini",
-		Icon:     "Sparkles",
-		Category: "llm",
-		Settings: reflect.TypeFor[connectorSettings](),
+		Type:          "llm-gemini",
+		Label:         "Gemini",
+		Icon:          "Sparkles",
+		Category:      "llm",
+		Settings:      reflect.TypeFor[connectorSettings](),
+		ProviderTools: providerToolMeta(),
 	})
 }
 
@@ -84,10 +85,11 @@ type Connector struct {
 }
 
 var (
-	_ core.Connector       = (*Connector)(nil)
-	_ core.LLMClient       = (*Connector)(nil)
-	_ core.LLMStreamClient = (*Connector)(nil)
-	_ core.EmbedClient     = (*Connector)(nil)
+	_ core.Connector        = (*Connector)(nil)
+	_ core.LLMClient        = (*Connector)(nil)
+	_ core.LLMStreamClient  = (*Connector)(nil)
+	_ core.EmbedClient      = (*Connector)(nil)
+	_ core.LLMProviderTools = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -321,6 +323,9 @@ func emitPart(part *genai.Part, index, ordinal int, on func(core.LLMStreamEvent)
 			return err
 		}
 	}
+	if err := emitServerToolPart(part, index, on); err != nil {
+		return err
+	}
 	if fc := part.FunctionCall; fc != nil {
 		args, err := json.Marshal(fc.Args)
 		if err != nil {
@@ -366,6 +371,13 @@ func (c *Connector) request(req core.LLMRequest) ([]*genai.Content, *genai.Gener
 		if tc, ok := toToolConfig(req.ToolChoice); ok {
 			cfg.ToolConfig = tc
 		}
+	}
+	if len(req.ProviderTools) > 0 {
+		serverTools, err := toServerTools(req.ProviderTools)
+		if err != nil {
+			return nil, nil, fmt.Errorf("llm-gemini: %w", err)
+		}
+		cfg.Tools = append(cfg.Tools, serverTools...)
 	}
 	return contents, cfg, nil
 }
@@ -495,25 +507,11 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 			}
 			out = append(out, content)
 		case core.LLMRoleAssistant:
-			parts := make([]*genai.Part, 0, 1+len(m.ToolCalls))
-			if m.Text != "" {
-				parts = append(parts, genai.NewPartFromText(m.Text))
+			content, err := assistantContent(m)
+			if err != nil {
+				return nil, err
 			}
-			for _, tc := range m.ToolCalls {
-				part := genai.NewPartFromFunctionCall(tc.Name, argsToMap(tc.Input))
-				// Replay the id on the call as well as on the response it is answered
-				// by. Gemini 3.x issues real ids — call_90655, call_90656 for two calls
-				// in one turn — and they are how it pairs a response with the call that
-				// asked for it. Echoing the id on only one side leaves the response
-				// referring to a call that no longer claims it, which is how a turn's
-				// earlier responses get dropped.
-				part.FunctionCall.ID = tc.ID
-				// Replay the thought signature Gemini 3.x attaches to a function call;
-				// it is required on the echoed call for the next turn to be accepted.
-				part.ThoughtSignature = tc.Signature
-				parts = append(parts, part)
-			}
-			out = append(out, genai.NewContentFromParts(parts, genai.RoleModel))
+			out = append(out, content)
 		case core.LLMRoleTool:
 			parts := make([]*genai.Part, 0, len(m.ToolResults))
 			for _, tr := range m.ToolResults {
@@ -537,6 +535,37 @@ func toContents(msgs []core.LLMMessage) ([]*genai.Content, error) {
 		}
 	}
 	return out, nil
+}
+
+// assistantContent builds one assistant turn: the turn verbatim when this
+// connector kept it opaque, otherwise its text and function calls.
+func assistantContent(m core.LLMMessage) (*genai.Content, error) {
+	if raw := m.OpaqueFor(core.ProviderGoogle); raw != nil {
+		parts, err := opaqueParts(raw)
+		if err != nil {
+			return nil, err
+		}
+		return genai.NewContentFromParts(parts, genai.RoleModel), nil
+	}
+	parts := make([]*genai.Part, 0, 1+len(m.ToolCalls))
+	if m.Text != "" {
+		parts = append(parts, genai.NewPartFromText(m.Text))
+	}
+	for _, tc := range m.ToolCalls {
+		part := genai.NewPartFromFunctionCall(tc.Name, argsToMap(tc.Input))
+		// Replay the id on the call as well as on the response it is answered
+		// by. Gemini 3.x issues real ids — call_90655, call_90656 for two calls
+		// in one turn — and they are how it pairs a response with the call that
+		// asked for it. Echoing the id on only one side leaves the response
+		// referring to a call that no longer claims it, which is how a turn's
+		// earlier responses get dropped.
+		part.FunctionCall.ID = tc.ID
+		// Replay the thought signature Gemini 3.x attaches to a function call;
+		// it is required on the echoed call for the next turn to be accepted.
+		part.ThoughtSignature = tc.Signature
+		parts = append(parts, part)
+	}
+	return genai.NewContentFromParts(parts, genai.RoleModel), nil
 }
 
 // toTools wraps the tool definitions in a single genai.Tool, passing each JSON
@@ -652,6 +681,7 @@ func translateResponse(resp *genai.GenerateContentResponse, configuredModel stri
 		Text:      out.Text,
 		Thinking:  thinking,
 		ToolCalls: calls,
+		Opaque:    opaqueTurn(cand.Content.Parts),
 	}
 	return out
 }
@@ -754,4 +784,20 @@ func responseMap(tr core.LLMToolResult) map[string]any {
 	//
 	// One string cannot be mistaken for a reference to anything.
 	return map[string]any{"result": tr.Content}
+}
+
+// emitServerToolPart reports the code the provider ran and what it printed. The
+// caller runs neither, so both are custom events rather than tool calls.
+func emitServerToolPart(part *genai.Part, index int, on func(core.LLMStreamEvent) error) error {
+	switch {
+	case part.ExecutableCode != nil:
+		return on(core.LLMStreamEvent{
+			Kind: core.LLMStreamCustom, Name: "executable_code", Text: part.ExecutableCode.Code, Index: index,
+		})
+	case part.CodeExecutionResult != nil:
+		return on(core.LLMStreamEvent{
+			Kind: core.LLMStreamCustom, Name: "code_execution_result", Text: part.CodeExecutionResult.Output, Index: index,
+		})
+	}
+	return nil
 }
