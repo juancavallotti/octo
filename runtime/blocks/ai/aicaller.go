@@ -176,7 +176,10 @@ type llmCaller struct {
 	// media is the same connector asserted to its media half. It is nil for a
 	// provider that has none, and for one whose configured model reads only text.
 	media core.LLMMedia
-	who   callerIdentity
+	// serverTools is the same connector asserted to its provider-tools half. It is
+	// nil for a provider that runs none.
+	serverTools core.LLMProviderTools
+	who         callerIdentity
 }
 
 // streams reports whether the provider behind this caller can stream.

@@ -75,6 +75,12 @@ type mappingSettings struct {
 	OutputSchema json.RawMessage `json:"outputSchema" octo:"label=Output schema,type=string"`
 	// Response token cap for this call (0 = connector default).
 	MaxTokens int `json:"maxTokens" octo:"label=Max tokens"`
+	// Server-side tools the connector's provider runs during the call — web
+	// search, web fetch, code execution — each a type from the connector's
+	// catalogue and that tool's settings. A type the connector does not run fails
+	// the build.
+	//nolint:lll // the tag carries a label and a type and is longer than 120 cols
+	ProviderTools []providerToolSettings `json:"providerTools" octo:"label=Provider tools,type=provider-tool-list"`
 }
 
 // mapping reshapes the body via the LLM, optionally validating the result.
@@ -92,6 +98,7 @@ type mapping struct {
 	responseMedia string
 	env           expr.Env
 	maxTokens     int
+	serverTools   []core.LLMProviderTool
 	outputSchema  json.RawMessage
 	schemaProgram *jsonschema.Schema
 }
@@ -128,6 +135,11 @@ func newAIMapping(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 		return nil, fmt.Errorf("ai-mapping block: outputSchema: %w", err)
 	}
 
+	serverTools, err := caller.providerTools(blockTypeAIMapping, cfg.Connector, cfg.ProviderTools, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	var schemaProgram *jsonschema.Schema
 	if len(outputSchema) > 0 {
 		schemaProgram, err = jsonschema.CompileString("ai-mapping-output.json", string(outputSchema))
@@ -142,6 +154,7 @@ func newAIMapping(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 		responseMedia: strings.TrimSpace(cfg.ResponseMedia),
 		env:           expr.EnvActivation(deps.Env),
 		maxTokens:     cfg.MaxTokens,
+		serverTools:   serverTools,
 		outputSchema:  outputSchema,
 		schemaProgram: schemaProgram,
 	}
@@ -236,9 +249,10 @@ func (m *mapping) Process(ctx context.Context, msg *types.Message) (*types.Messa
 	// No iteration: ai-mapping calls the model once per message, so there is no
 	// loop for a record to number.
 	resp, err := m.caller.complete(ctx, msg, core.LLMRequest{
-		System:    m.system,
-		Messages:  []core.LLMMessage{{Role: core.LLMRoleUser, Text: input, Attachments: files}},
-		MaxTokens: m.maxTokens,
+		System:        m.system,
+		Messages:      []core.LLMMessage{{Role: core.LLMRoleUser, Text: input, Attachments: files}},
+		MaxTokens:     m.maxTokens,
+		ProviderTools: m.serverTools,
 	}, turnLabel{})
 	if err != nil {
 		return nil, fmt.Errorf("ai-mapping: %w", err)

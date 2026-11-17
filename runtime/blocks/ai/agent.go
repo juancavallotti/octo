@@ -553,9 +553,12 @@ type agentSkill struct {
 // branches share the message, so variables they set accumulate across the loop.
 // The guardrail (Default) flow is taken when the model refuses or never finishes.
 type aiAgent struct {
-	caller        *llmCaller
-	system        string
-	tools         []core.LLMTool
+	caller *llmCaller
+	system string
+	tools  []core.LLMTool
+	// serverTools are the provider tools every turn enables, validated against the
+	// connector at build time. Nil for a block that enables none.
+	serverTools   []core.LLMProviderTool
 	branches      map[string]core.MessageProcessor
 	guardrail     core.MessageProcessor
 	maxIterations int
@@ -648,8 +651,8 @@ type aiAgent struct {
 // of it is. It is separate from the builder so the checks can grow without the
 // builder growing with them.
 func validateAgentConfig(cfg agentSettings) error {
-	if len(cfg.Tools) == 0 {
-		return errors.New("ai-agent block requires at least one tool")
+	if len(cfg.Tools) == 0 && len(cfg.ProviderTools) == 0 {
+		return errors.New("ai-agent block requires at least one tool or provider tool")
 	}
 	if strings.TrimSpace(cfg.Prompt) == "" {
 		return errors.New("ai-agent block requires a prompt")
@@ -721,6 +724,7 @@ func newAIAgent(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor,
 	// They run from a list rather than as four consecutive checks so that adding the
 	// next one is a line here rather than another branch in an already long builder.
 	for _, configure := range []func(*aiAgent, agentSettings) error{
+		configureAgentProviderTools,
 		b.configureAgentInput,
 		b.configureAgentAttachments,
 		b.configureAgentMemory,
@@ -1269,10 +1273,11 @@ func (a *aiAgent) callModel(
 	preamble []core.LLMMessage,
 ) (*core.LLMResponse, error) {
 	req := core.LLMRequest{
-		System:     a.system,
-		Messages:   withPreamble(preamble, messages),
-		Tools:      a.tools,
-		ToolChoice: core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
+		System:        a.system,
+		Messages:      withPreamble(preamble, messages),
+		Tools:         a.tools,
+		ToolChoice:    core.LLMToolChoice{Mode: core.LLMToolChoiceAuto},
+		ProviderTools: a.serverTools,
 	}
 	logModelCall(blockKindAIAgent, a.name, a.connector, req)
 	if a.report(ctx, current, iter, eventTurnStart, nil) {
@@ -2178,10 +2183,12 @@ func resolveLLM(kind, name string, deps core.BlockDeps) (*llmCaller, error) {
 	// gives and the right one: a block that wants to send a file against it fails
 	// to build rather than failing a turn later.
 	media, _ := connector.(core.LLMMedia)
+	serverTools, _ := connector.(core.LLMProviderTools)
 	return &llmCaller{
-		client:   client,
-		streamer: streamer,
-		media:    media,
-		who:      newIdentity(kind, name, providerOf(connector), deps),
+		client:      client,
+		streamer:    streamer,
+		media:       media,
+		serverTools: serverTools,
+		who:         newIdentity(kind, name, providerOf(connector), deps),
 	}, nil
 }
