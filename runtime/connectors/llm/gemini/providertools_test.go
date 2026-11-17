@@ -123,7 +123,14 @@ func TestStreamedCodeExecutionIsCustom(t *testing.T) {
 		t.Fatalf("emit: %v", err)
 	}
 	if len(events) != 1 || events[0].Kind != core.LLMStreamCustom || events[0].Name != "executable_code" {
-		t.Errorf("events = %+v, want one custom executable_code", events)
+		t.Fatalf("events = %+v, want one custom executable_code", events)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(events[0].Text), &payload); err != nil {
+		t.Fatalf("payload is not JSON: %v", err)
+	}
+	if payload["language"] != "PYTHON" || payload["code"] != "print(1)" {
+		t.Errorf("payload = %v, want the whole executable code object", payload)
 	}
 }
 

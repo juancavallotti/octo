@@ -786,18 +786,24 @@ func responseMap(tr core.LLMToolResult) map[string]any {
 	return map[string]any{"result": tr.Content}
 }
 
-// emitServerToolPart reports the code the provider ran and what it printed. The
-// caller runs neither, so both are custom events rather than tool calls.
+// emitServerToolPart reports the code the provider ran and what it printed,
+// each as its whole provider object. The caller runs neither, so both are custom
+// events rather than tool calls.
 func emitServerToolPart(part *genai.Part, index int, on func(core.LLMStreamEvent) error) error {
+	var name string
+	var payload any
 	switch {
 	case part.ExecutableCode != nil:
-		return on(core.LLMStreamEvent{
-			Kind: core.LLMStreamCustom, Name: "executable_code", Text: part.ExecutableCode.Code, Index: index,
-		})
+		name, payload = "executable_code", part.ExecutableCode
 	case part.CodeExecutionResult != nil:
-		return on(core.LLMStreamEvent{
-			Kind: core.LLMStreamCustom, Name: "code_execution_result", Text: part.CodeExecutionResult.Output, Index: index,
-		})
+		name, payload = "code_execution_result", part.CodeExecutionResult
+	default:
+		return nil
 	}
-	return nil
+	ev := core.LLMStreamEvent{Kind: core.LLMStreamCustom, Name: name, Index: index}
+	// A payload that will not marshal still leaves the name worth reporting.
+	if raw, err := json.Marshal(payload); err == nil {
+		ev.Text = string(raw)
+	}
+	return on(ev)
 }

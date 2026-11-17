@@ -11,7 +11,7 @@ import (
 	"github.com/juancavallotti/octo/runtime/core"
 )
 
-// The server-side tools this connector runs, by the type a block names them with.
+// The server-side tools this connector runs, by their catalogue type.
 // None takes settings.
 const (
 	toolGoogleSearch  = "google_search"
@@ -19,13 +19,13 @@ const (
 	toolURLContext    = "url_context"
 )
 
-// providerTypes is the catalogue's types in the order the editor offers them.
+// providerTypes is the catalogue's types, in catalogue order.
 var providerTypes = []string{toolGoogleSearch, toolCodeExecution, toolURLContext}
 
 // noSettings is what a tool without settings decodes into, so a stray key fails.
 type noSettings struct{}
 
-// providerToolMeta is the catalogue this connector advertises to the editor.
+// providerToolMeta describes this connector's catalogue.
 func providerToolMeta() []core.ProviderToolMeta {
 	return []core.ProviderToolMeta{
 		{
