@@ -65,8 +65,12 @@ catalogue and that tool's `settings`.
               citations: true
 ```
 
-`maxUses` caps how many searches and fetches one turn may run, which is also
-what caps their cost: the provider bills each one on top of tokens.
+`maxUses` limits how many searches and fetches one turn may run, and so what
+they cost: the provider bills each one on top of tokens. Treat it as a guide
+rather than a hard cap. With the default `latest` version, searches the provider
+runs through dynamic filtering in an earlier request of the same turn do not
+count against the limit when a paused turn is resumed, so a long turn can run
+more than `maxUses` of them.
 </Step>
 </Steps>
 

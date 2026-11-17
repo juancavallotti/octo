@@ -148,8 +148,9 @@ unless marked; leaving one out leaves it to the provider.
 <Callout type="warn">
 Provider tool calls are billed by the provider on top of tokens: per search, per
 fetch, per container session. Trace pricing counts tokens only, except on
-`llm-openrouter`, whose reported cost already includes them. Cap usage with the
-tools' own limits (`maxUses`, `maxResults`) where they have one.
+`llm-openrouter`, whose reported cost already includes them. Limit usage with the
+tools' own settings (`maxUses`, `maxResults`) where they have one, bearing in mind
+the exception for Anthropic's dynamic filtering below.
 </Callout>
 
 ### `llm-anthropic`
@@ -162,9 +163,13 @@ tools' own limits (`maxUses`, `maxResults`) where they have one.
 
 `latest` is the dynamic-filtering variant of each web tool, which needs a Claude
 4.6 or later model; set `version: basic` for an older model or for Claude on
-Vertex AI. A `latest` web tool runs code execution itself, so combining it with
-`code_execution` fails the build. `allowedDomains` and `blockedDomains` cannot
-both be set on one tool.
+Vertex AI. A `latest` web tool provisions the code execution it needs by itself,
+so you do not need to add `code_execution` alongside it. `allowedDomains` and
+`blockedDomains` cannot both be set on one tool.
+
+`maxUses` on a `latest` web tool is not a hard cap for the whole turn: searches
+run through dynamic filtering in an earlier request of the same turn do not
+count against it when the connector resumes a paused turn.
 
 When the provider pauses a long server-side tool loop (`pause_turn`), the
 connector resumes it for you, up to five times, and returns the finished turn.
