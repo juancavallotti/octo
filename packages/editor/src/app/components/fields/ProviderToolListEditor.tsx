@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { X } from "lucide-react";
 import { useProjectView } from "../../state/useProject";
 import SettingsField from "../SettingsField";
@@ -23,8 +22,8 @@ const HINT = "text-xs text-zinc-400 dark:text-zinc-500";
  * tools on offer and their fields are the selected connection's catalogue, so the
  * list follows the `connection` it is handed. A stored tool the catalogue does not
  * list is kept and flagged rather than dropped, so switching connections never
- * silently discards configuration. Seeded once from `value`; the parent remounts
- * it per block.
+ * silently discards configuration. It is fully controlled: `value` is the only
+ * state, so an outside change to it, such as an undo, is what renders next.
  */
 export default function ProviderToolListEditor({
   value,
@@ -36,12 +35,9 @@ export default function ProviderToolListEditor({
   onChange: (value: ProviderToolEntry[] | undefined) => void;
 }) {
   const catalogue = catalogueFor(useProjectView(), connection);
-  const [entries, setEntries] = useState<ProviderToolEntry[]>(() =>
-    toEntries(value),
-  );
+  const entries = toEntries(value);
 
   function commit(next: ProviderToolEntry[]) {
-    setEntries(next);
     onChange(next.length > 0 ? serializeEntries(next) : undefined);
   }
 
