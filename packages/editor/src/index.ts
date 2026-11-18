@@ -142,6 +142,15 @@ export {
   type UpdateResourcePatch,
 } from "./app/providers/ResourceStoreProvider";
 
+// Certificate capability (mints self-signed certificates into TLS settings)
+export {
+  CertificateProvider,
+  useCertificates,
+  type CertificateMinter,
+  type MintCertificateRequest,
+  type MintedCertificate,
+} from "./app/providers/CertificateProvider";
+
 // Document model + serialization (handy for apps building loaders/savers)
 export {
   toRunnableYaml,

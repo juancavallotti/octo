@@ -12,6 +12,7 @@ import MCPResourceListEditor from "./fields/MCPResourceListEditor";
 import MCPPromptListEditor from "./fields/MCPPromptListEditor";
 import ProviderToolListEditor from "./fields/ProviderToolListEditor";
 import ReferenceField from "./fields/ReferenceField";
+import TlsServerEditor from "./fields/TlsServerEditor";
 import EnvValueField, { isEnvRef } from "./fields/EnvValueField";
 import CelEditor from "../cel/CelEditor";
 
@@ -213,6 +214,13 @@ function renderInput(
 
     case "object":
       return <ObjectGroup field={field} value={value} onChange={onChange} />;
+
+    case "tls-server":
+      return (
+        <TlsServerEditor value={value} onChange={onChange}>
+          <ObjectGroup field={field} value={value} onChange={onChange} />
+        </TlsServerEditor>
+      );
 
     default:
       // string and any unknown scalar.

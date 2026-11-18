@@ -93,6 +93,23 @@ export function declareInProject(
   return [{ path: home.path, resources: declareResource(home.document.resources, name, kind) }];
 }
 
+/** Declare each of `names` in the project's home file, skipping any already declared. */
+export function declareAllInProject(
+  files: readonly ProjectFile[],
+  names: readonly string[],
+  kind: "env" | "template",
+): ResourcesChange[] {
+  const home = files.find((f) => f.path === declaringHome(files));
+  if (!home) return [];
+  const pending = names.filter((n) => !files.some((f) => declares(f.document.resources, n)));
+  if (pending.length === 0) return [];
+  const resources = pending.reduce(
+    (r, name) => declareResource(r, name, kind),
+    home.document.resources,
+  );
+  return [{ path: home.path, resources: resources ?? EMPTY }];
+}
+
 /**
  * Drop `name` from every file that declares it. The runtime merges declarations
  * first-wins, so leaving one in another file would leave the resource declared.
