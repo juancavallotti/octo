@@ -143,26 +143,26 @@ func (c *Client) deleteCertificate(ctx context.Context, deploymentID string) err
 	return nil
 }
 
-// servicePorts is a deployment Service's ports: plain HTTP always, and HTTPS
-// beside it when the deployment serves internal TLS.
+// servicePorts is a deployment Service's one port: HTTPS when the deployment
+// serves internal TLS, plain HTTP otherwise. The runtime's plain listener keeps
+// running beside its HTTPS one, but nothing routes to it.
 func (c *Client) servicePorts(spec Spec) []corev1.ServicePort {
-	ports := []corev1.ServicePort{{
+	if c.servesTLS(spec) {
+		return []corev1.ServicePort{{
+			Name:       httpsPortName,
+			Port:       serviceHTTPSPort,
+			TargetPort: intstr.FromString(httpsPortName),
+		}}
+	}
+	return []corev1.ServicePort{{
 		Name:       "http",
 		Port:       spec.port(),
 		TargetPort: intstr.FromInt(int(spec.port())),
 	}}
-	if c.servesTLS(spec) {
-		ports = append(ports, corev1.ServicePort{
-			Name:       httpsPortName,
-			Port:       serviceHTTPSPort,
-			TargetPort: intstr.FromString(httpsPortName),
-		})
-	}
-	return ports
 }
 
-// tlsEnv is what tells the runtime to serve HTTPS beside HTTP, and with which
-// certificate, plus the trust root every pod gets.
+// tlsEnv is what tells the runtime to serve HTTPS, and with which certificate,
+// plus the trust root every pod gets.
 func (c *Client) tlsEnv(spec Spec) []corev1.EnvVar {
 	var env []corev1.EnvVar
 	if c.servesTLS(spec) {

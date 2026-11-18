@@ -155,14 +155,7 @@ export default function DeploymentRow({
           )}
           {d.internalUrl && (
             <AddressLine label="Internal" value={d.internalUrl} />
-          )}
-          {d.internalHttpUrl && (
-            <AddressLine
-              label="Internal HTTP (deprecated in 1.0)"
-              value={d.internalHttpUrl}
-            />
-          )}
-        </div>
+          )}        </div>
       )}
 
       {onOpenLogs && pods.length > 0 && (

@@ -47,9 +47,9 @@ type Settings struct {
 	// Subdomain is the external host label; empty defaults to the integration
 	// slug. Only meaningful when Expose is "external".
 	Subdomain string `json:"subdomain,omitempty"`
-	// InternalTLS has a networked deployment serve HTTPS inside the cluster beside
-	// plain HTTP, with a certificate from the installation's internal CA. Ignored
-	// for integrations with no HTTP source.
+	// InternalTLS has a networked deployment serve HTTPS inside the cluster instead
+	// of plain HTTP, with a certificate from the installation's internal CA.
+	// Ignored for integrations with no HTTP source.
 	InternalTLS bool `json:"internalTls,omitempty"`
 	// Env binds the integration's declared environment variables for this
 	// deployment, keyed by env var name. Each binding is either a literal value or a
@@ -151,10 +151,6 @@ type Metadata struct {
 	// deployment, load-balanced across its replicas. Empty when there is no slug
 	// (the integration declares no HTTP source).
 	InternalURL string `json:"internalUrl,omitempty"`
-	// InternalHTTPURL is the plain-HTTP in-cluster address of a deployment that
-	// serves internal TLS, whose InternalURL is then the HTTPS one. Empty
-	// otherwise. Plain-HTTP internal addresses are deprecated as of 1.0.
-	InternalHTTPURL string `json:"internalHttpUrl,omitempty"`
 	// ExternalURL is the public https://{subdomain}.{baseDomain} address when the
 	// deployment is exposed externally; empty for internal-only deployments.
 	ExternalURL string `json:"externalUrl,omitempty"`

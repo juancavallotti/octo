@@ -48,6 +48,17 @@ func ImageTag(image string) string {
 	return name[i+1:]
 }
 
+// InternalTLSRelease is the first runtime release that serves HTTPS on the
+// HTTPS_PORT the orchestrator injects, and trusts the internal CA it mounts.
+const InternalTLSRelease = "0.11.18"
+
+// SupportsInternalTLS reports whether a runtime release serves in-cluster HTTPS.
+// An empty version follows the install, and anything that is not a dotted
+// release (a dev build) is taken to be current.
+func SupportsInternalTLS(version string) bool {
+	return !Behind(version, InternalTLSRelease)
+}
+
 // Behind reports whether deployed is an OLDER release than current.
 //
 // Older, not merely different: a deployment rolled onto a build the install has

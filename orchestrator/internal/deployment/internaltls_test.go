@@ -31,9 +31,6 @@ func TestDeployInternalTLS(t *testing.T) {
 	if meta.InternalURL != "https://octo-int-orders.octo-dev.svc" {
 		t.Errorf("internalUrl = %q, want the https address", meta.InternalURL)
 	}
-	if meta.InternalHTTPURL != "http://octo-int-orders.octo-dev:9090" {
-		t.Errorf("internalHttpUrl = %q, want the plain address", meta.InternalHTTPURL)
-	}
 }
 
 func TestDeployInternalTLSUnavailable(t *testing.T) {
@@ -44,6 +41,23 @@ func TestDeployInternalTLSUnavailable(t *testing.T) {
 	_, err := svc.Deploy(context.Background(), "int-1", Settings{InternalTLS: true})
 	if !errors.Is(err, ErrInternalTLSUnavailable) {
 		t.Fatalf("err = %v, want ErrInternalTLSUnavailable", err)
+	}
+}
+
+// TestDeployInternalTLSRefusesOldRuntime pins the gate: a pod on a release that
+// ignores HTTPS_PORT would leave the HTTPS Service with nothing behind it.
+func TestDeployInternalTLSRefusesOldRuntime(t *testing.T) {
+	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
+	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
+	kc := &fakeKube{status: kube.StatusPending, internalTLSEnabled: true, runtimeVersion: "0.11.18"}
+	svc := NewService(repo, integrations, kc)
+
+	_, err := svc.Deploy(context.Background(), "int-1", Settings{InternalTLS: true, RuntimeVersion: "0.11.14"})
+	if !errors.Is(err, ErrInternalTLSRuntime) {
+		t.Fatalf("err = %v, want ErrInternalTLSRuntime", err)
+	}
+	if _, err := svc.Deploy(context.Background(), "int-1", Settings{RuntimeVersion: "0.11.14"}); err != nil {
+		t.Fatalf("plain deploy on the same runtime: %v", err)
 	}
 }
 

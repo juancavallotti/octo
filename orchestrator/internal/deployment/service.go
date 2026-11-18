@@ -246,6 +246,16 @@ func (s *Service) parseRuntimePin(requested string) (string, error) {
 	return requested, nil
 }
 
+// requireTLSRuntime refuses internal TLS on a runtime pinned to a release that
+// does not serve it: its pods would ignore HTTPS_PORT, and the HTTPS Service in
+// front of them would have nothing to reach.
+func requireTLSRuntime(internalTLS bool, pin string) error {
+	if internalTLS && !runtimeversion.SupportsInternalTLS(pin) {
+		return fmt.Errorf("%w: %s predates %s", ErrInternalTLSRuntime, pin, runtimeversion.InternalTLSRelease)
+	}
+	return nil
+}
+
 // RunnerAvailable reports whether a deployment could ask for this runner and be
 // served, answering *before* anything is deployed. It takes the settings spelling —
 // the string a Settings carries — so the question is asked in the same words the
@@ -343,7 +353,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		return Deployment{}, ErrInternalTLSUnavailable
 	}
 	slug := ""
-	internalURL, internalHTTPURL := "", ""
+	internalURL := ""
 	if networked {
 		slug, err = s.resolveSlug(ctx, settings.Slug, slugify(it.Name))
 		if err != nil {
@@ -351,7 +361,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		}
 		internalURL = s.kube.InternalURL(ctx, slug, port)
 		if internalTLS {
-			internalHTTPURL, internalURL = internalURL, s.kube.InternalHTTPSURL(ctx, slug)
+			internalURL = s.kube.InternalHTTPSURL(ctx, slug)
 		}
 	}
 
@@ -394,6 +404,9 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	if err != nil {
 		return Deployment{}, err
 	}
+	if err := requireTLSRuntime(internalTLS, pin); err != nil {
+		return Deployment{}, err
+	}
 
 	persisted := Settings{Replicas: replicas}
 	if external {
@@ -421,13 +434,12 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 	now := time.Now().UTC()
 	metadata, err := json.Marshal(Metadata{
-		Name:            it.Name,
-		Slug:            slug,
-		InternalURL:     internalURL,
-		InternalHTTPURL: internalHTTPURL,
-		ExternalURL:     externalURL,
-		SnapshotID:      snapID,
-		Tag:             snapTag,
+		Name:        it.Name,
+		Slug:        slug,
+		InternalURL: internalURL,
+		ExternalURL: externalURL,
+		SnapshotID:  snapID,
+		Tag:         snapTag,
 		// The image this deploy is about to ship, from the same resolution the pod
 		// spec uses — recorded here rather than read back later, because the answer
 		// changes when the orchestrator is upgraded and this deployment's pods do
@@ -900,6 +912,9 @@ func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) 
 			return Deployment{}, err
 		}
 		settings.RuntimeVersion = pin
+	}
+	if err := requireTLSRuntime(settings.InternalTLS, settings.RuntimeVersion); err != nil {
+		return Deployment{}, err
 	}
 
 	// The runtime port/env come from the new frozen definition. A networked

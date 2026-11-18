@@ -30,7 +30,7 @@ export interface DeploySubmit {
   replicas: number;
   slug?: string;
   expose?: "external";
-  /** Serve HTTPS inside the cluster beside plain HTTP. */
+  /** Serve HTTPS inside the cluster instead of plain HTTP. */
   internalTls?: boolean;
   env?: Record<string, EnvBindingInput>;
   tracing?: boolean;

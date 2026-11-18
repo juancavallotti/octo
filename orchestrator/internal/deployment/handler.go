@@ -146,10 +146,6 @@ type deploymentResponse struct {
 	// InternalTLS reports whether the deployment serves HTTPS inside the cluster,
 	// in which case InternalURL is its https:// address.
 	InternalTLS bool `json:"internalTls"`
-	// InternalHTTPURL is the plain-HTTP internal address of a deployment serving
-	// internal TLS. Deprecated: plain-HTTP internal addresses are deprecated as of
-	// 1.0; use InternalURL.
-	InternalHTTPURL string `json:"internalHttpUrl,omitempty"`
 }
 
 // toResponse builds the wire form of d. current is the runtime release this
@@ -173,7 +169,6 @@ func toResponse(d Deployment, current string) deploymentResponse {
 		DesiredReplicas: d.Detail.DesiredReplicas,
 		Reason:          d.Detail.Reason,
 		InternalURL:     meta.InternalURL,
-		InternalHTTPURL: meta.InternalHTTPURL,
 		InternalTLS:     settings.InternalTLS,
 		ExternalURL:     meta.ExternalURL,
 		LastUpdated:     d.LastUpdated,
@@ -554,6 +549,8 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
 	case errors.Is(err, ErrInternalTLSUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "internal TLS is not configured on this installation")
+	case errors.Is(err, ErrInternalTLSRuntime):
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrRunnerUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")
 	case errors.Is(err, ErrInvalidRuntimeVersion):

@@ -74,7 +74,7 @@ export default function DeployFormFields({
   networked: boolean;
   expose: boolean;
   onExpose: (on: boolean) => void;
-  /** Serve HTTPS inside the cluster beside plain HTTP. */
+  /** Serve HTTPS inside the cluster instead of plain HTTP. */
   internalTls: boolean;
   /** The installation has an internal CA to issue the certificate from. */
   internalTlsAvailable: boolean;

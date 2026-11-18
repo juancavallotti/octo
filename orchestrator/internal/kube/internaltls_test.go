@@ -71,7 +71,7 @@ func TestApplyInternalTLSIssuesCertificate(t *testing.T) {
 	}
 }
 
-func TestApplyInternalTLSDualServicePorts(t *testing.T) {
+func TestApplyInternalTLSServesHTTPSOnly(t *testing.T) {
 	c, cs, _, _ := tlsClient(tlsConfig("traefik"))
 	ctx := context.Background()
 	if err := c.Apply(ctx, tlsSpec()); err != nil {
@@ -82,8 +82,8 @@ func TestApplyInternalTLSDualServicePorts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get service %s: %v", name, err)
 		}
-		if got := portNames(svc.Spec.Ports); !slices.Equal(got, []string{"http", httpsPortName}) {
-			t.Errorf("service %s ports = %v, want [http https]", name, got)
+		if got := portNames(svc.Spec.Ports); !slices.Equal(got, []string{httpsPortName}) {
+			t.Errorf("service %s ports = %v, want [https]", name, got)
 		}
 	}
 }
