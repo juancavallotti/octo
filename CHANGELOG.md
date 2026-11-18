@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.18](https://github.com/juancavallotti/octo/compare/v0.11.17...v0.11.18) (2026-11-18)
+
+
+### Features
+
+* **email:** IMAP/POP3 sources and fetch blocks, SMTP send ([#642](https://github.com/juancavallotti/octo/issues/642)) ([eed1b90](https://github.com/juancavallotti/octo/commit/eed1b9069bb983786477e0645ad5935a0866e416))
+* provider tools (server-side web search, fetch, code execution) for LLM blocks ([#639](https://github.com/juancavallotti/octo/issues/639)) ([0bb59d3](https://github.com/juancavallotti/octo/commit/0bb59d3152bc264afc894242243ca66554b3a59e))
+
+
+### Bug Fixes
+
+* **runtime:** start a source connector in invoke mode when a block needs it ([#643](https://github.com/juancavallotti/octo/issues/643)) ([25ad1d9](https://github.com/juancavallotti/octo/commit/25ad1d9f11d62fad4b58ab05ded3f1dbbd816447))
+
 ## [0.11.17](https://github.com/juancavallotti/octo/compare/v0.11.16...v0.11.17) (2026-11-12)
 
 
