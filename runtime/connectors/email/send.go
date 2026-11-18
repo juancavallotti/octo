@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,6 +70,10 @@ type sendSettings struct {
 	Text string `json:"text" octo:"label=Text body,type=cel"`
 	// CEL expression for the HTML body; sent as an alternative to text when both are set.
 	HTML string `json:"html" octo:"label=HTML body,type=cel"`
+	// CEL expression for a map of extra headers, e.g. {"Auto-Submitted":
+	// "auto-replied"} on an automatic reply. Headers the block sets itself
+	// (addresses, Subject, Date, Message-ID, threading, MIME) are refused.
+	Headers string `json:"headers" octo:"label=Headers,type=cel"`
 	// CEL expression for a list of attachments, each {filename, contentType,
 	// data, encoding}: data is base64 unless encoding is "text". A received
 	// email's attachments fit as they are.
@@ -86,6 +92,7 @@ type sendProcessor struct {
 	inReplyTo   *expr.Program
 	text        *expr.Program
 	html        *expr.Program
+	headers     *expr.Program
 	attachments *expr.Program
 	env         expr.Env
 }
@@ -115,6 +122,7 @@ func newSMTPSend(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor
 	p.inReplyTo = c.optional("inReplyTo", cfg.InReplyTo)
 	p.text = c.optional("text", cfg.Text)
 	p.html = c.optional("html", cfg.HTML)
+	p.headers = c.optional("headers", cfg.Headers)
 	p.attachments = c.optional("attachments", cfg.Attachments)
 	if c.err != nil {
 		return nil, c.err
@@ -155,6 +163,7 @@ func (p *sendProcessor) compose(act map[string]any) (outgoing, error) {
 	inReplyTo := strings.Trim(strings.TrimSpace(e.text("inReplyTo", p.inReplyTo)), "<>")
 	body := mimeBody{text: e.text("text", p.text), html: e.text("html", p.html)}
 	attachments := e.attachments(p.attachments)
+	extra := e.headers(p.headers)
 	if e.err != nil {
 		return outgoing{}, e.err
 	}
@@ -176,6 +185,9 @@ func (p *sendProcessor) compose(act map[string]any) (outgoing, error) {
 		h.SetAddressList("Reply-To", replyTo)
 	}
 	h.SetSubject(subject)
+	for _, name := range slices.Sorted(maps.Keys(extra)) {
+		h.SetText(name, extra[name])
+	}
 	if inReplyTo != "" {
 		// References carries the parent alone: the received message's own
 		// References are the flow's to pass on if it wants the full chain.

@@ -181,13 +181,6 @@ func (e *evaluator) timestamp(field string, p *expr.Program) time.Time {
 	return time.Time{}
 }
 
-// fail records err unless an earlier error is already kept.
-func (e *evaluator) fail(err error) {
-	if e.err == nil {
-		e.err = err
-	}
-}
-
 // orDefault returns value when it is non-empty, otherwise fallback.
 func orDefault(value, fallback string) string {
 	if value == "" {

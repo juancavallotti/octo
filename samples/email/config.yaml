@@ -58,10 +58,12 @@ flows:
         moveTo: Answered
     process:
       # Never answer another robot: auto-replies and bounces carry an
-      # Auto-Submitted header, and a bounce has no sender to write back to.
+      # Auto-Submitted header other than "no", and a bounce has no sender to
+      # write back to. The reply marks itself the same way, so a robot on the
+      # other end that follows RFC 3834 does not answer it either.
       - type: if
         name: from-a-person
-        condition: 'body.from != null && !("Auto-Submitted" in body.headers)'
+        condition: 'body.from != null && (!("Auto-Submitted" in body.headers) || body.headers["Auto-Submitted"][0].lowerAscii() == "no")'
         then:
           process:
             - type: smtp-send
@@ -72,6 +74,7 @@ flows:
                 to: body.from.address
                 subject: '"Re: " + body.subject'
                 inReplyTo: body.messageId
+                headers: '{"Auto-Submitted": "auto-replied"}'
                 text: >
                   "Hi " + (body.from.name != "" ? body.from.name : "there") +
                   ",\n\nThanks for writing. We received your message and will answer within one business day.\n"

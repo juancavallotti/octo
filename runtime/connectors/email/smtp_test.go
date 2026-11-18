@@ -324,3 +324,52 @@ func TestSMTPSendStopsWhenTheContextIsCancelled(t *testing.T) {
 		t.Errorf("send took %v after cancellation, want it to stop promptly", took)
 	}
 }
+
+func TestSMTPSendExtraHeaders(t *testing.T) {
+	srv, settings := startFakeSMTP(t, securityTLS)
+	conn := &SMTPConnector{}
+	startConnector(t, conn, settings)
+	base := map[string]any{"connector": "mail", "from": `"a@example.com"`, "to": `"b@example.com"`, "text": `"t"`}
+	build := func(headers string) (*sendProcessor, error) {
+		set := map[string]any{"headers": headers}
+		for k, v := range base {
+			set[k] = v
+		}
+		proc, err := newSMTPSend(set, depsWith("mail", conn))
+		if err != nil {
+			return nil, err
+		}
+		return proc.(*sendProcessor), nil
+	}
+
+	proc, err := build(`{"auto-submitted": "auto-replied", "X-Ticket": body.ticket}`)
+	if err != nil {
+		t.Fatalf("newSMTPSend: %v", err)
+	}
+	if _, err := proc.Process(t.Context(), newMessage(t, map[string]any{"ticket": "T-42"})); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	data := srv.snapshot().data
+	for _, want := range []string{"Auto-Submitted: auto-replied", "X-Ticket: T-42"} {
+		if !strings.Contains(data, want) {
+			t.Errorf("message missing %q:\n%s", want, data)
+		}
+	}
+
+	for name, headers := range map[string]string{
+		"reserved":   `{"Subject": "x"}`,
+		"multi-line": `{"X-A": "one\ntwo"}`,
+		"bad name":   `{"X A": "v"}`,
+		"not a map":  `"X-A: v"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			proc, err := build(headers)
+			if err != nil {
+				t.Fatalf("newSMTPSend: %v", err)
+			}
+			if _, err := proc.Process(t.Context(), newMessage(t, nil)); err == nil {
+				t.Fatal("expected the headers to be refused")
+			}
+		})
+	}
+}

@@ -63,7 +63,7 @@ It provides a source: yes, the **IMAP Mailbox** source (below). Blocks that bind
 
 ## `imap` source
 
-The source polls a mailbox and runs each new message through the flow, one at a time. It acts on a message only after its flow completes or drops it. If the flow fails, or runs longer than `flowTimeout`, the message stays in place and the next poll reads it again. Only the replica that holds the source's leadership polls, so a message is handled once across the cluster.
+The source polls a mailbox and runs each new message through the flow, one at a time. It acts on a message only after its flow completes or drops it. If the flow fails, or runs longer than `flowTimeout`, the message stays in place and the next poll reads it again. Only the replica that holds the source's leadership polls, so replicas never poll the same mailbox at once. That doesn't make processing exactly-once: a flow that outlives `flowTimeout`, or a replica that stops between the flow completing and the action, leaves the message to be read again. Design flows to tolerate running twice.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
@@ -77,6 +77,8 @@ The source polls a mailbox and runs each new message through the flow, one at a 
 With `seen`, `move`, or `delete`, the mailbox itself records what has been handled, and each poll reads the unseen messages. Reading never marks a message seen. The mark is set only after the flow completes.
 
 With `none`, the source never changes the mailbox. It stores the highest UID it has handled in the runtime's key-value store. On its first run it starts from the end of the mailbox, so only mail that arrives afterwards counts as new. It does the same if the mailbox's UIDVALIDITY changes. A poll stops at the first message whose flow does not complete, so the cursor never skips past one.
+
+A message whose flow fails every time is read again on every poll, oldest first. If `maxPerPoll` or more messages keep failing, they fill every poll and newer mail waits behind them. Fix or move the failing mail, or raise `maxPerPoll`. The same applies to the `pop3` source.
 
 A connector takes one source per mailbox. A second flow reading the same mailbox through the same connector is refused at startup, because two sources would race over the same messages. To run one message through several flows, read the mailbox from one flow and call the others with `flow-ref`. Sources on different mailboxes of one connector are independent.
 
@@ -169,6 +171,7 @@ It provides a source: no. Blocks that bind to it: `smtp-send`.
 | `bcc` | expression | No | none | Blind-copy recipients. They receive the message but appear in no header. |
 | `replyTo` | expression | No | none | The Reply-To address. |
 | `subject` | expression | No | none | The subject line. |
+| `headers` | expression | No | none | A map of extra headers to set, such as `{"Auto-Submitted": "auto-replied"}` on an automatic reply. Headers the block sets itself are refused: the address fields, `Subject`, `Date`, `Message-ID`, `In-Reply-To`, `References`, and the MIME headers. Values must be one line. |
 | `inReplyTo` | expression | No | none | The Message-ID this message replies to, such as a received message's `body.messageId`. It sets In-Reply-To and References, so the reply is threaded in the recipient's mail client. |
 | `text` | expression | One of `text`, `html` | none | The plain-text body. |
 | `html` | expression | One of `text`, `html` | none | The HTML body. When both are set, they are sent as alternatives. |
@@ -206,7 +209,7 @@ flows:
     process:
       - type: if
         name: from-a-person
-        condition: 'body.from != null && !("Auto-Submitted" in body.headers)'
+        condition: 'body.from != null && (!("Auto-Submitted" in body.headers) || body.headers["Auto-Submitted"][0].lowerAscii() == "no")'
         then:
           process:
             - type: smtp-send
@@ -217,9 +220,10 @@ flows:
                 to: body.from.address
                 subject: '"Re: " + body.subject'
                 inReplyTo: body.messageId
+                headers: '{"Auto-Submitted": "auto-replied"}'
                 text: '"Thanks for writing. We will answer within one business day."'
 ```
 
 <Callout type="info">
-Check for the `Auto-Submitted` header before replying automatically. Out-of-office replies and bounces carry it, and answering them can start a loop between two robots.
+Check the `Auto-Submitted` header before replying automatically, and set it on the reply. Out-of-office replies and bounces carry it with a value other than `no`, and answering them can start a loop between two robots. RFC 3834 asks automatic replies to mark themselves `auto-replied` for the same reason.
 </Callout>

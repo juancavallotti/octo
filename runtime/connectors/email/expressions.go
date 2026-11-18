@@ -6,6 +6,7 @@ package email
 import (
 	"encoding/base64"
 	"fmt"
+	"net/textproto"
 	"strings"
 
 	"github.com/emersion/go-message/mail"
@@ -78,6 +79,13 @@ func (e *evaluator) eval(field string, p *expr.Program) any {
 		return nil
 	}
 	return v
+}
+
+// fail records err unless an earlier error is already kept.
+func (e *evaluator) fail(err error) {
+	if e.err == nil {
+		e.err = err
+	}
 }
 
 // text evaluates to a string; null is the empty string.
@@ -193,4 +201,59 @@ func toAttachment(item any) (attachment, error) {
 		return attachment{}, fmt.Errorf("%q: unknown encoding %q (want base64 or text)", filename, encoding)
 	}
 	return a, nil
+}
+
+// reservedHeaders are the headers smtp-send writes itself; a headers setting
+// naming one would contradict a setting or corrupt the MIME structure.
+var reservedHeaders = map[string]bool{
+	"From": true, "To": true, "Cc": true, "Bcc": true, "Reply-To": true, "Sender": true,
+	"Subject": true, "Date": true, "Message-Id": true, "In-Reply-To": true, "References": true,
+	"Mime-Version": true, "Content-Type": true, "Content-Transfer-Encoding": true,
+	"Content-Disposition": true,
+}
+
+// headers evaluates to a map of header name to value. Names are canonicalized,
+// and a reserved, malformed or multi-line one is an error.
+func (e *evaluator) headers(p *expr.Program) map[string]string {
+	value := e.eval("headers", p)
+	if e.err != nil || value == nil {
+		return nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		e.fail(fmt.Errorf("headers must be a map of header name to value, got %T", value))
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for name, raw := range m {
+		canonical := textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(name))
+		v, ok := raw.(string)
+		switch {
+		case !ok:
+			e.fail(fmt.Errorf("headers: %q must be a string, got %T", name, raw))
+		case !validHeaderName(canonical):
+			e.fail(fmt.Errorf("headers: %q is not a valid header name", name))
+		case reservedHeaders[canonical]:
+			e.fail(fmt.Errorf("headers: %s is set by smtp-send itself", canonical))
+		case strings.ContainsAny(v, "\r\n"):
+			e.fail(fmt.Errorf("headers: %s must be a single line", canonical))
+		default:
+			out[canonical] = v
+		}
+	}
+	return out
+}
+
+// validHeaderName reports whether name is a non-empty run of the printable
+// ASCII characters RFC 5322 allows in a field name.
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r <= ' ' || r > '~' || r == ':' {
+			return false
+		}
+	}
+	return true
 }

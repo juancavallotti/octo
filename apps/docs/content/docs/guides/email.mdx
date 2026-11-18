@@ -77,12 +77,12 @@ The body is the received message: `body.from.address`, `body.subject`, `body.tex
 
 ## Reply in the same thread
 
-Before replying, skip anything a robot sent. Out-of-office replies and bounces carry an `Auto-Submitted` header, and a bounce may have no sender at all:
+Before replying, skip anything a robot sent. Out-of-office replies and bounces carry an `Auto-Submitted` header with a value other than `no`, and a bounce may have no sender at all. Mark your own reply the same way, so a robot on the other end doesn't answer it and start a loop:
 
 ```yaml title="samples/email/config.yaml (excerpt)"
 - type: if
   name: from-a-person
-  condition: 'body.from != null && !("Auto-Submitted" in body.headers)'
+  condition: 'body.from != null && (!("Auto-Submitted" in body.headers) || body.headers["Auto-Submitted"][0].lowerAscii() == "no")'
   then:
     process:
       - type: smtp-send
@@ -93,6 +93,7 @@ Before replying, skip anything a robot sent. Out-of-office replies and bounces c
           to: body.from.address
           subject: '"Re: " + body.subject'
           inReplyTo: body.messageId
+          headers: '{"Auto-Submitted": "auto-replied"}'
           text: >
             "Hi " + (body.from.name != "" ? body.from.name : "there") +
             ",\n\nThanks for writing. We received your message and will answer within one business day.\n"
@@ -137,5 +138,5 @@ dolphin test samples/email/autoreply_test.yaml samples/email/digest_test.yaml --
 ```
 
 <Callout type="info">
-Only one replica polls a mailbox at a time, because each source acquires leadership before it polls. You can scale the service without answering the same message twice.
+Only one replica polls a mailbox at a time, because each source acquires leadership before it polls, so scaling the service doesn't make replicas compete for the same mail. A message can still run twice: if its flow outlives `flowTimeout`, or the service stops between a reply and the move to Answered, the next poll reads it again. Keep `flowTimeout` above the time your flow takes.
 </Callout>
