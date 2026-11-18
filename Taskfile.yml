@@ -1138,7 +1138,8 @@ tasks:
         # In-cluster HTTPS under both networking modes: the CA issuers and trust
         # Bundle, the orchestrator's env, and the re-encrypt object its Role covers.
         check_contains internal-tls-ingress \
-          "kind: Bundle" "name: INTERNAL_TLS_ISSUER" "serverstransports" -- \
+          "kind: Bundle" "name: INTERNAL_TLS_ISSUER" "serverstransports" \
+          "name: octo-orchestrator-tls" "name: octo-iam-tls" "name: octo-observability-tls" -- \
           --set internalTLS.enabled=true \
           --set ingress.className=traefik --set orchestrator.ingressClass=traefik
         check_contains internal-tls-gateway \
@@ -1146,6 +1147,7 @@ tasks:
           --set internalTLS.enabled=true \
           --set networking.mode=gateway --set networking.gateway.name=shared-gw
         check_absent internal-tls-off "kind: Bundle"
+        check_absent internal-tls-off-env "HTTPS_PORT"
         check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
           --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
           --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true

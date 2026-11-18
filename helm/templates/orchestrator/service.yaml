@@ -3,4 +3,5 @@
       "root" $
       "component" "orchestrator"
       "type" "ClusterIP"
-      "ports" (list (dict "name" "http" "port" .Values.orchestrator.service.port "targetPort" .Values.orchestrator.service.port))) }}
+      "ports" (concat (list (dict "name" "http" "port" .Values.orchestrator.service.port "targetPort" .Values.orchestrator.service.port))
+                 (include "octo.platformTLS.servicePorts" . | fromYamlArray))) }}

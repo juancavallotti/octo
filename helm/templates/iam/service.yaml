@@ -8,4 +8,5 @@
       "root" $
       "component" "iam"
       "type" "ClusterIP"
-      "ports" (list (dict "name" "http" "port" .Values.iam.service.port "targetPort" .Values.iam.service.port))) }}
+      "ports" (concat (list (dict "name" "http" "port" .Values.iam.service.port "targetPort" .Values.iam.service.port))
+                 (include "octo.platformTLS.servicePorts" . | fromYamlArray))) }}

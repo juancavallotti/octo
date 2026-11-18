@@ -2,6 +2,7 @@
       "root" $
       "component" "orchestrator"
       "replicas" .Values.orchestrator.replicas
+      "volumes" (include "octo.platformTLS.volumes" (dict "root" $ "component" "orchestrator") | fromYamlArray)
       "serviceAccountName" (include "octo-common.serviceAccountName" (dict "root" $ "component" "orchestrator"))
       "containers" (include "octo-common.container" (dict
         "root" $
@@ -9,8 +10,10 @@
         "name" "orchestrator"
         "image" (include "octo-common.image" (dict "root" $ "component" "orchestrator"))
         "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "orchestrator"))
-        "ports" (list (dict "containerPort" .Values.orchestrator.service.port))
-        "env" (include "octo.orchestrator.env" .)
+        "ports" (concat (list (dict "containerPort" .Values.orchestrator.service.port))
+                   (include "octo.platformTLS.containerPorts" . | fromYamlArray))
+        "env" (print (include "octo.orchestrator.env" .) (include "octo.platformTLS.env" .))
+        "volumeMounts" (include "octo.platformTLS.volumeMounts" . | fromYamlArray)
         "readinessProbe" (dict
           "httpGet" (dict "path" "/healthz" "port" .Values.orchestrator.service.port)
           "initialDelaySeconds" 3
