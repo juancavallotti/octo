@@ -52,7 +52,9 @@ func TestDeployInternalTLSUnavailable(t *testing.T) {
 func TestDeployInternalTLSIgnoredWithoutHTTPSource(t *testing.T) {
 	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
 	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Ticker", Definition: bareDef}}
-	kc := &fakeKube{status: kube.StatusPending, internalTLSEnabled: true}
+	// Unavailable on the installation too: a deploy that would ignore the setting
+	// is not refused for it.
+	kc := &fakeKube{status: kube.StatusPending}
 	svc := NewService(repo, integrations, kc)
 
 	if _, err := svc.Deploy(context.Background(), "int-1", Settings{InternalTLS: true}); err != nil {

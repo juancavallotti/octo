@@ -184,6 +184,7 @@ func TestTLSSettingsErrors(t *testing.T) {
 		},
 		"half pair":      {tls: map[string]any{"cert": string(certPEM)}, want: "must be set together"},
 		"no certificate": {tls: map[string]any{"enabled": true}, want: "no certificate"},
+		"port only":      {tls: map[string]any{"port": 0}, want: "no certificate"},
 		"bad version": {
 			tls:  map[string]any{"cert": string(certPEM), "key": string(keyPEM), "minVersion": "1.1"},
 			want: "minVersion",

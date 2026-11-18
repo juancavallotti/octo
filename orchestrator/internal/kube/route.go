@@ -22,6 +22,9 @@ type routePublisher struct {
 	// ns is the namespace a route goes in: the environment's the request acts in.
 	ns      func(context.Context) string
 	gateway GatewayRef
+	// reencrypt is whether this installation serves internal TLS, and so whether
+	// it may hold BackendTLSPolicies at all — and the RBAC to touch them.
+	reencrypt bool
 }
 
 func (p *routePublisher) publish(ctx context.Context, ep endpoint) error {
@@ -44,6 +47,9 @@ func (p *routePublisher) withdraw(ctx context.Context, name string) error {
 	err := p.client.GatewayV1().HTTPRoutes(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete httproute: %w", err)
+	}
+	if !p.reencrypt {
+		return nil
 	}
 	err = p.client.GatewayV1().BackendTLSPolicies(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {

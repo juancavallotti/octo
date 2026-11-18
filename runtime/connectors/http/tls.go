@@ -56,11 +56,11 @@ type tlsPlan struct {
 }
 
 // resolveTLS decides how the connector serves HTTPS, or returns nil when it serves
-// plain HTTP only. An explicit tls block that cannot find a certificate is an
-// error; $HTTPS_PORT without a provisioned certificate is not, since the variable
-// alone says nothing about the flow's intent.
+// plain HTTP only. A tls block that asks for TLS (enabled, a port, or a source) and
+// cannot find a certificate is an error; $HTTPS_PORT without a provisioned
+// certificate is not, since the variable alone says nothing about the flow's intent.
 func resolveTLS(ctx context.Context, set tlsSettings) (*tlsPlan, error) {
-	explicit := set.Enabled || set.hasSource()
+	explicit := set.Enabled || set.Port != nil || set.hasSource()
 	port := set.Port
 	if port == nil {
 		port = envHTTPSPortValue()

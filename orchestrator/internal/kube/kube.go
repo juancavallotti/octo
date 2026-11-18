@@ -412,12 +412,15 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		if cfg.Gateway.Namespace == "" {
 			cfg.Gateway.Namespace = cfg.Namespace
 		}
-		c.endpoints = &routePublisher{client: gwcs, ns: c.ns, gateway: cfg.Gateway}
+		c.endpoints = &routePublisher{
+			client: gwcs, ns: c.ns, gateway: cfg.Gateway, reencrypt: cfg.InternalTLSIssuer != "",
+		}
 	} else {
 		c.wildcardTLSSecret = cfg.WildcardTLSSecret
 		c.endpoints = &ingressPublisher{
 			clientset:         cs,
 			dynamic:           dyn,
+			reencrypt:         cfg.InternalTLSIssuer != "",
 			ns:                c.ns,
 			clusterIssuer:     cfg.ClusterIssuer,
 			wildcardTLSSecret: cfg.WildcardTLSSecret,

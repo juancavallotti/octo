@@ -336,12 +336,12 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// same integration.
 	// The user picks the slug (a free default is suggested up front); an empty slug
 	// asks the orchestrator to allocate one.
-	if settings.InternalTLS && !s.kube.InternalTLSEnabled() {
+	// Like external exposure, TLS needs an HTTP source to sit on; a deployment
+	// without one is a bare workload either way, so it is not refused for it.
+	internalTLS := settings.InternalTLS && networked
+	if internalTLS && !s.kube.InternalTLSEnabled() {
 		return Deployment{}, ErrInternalTLSUnavailable
 	}
-	// Like external exposure, TLS needs an HTTP source to sit on; a deployment
-	// without one is a bare workload either way.
-	internalTLS := settings.InternalTLS && networked
 	slug := ""
 	internalURL, internalHTTPURL := "", ""
 	if networked {

@@ -177,6 +177,13 @@ resource "helm_release" "trust_manager" {
     value = "true"
   }
 
+  # A private cluster's control plane reaches nodes on 443 and 10250 only, and
+  # the webhook's default (6443) would leave every Bundle admission timing out.
+  set {
+    name  = "app.webhook.port"
+    value = "10250"
+  }
+
   depends_on = [helm_release.cert_manager]
 }
 

@@ -174,6 +174,34 @@ func TestDeleteRemovesInternalCertificate(t *testing.T) {
 	}
 }
 
+// TestDeleteWithoutInternalTLSTouchesNoCustomResources pins that undeploy on an
+// installation without internal TLS never reaches for Certificates or
+// ServersTransports, which its Role does not grant.
+func TestDeleteWithoutInternalTLSTouchesNoCustomResources(t *testing.T) {
+	cs := fake.NewSimpleClientset()
+	dyn := testDynamic()
+	c := newClient(testConfig("octo.example.com"), cs, gatewayfake.NewSimpleClientset(), dyn)
+	ctx := context.Background()
+	if err := c.Apply(ctx, exposedSpec()); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if err := c.Delete(ctx, "d1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if n := len(dyn.Actions()); n != 0 {
+		t.Errorf("dynamic client saw %d actions, want none: %v", n, dyn.Actions())
+	}
+}
+
+func TestHTTPSPortAvoidsHTTPPort(t *testing.T) {
+	if got := httpsPort(Spec{Port: int(runtimeHTTPSPort)}); got == runtimeHTTPSPort {
+		t.Errorf("https port %d collides with the HTTP port", got)
+	}
+	if got := httpsPort(Spec{Port: 9090}); got != runtimeHTTPSPort {
+		t.Errorf("https port = %d, want %d", got, runtimeHTTPSPort)
+	}
+}
+
 func TestTraefikReencrypt(t *testing.T) {
 	c, cs, _, _ := tlsClient(tlsConfig("traefik"))
 	ctx := context.Background()

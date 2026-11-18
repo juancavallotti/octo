@@ -835,9 +835,12 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 		ctx, tokenSecretName(deploymentID), del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete token secret: %w", err))
 	}
-	// Only deployments serving internal TLS have one; a missing one is ignored.
-	if err := c.deleteCertificate(ctx, deploymentID); err != nil {
-		errs = append(errs, err)
+	// Only deployments serving internal TLS have one, and only an installation
+	// that issues them holds the RBAC to look; a missing one is ignored.
+	if c.InternalTLSEnabled() {
+		if err := c.deleteCertificate(ctx, deploymentID); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("kube: delete %s: %w", name, errors.Join(errs...))

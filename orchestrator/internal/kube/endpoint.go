@@ -58,6 +58,9 @@ type endpointPublisher interface {
 type ingressPublisher struct {
 	clientset kubernetes.Interface
 	dynamic   dynamic.Interface
+	// reencrypt is whether this installation serves internal TLS, and so whether
+	// it may hold re-encrypt objects at all — and the RBAC to touch them.
+	reencrypt bool
 	// ns is the namespace an Ingress goes in: the environment's the request acts in.
 	ns func(context.Context) string
 	// clusterIssuer names a cert-manager ClusterIssuer for per-host TLS. Empty =
@@ -106,7 +109,7 @@ func (p *ingressPublisher) withdraw(ctx context.Context, name string) error {
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete ingress: %w", err)
 	}
-	if ingressController(p.ingressClass) == controllerTraefik {
+	if p.reencrypt && ingressController(p.ingressClass) == controllerTraefik {
 		return p.withdrawTraefikTransport(ctx, name)
 	}
 	return nil

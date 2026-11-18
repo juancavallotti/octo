@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { KeyRound } from "lucide-react";
 import { useCertificates } from "../../providers/CertificateProvider";
 import { useResourceStore } from "../../providers/ResourceStoreProvider";
@@ -87,6 +87,12 @@ function MintForm({
   const [days, setDays] = useState(DEFAULT_DAYS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Minting awaits the host and the store, so the group and the project are read
+  // when it finishes rather than when it started: an edit made meanwhile survives.
+  const latest = useRef({ value, files });
+  useEffect(() => {
+    latest.current = { value, files };
+  });
 
   const mint = async () => {
     if (!minter || !store) return;
@@ -102,11 +108,12 @@ function MintForm({
       const names = mintedNames(commonName.trim(), existing);
       await store.create({ name: names.cert, kind: "template", content: pair.cert });
       await store.create({ name: names.key, kind: "template", content: pair.key });
-      const changes = declareAllInProject(files, [names.cert, names.key], "template");
+      const now = latest.current;
+      const changes = declareAllInProject(now.files, [names.cert, names.key], "template");
       if (changes.length > 0) {
         dispatch({ type: EditorActionType.SET_RESOURCES, data: { changes } });
       }
-      onChange(withMintedPair(value, names));
+      onChange(withMintedPair(now.value, names));
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

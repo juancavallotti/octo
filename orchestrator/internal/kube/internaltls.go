@@ -16,7 +16,8 @@ const (
 	// httpsPortName names the HTTPS port on a deployment's container and Services.
 	httpsPortName = "https"
 	// runtimeHTTPSPort is where a deployment serving internal TLS listens for
-	// HTTPS, handed to the runtime as HTTPS_PORT. Its plain HTTP port is unchanged.
+	// HTTPS, handed to the runtime as HTTPS_PORT, unless its plain HTTP port is
+	// already this one (see httpsPort).
 	runtimeHTTPSPort int32 = 8443
 	// serviceHTTPSPort is the HTTPS port on the deployment's Services, so an
 	// internal https:// address needs no port.
@@ -41,6 +42,15 @@ const (
 // certificateGVR is cert-manager's Certificate, written through the dynamic
 // client so the orchestrator does not link cert-manager's API module.
 var certificateGVR = schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
+
+// httpsPort is where spec's runtime listens for HTTPS: runtimeHTTPSPort, or the
+// port after it when the integration already serves plain HTTP there.
+func httpsPort(spec Spec) int32 {
+	if spec.port() == runtimeHTTPSPort {
+		return runtimeHTTPSPort + 1
+	}
+	return runtimeHTTPSPort
+}
 
 // InternalTLSEnabled reports whether deployments can serve HTTPS inside the
 // cluster: an internal CA issuer is configured.
@@ -157,7 +167,7 @@ func (c *Client) tlsEnv(spec Spec) []corev1.EnvVar {
 	var env []corev1.EnvVar
 	if c.servesTLS(spec) {
 		env = append(env,
-			corev1.EnvVar{Name: envHTTPSPort, Value: fmt.Sprint(runtimeHTTPSPort)},
+			corev1.EnvVar{Name: envHTTPSPort, Value: fmt.Sprint(httpsPort(spec))},
 			corev1.EnvVar{Name: envTLSCertFile, Value: tlsMountPath + "/" + corev1.TLSCertKey},
 			corev1.EnvVar{Name: envTLSKeyFile, Value: tlsMountPath + "/" + corev1.TLSPrivateKeyKey})
 	}
@@ -216,7 +226,7 @@ func (c *Client) tlsContainerPorts(spec Spec) []corev1.ContainerPort {
 	if !c.servesTLS(spec) {
 		return nil
 	}
-	return []corev1.ContainerPort{{Name: httpsPortName, ContainerPort: runtimeHTTPSPort}}
+	return []corev1.ContainerPort{{Name: httpsPortName, ContainerPort: httpsPort(spec)}}
 }
 
 func toAny(m map[string]string) map[string]any {
