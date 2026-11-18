@@ -33,6 +33,10 @@ export type FieldType =
   // A list of MCP prompts an mcp-router advertises. Each entry serializes as
   // {name, description?, arguments?, resource}. Plain data (no sub-flow).
   | "mcp-prompt-list"
+  // The server-side tools an AI block enables on its LLM connector. Each entry
+  // serializes as {type, settings?}; the types and their fields come from the
+  // selected connector's `providerTools` catalogue. Plain data (no sub-flow).
+  | "provider-tool-list"
   // A bare block chain (not wrapped in a sub-flow), serialized directly as a
   // list of blocks under its field name — e.g. handle-errors' process/error.
   | "block-list"
@@ -139,6 +143,14 @@ export interface SourceSpec {
   fields: FieldSpec[];
 }
 
+/** A server-side tool an LLM connector runs, and the fields that configure it. */
+export interface ProviderToolSpec {
+  type: string;
+  label: string;
+  description?: string;
+  fields: FieldSpec[];
+}
+
 /** A connector type the runtime supports. */
 export interface ConnectorSpec {
   type: string;
@@ -153,6 +165,8 @@ export interface ConnectorSpec {
   category?: string;
   settings: FieldSpec[];
   sources: SourceSpec[];
+  /** The server-side tools an LLM connector runs; absent for every other connector. */
+  providerTools?: ProviderToolSpec[];
 }
 
 /** The full capability catalogue. */

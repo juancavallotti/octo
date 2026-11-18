@@ -172,6 +172,9 @@ type LLMRequest struct {
 	ToolChoice LLMToolChoice
 	// MaxTokens caps the response length. Zero means the connector's default.
 	MaxTokens int
+	// ProviderTools are the server-side tools the provider may run during the
+	// turn. Empty enables none. See LLMProviderTool.
+	ProviderTools []LLMProviderTool
 }
 
 // LLMRole identifies who produced a message.
@@ -209,6 +212,10 @@ type LLMMessage struct {
 	Thinking    []LLMThinkingBlock
 	ToolCalls   []LLMToolCall
 	ToolResults []LLMToolResult
+	// Opaque is the assistant turn in its provider's own encoding, set only when
+	// the portable fields above cannot express it without loss. See
+	// LLMOpaqueTurn: callers carry it back via LLMResponse.Raw untouched.
+	Opaque *LLMOpaqueTurn `json:",omitempty"`
 }
 
 // LLMThinkingBlock is one reasoning block from an assistant turn, carried because

@@ -193,7 +193,13 @@ type agentSettings struct {
 	// never has to know where the conversation is stored. Needs an agentId.
 	NameThread *types.FlowConfig `json:"nameThread" octo:"label=Name conversation,type=flow"`
 	// Named, described branches wired to the model as callable functions.
-	Tools []agentToolSettings `json:"tools" octo:"label=Tools,type=tool-list,required"`
+	// Required unless provider tools are enabled.
+	Tools []agentToolSettings `json:"tools" octo:"label=Tools,type=tool-list"`
+	// Server-side tools the connector's provider runs during a turn — web search,
+	// web fetch, code execution — each a type from the connector's catalogue and
+	// that tool's settings. A type the connector does not run fails the build.
+	//nolint:lll // the tag carries a label and a type and is longer than 120 cols
+	ProviderTools []providerToolSettings `json:"providerTools" octo:"label=Provider tools,type=provider-tool-list"`
 	// Named instruction resources the agent can load on demand. Each skill's name
 	// and description are shown to the model up front; it calls the implicit
 	// load_skill tool to pull the resource's full content into the conversation.

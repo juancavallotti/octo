@@ -44,11 +44,12 @@ func init() {
 	})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
-		Type:     "llm-openrouter",
-		Label:    "OpenRouter",
-		Icon:     "Sparkles",
-		Category: "llm",
-		Settings: reflect.TypeFor[connectorSettings](),
+		Type:          "llm-openrouter",
+		Label:         "OpenRouter",
+		Icon:          "Sparkles",
+		Category:      "llm",
+		Settings:      reflect.TypeFor[connectorSettings](),
+		ProviderTools: providerToolMeta(),
 	})
 }
 
@@ -110,10 +111,11 @@ type Connector struct {
 }
 
 var (
-	_ core.Connector       = (*Connector)(nil)
-	_ core.LLMClient       = (*Connector)(nil)
-	_ core.LLMStreamClient = (*Connector)(nil)
-	_ core.EmbedClient     = (*Connector)(nil)
+	_ core.Connector        = (*Connector)(nil)
+	_ core.LLMClient        = (*Connector)(nil)
+	_ core.LLMStreamClient  = (*Connector)(nil)
+	_ core.LLMProviderTools = (*Connector)(nil)
+	_ core.EmbedClient      = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -270,6 +272,13 @@ func (c *Connector) params(req core.LLMRequest, streaming bool) (sdk.ChatComplet
 		if choice, ok := toToolChoice(req.ToolChoice); ok {
 			params.ToolChoice = choice
 		}
+	}
+	if len(req.ProviderTools) > 0 {
+		serverTools, err := toServerTools(req.ProviderTools)
+		if err != nil {
+			return sdk.ChatCompletionNewParams{}, fmt.Errorf("llm-openrouter: %w", err)
+		}
+		params.Tools = append(params.Tools, serverTools...)
 	}
 	if streaming {
 		// Without this the usage object never arrives on a streamed turn, and a

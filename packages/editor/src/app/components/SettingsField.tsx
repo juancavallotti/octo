@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Variable } from "lucide-react";
 import type { FieldSpec } from "../schema/types";
 import StringListEditor from "./fields/StringListEditor";
@@ -10,6 +10,7 @@ import RuleListEditor from "./fields/RuleListEditor";
 import SkillListEditor from "./fields/SkillListEditor";
 import MCPResourceListEditor from "./fields/MCPResourceListEditor";
 import MCPPromptListEditor from "./fields/MCPPromptListEditor";
+import ProviderToolListEditor from "./fields/ProviderToolListEditor";
 import ReferenceField from "./fields/ReferenceField";
 import EnvValueField, { isEnvRef } from "./fields/EnvValueField";
 import CelEditor from "../cel/CelEditor";
@@ -33,17 +34,23 @@ const canUseEnv = (field: FieldSpec) =>
  * Renders one block setting as a labelled, controlled input chosen by the
  * field's schema type. The parent (SettingsPanel) owns the value and persists
  * changes via `onChange`. Slot fields (flow/flow-list/case-list) are never passed here —
- * they're edited on the canvas.
+ * they're edited on the canvas. `siblings` is the record the field sits in, for the
+ * few inputs whose options depend on another setting of the same block.
  */
 export default function SettingsField({
   field,
   value,
   onChange,
+  siblings,
 }: {
   field: FieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
+  siblings?: Record<string, unknown>;
 }) {
+  // The control's DOM id. Generated rather than taken from field.name, which two
+  // fields rendered side by side (the same setting on two list entries) can share.
+  const id = useId();
   const envCapable = canUseEnv(field);
   // Seed env mode from the current value (a loaded `${VAR}`), then let the toggle
   // drive it. Switching modes clears the value so the stale literal/ref is gone.
@@ -53,7 +60,7 @@ export default function SettingsField({
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1.5">
         <label
-          htmlFor={field.name}
+          htmlFor={id}
           className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
         >
           {field.label}
@@ -85,7 +92,7 @@ export default function SettingsField({
       {envMode ? (
         <EnvValueField value={value} onChange={onChange} />
       ) : (
-        renderInput(field, value, onChange)
+        renderInput(id, field, value, onChange, siblings)
       )}
       {field.description && (
         <p className="text-xs text-zinc-400 dark:text-zinc-500">
@@ -97,9 +104,11 @@ export default function SettingsField({
 }
 
 function renderInput(
+  id: string,
   field: FieldSpec,
   value: unknown,
   onChange: (value: unknown) => void,
+  siblings?: Record<string, unknown>,
 ) {
   // A reference field (to a connection/flow) renders as a dropdown of valid
   // targets regardless of its underlying scalar type.
@@ -119,7 +128,7 @@ function renderInput(
       return (
         <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
           <input
-            id={field.name}
+            id={id}
             type="checkbox"
             checked={Boolean(value)}
             onChange={(e) => onChange(e.target.checked)}
@@ -134,7 +143,7 @@ function renderInput(
     case "number":
       return (
         <input
-          id={field.name}
+          id={id}
           type="number"
           value={value === undefined || value === null ? "" : String(value)}
           onChange={(e) =>
@@ -147,7 +156,7 @@ function renderInput(
     case "enum":
       return (
         <select
-          id={field.name}
+          id={id}
           value={value === undefined || value === null ? "" : String(value)}
           onChange={(e) =>
             onChange(e.target.value === "" ? undefined : e.target.value)
@@ -166,7 +175,7 @@ function renderInput(
     case "cel":
       return (
         <CelEditor
-          id={field.name}
+          id={id}
           value={value === undefined || value === null ? "" : String(value)}
           onChange={(v) => onChange(v)}
         />
@@ -193,6 +202,15 @@ function renderInput(
     case "mcp-prompt-list":
       return <MCPPromptListEditor value={value} onChange={onChange} />;
 
+    case "provider-tool-list":
+      return (
+        <ProviderToolListEditor
+          value={value}
+          connection={siblings?.connector}
+          onChange={onChange}
+        />
+      );
+
     case "object":
       return <ObjectGroup field={field} value={value} onChange={onChange} />;
 
@@ -200,7 +218,7 @@ function renderInput(
       // string and any unknown scalar.
       return (
         <input
-          id={field.name}
+          id={id}
           type="text"
           value={value === undefined || value === null ? "" : String(value)}
           onChange={(e) => onChange(e.target.value)}

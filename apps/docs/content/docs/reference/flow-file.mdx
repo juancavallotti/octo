@@ -291,7 +291,7 @@ Across the composites the slots are `process`, `error`, `branches`, `condition`,
 `chunkSize`, `onError`, `buildResponse`, `correlation`, `strategy`,
 `expression`, `completionSize`, `completionTimeout`, `completionExpression`,
 `timeoutFrom`, `storeKey`, `maxGroups`, `onOverflow`, `connector`, `prompt`,
-`guardrail`, `routes`, `tools`, `skills`, `maxIterations`, `maxAttempts`,
+`guardrail`, `routes`, `tools`, `providerTools`, `skills`, `maxIterations`, `maxAttempts`,
 `serverName`, `resources`, `prompts`, `memoryThreadId`, `contextMaxTokens`,
 `memoryCompaction`, and the further `ai-agent` memory, streaming and
 authorization slots listed on [AI](/reference/blocks/ai#ai-agent). Each
@@ -369,8 +369,8 @@ sub-flow when the `guardrail` applies. Slots: `connector`, `prompt`,
 ### ai-agent
 
 An LLM agent that calls the flows in `tools` in a loop until it produces a
-result. Slots: `connector`, `prompt`, `guardrail`, `tools`, `skills`,
-`default`, `maxIterations`, `memoryThreadId`, `contextMaxTokens`,
+result. Slots: `connector`, `prompt`, `guardrail`, `tools`, `providerTools`,
+`skills`, `default`, `maxIterations`, `memoryThreadId`, `contextMaxTokens`,
 `memoryCompaction`. See [AI](/reference/blocks/ai#ai-agent) and
 [AI Agents](/ai/agents).
 

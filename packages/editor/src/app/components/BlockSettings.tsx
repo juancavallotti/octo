@@ -104,6 +104,7 @@ export default function BlockSettings({ block }: { block: BlockNode }) {
               key={`${block.id}:${field.name}`}
               field={field}
               value={block.settings[field.name]}
+              siblings={block.settings}
               onChange={(value) =>
                 dispatch({
                   type: EditorActionType.UPDATE_BLOCK_SETTING,

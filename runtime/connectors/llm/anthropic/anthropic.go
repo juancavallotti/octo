@@ -36,11 +36,12 @@ func init() {
 	})
 
 	core.RegisterConnectorMeta(core.ConnectorMeta{
-		Type:     "llm-anthropic",
-		Label:    "Anthropic",
-		Icon:     "Sparkles",
-		Category: "llm",
-		Settings: reflect.TypeFor[connectorSettings](),
+		Type:          "llm-anthropic",
+		Label:         "Anthropic",
+		Icon:          "Sparkles",
+		Category:      "llm",
+		Settings:      reflect.TypeFor[connectorSettings](),
+		ProviderTools: providerToolMeta(),
 	})
 }
 
@@ -86,9 +87,10 @@ type Connector struct {
 // compile-time checks that the connector is both a lifecycle connector and an
 // LLM client.
 var (
-	_ core.Connector       = (*Connector)(nil)
-	_ core.LLMClient       = (*Connector)(nil)
-	_ core.LLMStreamClient = (*Connector)(nil)
+	_ core.Connector        = (*Connector)(nil)
+	_ core.LLMClient        = (*Connector)(nil)
+	_ core.LLMStreamClient  = (*Connector)(nil)
+	_ core.LLMProviderTools = (*Connector)(nil)
 )
 
 // Start parses the settings, validates the API key, and builds the client so a
@@ -182,11 +184,18 @@ func (c *Connector) Complete(ctx context.Context, req core.LLMRequest) (*core.LL
 	if err != nil {
 		return nil, err
 	}
-	message, err := c.client.Messages.New(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("llm-anthropic complete: %w", err)
+	turn := newPausedTurn(params)
+	for {
+		message, err := c.client.Messages.New(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("llm-anthropic complete: %w", err)
+		}
+		turn.add(message)
+		if !turn.resume(&params) {
+			break
+		}
 	}
-	return translateResponse(message, c.model), nil
+	return translateResponse(turn.message(), c.model), nil
 }
 
 // Stream runs one Messages turn over the streaming endpoint, reporting content as
@@ -203,6 +212,26 @@ func (c *Connector) Stream(
 		return nil, err
 	}
 
+	turn := newPausedTurn(params)
+	for {
+		message, err := c.streamRound(ctx, params, turn.offset(), on)
+		if err != nil {
+			return nil, err
+		}
+		turn.add(message)
+		if !turn.resume(&params) {
+			break
+		}
+	}
+	return translateResponse(turn.message(), c.model), nil
+}
+
+// streamRound runs one streamed request and returns the message it accumulated.
+// offset shifts the index of every event it reports, so the indexes of a turn
+// resumed after a pause continue where the previous round's left off.
+func (c *Connector) streamRound(
+	ctx context.Context, params sdk.MessageNewParams, offset int, on func(core.LLMStreamEvent) error,
+) (*sdk.Message, error) {
 	stream := c.client.Messages.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
@@ -220,14 +249,14 @@ func (c *Connector) Stream(
 		}
 		// Accumulate first: an input_json_delta needs the tool name and id the
 		// content_block_start already opened at its index.
-		if emitErr := emitEvent(&acc, event, on); emitErr != nil {
+		if emitErr := emitEvent(&acc, event, offset, on); emitErr != nil {
 			return nil, emitErr
 		}
 	}
 	if streamErr := stream.Err(); streamErr != nil {
 		return nil, fmt.Errorf("llm-anthropic stream: %w", streamErr)
 	}
-	return translateResponse(&acc, c.model), nil
+	return &acc, nil
 }
 
 // emitEvent maps one SDK stream event onto the canonical vocabulary.
@@ -235,11 +264,14 @@ func (c *Connector) Stream(
 // Only content deltas map. The terminal events carry nothing a caller cannot read
 // off the returned response, and a signature_delta is bookkeeping the accumulator
 // consumes on the caller's behalf.
-func emitEvent(acc *sdk.Message, event sdk.MessageStreamEventUnion, on func(core.LLMStreamEvent) error) error {
+func emitEvent(
+	acc *sdk.Message, event sdk.MessageStreamEventUnion, offset int, on func(core.LLMStreamEvent) error,
+) error {
 	if event.Type != "content_block_delta" {
 		return nil
 	}
-	index := int(event.Index)
+	local := int(event.Index)
+	index := offset + local
 	switch event.Delta.Type {
 	case "text_delta":
 		return on(core.LLMStreamEvent{Kind: core.LLMStreamText, Text: event.Delta.Text, Index: index})
@@ -249,9 +281,16 @@ func emitEvent(acc *sdk.Message, event sdk.MessageStreamEventUnion, on func(core
 		return nil
 	case "input_json_delta":
 		ev := core.LLMStreamEvent{Kind: core.LLMStreamToolInput, Text: event.Delta.PartialJSON, Index: index}
-		if index >= 0 && index < len(acc.Content) {
-			ev.Tool = acc.Content[index].Name
-			ev.ToolCallID = acc.Content[index].ID
+		if local >= 0 && local < len(acc.Content) {
+			block := acc.Content[local]
+			ev.Tool = block.Name
+			ev.ToolCallID = block.ID
+			// A server tool's input is the provider's own call, not one the caller
+			// runs, so it is reported as custom rather than as a tool call.
+			if block.Type != blockToolUse {
+				ev.Kind = core.LLMStreamCustom
+				ev.Name = block.Type
+			}
 		}
 		return on(ev)
 	default:
@@ -299,6 +338,13 @@ func (c *Connector) params(req core.LLMRequest) (sdk.MessageNewParams, error) {
 			params.ToolChoice = choice
 		}
 	}
+	if len(req.ProviderTools) > 0 {
+		serverTools, err := toServerTools(req.ProviderTools)
+		if err != nil {
+			return sdk.MessageNewParams{}, fmt.Errorf("llm-anthropic: %w", err)
+		}
+		params.Tools = append(params.Tools, serverTools...)
+	}
 	c.applyThinking(&params, req.ToolChoice)
 	return params, nil
 }
@@ -317,6 +363,14 @@ func toMessages(msgs []core.LLMMessage) ([]sdk.MessageParam, error) {
 			}
 			out = append(out, sdk.NewUserMessage(blocks...))
 		case core.LLMRoleAssistant:
+			if raw := m.OpaqueFor(core.ProviderAnthropic); raw != nil {
+				msg, err := opaqueMessage(raw)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, msg)
+				continue
+			}
 			out = append(out, sdk.NewAssistantMessage(assistantBlocks(m)...))
 		case core.LLMRoleTool:
 			blocks := make([]sdk.ContentBlockParamUnion, 0, len(m.ToolResults))
@@ -438,8 +492,9 @@ func describeAttachment(a core.LLMAttachment, i int) string {
 	return fmt.Sprintf("at index %d", i)
 }
 
-// assistantBlocks builds one assistant turn's content: thinking, then text, then
-// tool_use.
+// assistantBlocks builds one assistant turn's content from its portable fields:
+// thinking, then text, then tool_use. A turn this connector kept opaque is sent
+// verbatim instead, by toMessages.
 //
 // Thinking leads, in the order the model produced it, because the server validates
 // the thinking runs of an echoed turn — a block that went missing merges two runs
@@ -573,7 +628,7 @@ func translateResponse(message *sdk.Message, configuredModel string) *core.LLMRe
 			})
 		case "redacted_thinking":
 			thinking = append(thinking, core.LLMThinkingBlock{Redacted: []byte(block.Data)})
-		case "tool_use":
+		case blockToolUse:
 			calls = append(calls, core.LLMToolCall{
 				ID:    block.ID,
 				Name:  block.Name,
@@ -596,6 +651,7 @@ func translateResponse(message *sdk.Message, configuredModel string) *core.LLMRe
 		Text:      resp.Text,
 		Thinking:  thinking,
 		ToolCalls: calls,
+		Opaque:    opaqueTurn(message.Content),
 	}
 	return resp
 }
@@ -638,7 +694,8 @@ func translateUsage(u sdk.Usage) *core.LLMUsage {
 }
 
 // mapStopReason maps the Anthropic stop reason wire value to the agnostic one.
-// stop_sequence and pause_turn fold into end_turn (a normal completion).
+// stop_sequence folds into end_turn (a normal completion), and so does a
+// pause_turn still standing after the continuation cap.
 func mapStopReason(wire string) core.LLMStopReason {
 	switch wire {
 	case "tool_use":
