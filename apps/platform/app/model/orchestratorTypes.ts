@@ -206,8 +206,14 @@ export interface Deployment {
   reason?: string;
   /** Per-pod live detail. */
   pods?: PodStatus[];
-  /** In-cluster address other flows use to reach this integration, if any. */
+  /** In-cluster address other flows use to reach this integration, if any. The
+   * https:// address when the deployment serves internal TLS. */
   internalUrl?: string;
+  /** Whether the deployment serves HTTPS inside the cluster beside plain HTTP. */
+  internalTls?: boolean;
+  /** The plain-HTTP in-cluster address of a deployment serving internal TLS.
+   * Deprecated as of 1.0: use internalUrl. */
+  internalHttpUrl?: string;
   /** Public https URL when the deployment is exposed externally. */
   externalUrl?: string;
   /** RFC3339 timestamp of the workload's creation (age anchor), if known. */
@@ -254,6 +260,8 @@ export interface DeploymentInput {
   expose?: "external";
   /** External host label; defaults to the slug when omitted. */
   subdomain?: string;
+  /** Serve HTTPS inside the cluster beside plain HTTP; needs an internal CA. */
+  internalTls?: boolean;
   /** Bindings for the integration's declared env vars, keyed by var name. */
   env?: Record<string, EnvBindingInput>;
   /** Run the pods with the runtime tracer on. Off by default; it costs throughput. */
@@ -350,4 +358,6 @@ export interface DeployOptions {
   slugValid: boolean;
   /** The candidate is not already claimed (subdomain too, when external). */
   slugAvailable: boolean;
+  /** The installation can issue internal certificates, so internalTls may be set. */
+  internalTlsAvailable?: boolean;
 }

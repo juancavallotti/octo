@@ -30,6 +30,8 @@ export interface DeploySubmit {
   replicas: number;
   slug?: string;
   expose?: "external";
+  /** Serve HTTPS inside the cluster beside plain HTTP. */
+  internalTls?: boolean;
   env?: Record<string, EnvBindingInput>;
   tracing?: boolean;
   access?: DeploymentAccess[];
@@ -62,6 +64,7 @@ export default function DeployModal({
   const currentMode = activeSnapshot === null;
   const [replicas, setReplicas] = useState(1);
   const [expose, setExpose] = useState(false);
+  const [internalTls, setInternalTls] = useState(false);
   const [slug, setSlug] = useState("");
   const [slugOk, setSlugOk] = useState(false);
   const [tracing, setTracing] = useState(false);
@@ -105,6 +108,7 @@ export default function DeployModal({
   }, [busy, onClose]);
 
   const networked = opts?.networked ?? false;
+  const internalTlsAvailable = opts?.internalTlsAvailable ?? false;
   const canDeploy =
     !busy &&
     opts !== null &&
@@ -122,6 +126,9 @@ export default function DeployModal({
       replicas,
       ...(networked ? { slug: slug.trim() } : {}),
       ...(networked && expose ? { expose: "external" } : {}),
+      ...(networked && internalTlsAvailable && internalTls
+        ? { internalTls: true }
+        : {}),
       ...(Object.keys(env).length ? { env } : {}),
       ...(tracing ? { tracing: true } : {}),
       ...(access.length > 0 ? { access } : {}),
@@ -170,6 +177,9 @@ export default function DeployModal({
           networked={networked}
           expose={expose}
           onExpose={setExpose}
+          internalTls={internalTls}
+          internalTlsAvailable={internalTlsAvailable}
+          onInternalTls={setInternalTls}
           slug={slug}
           onSlug={setSlug}
           onSlugOk={setSlugOk}
