@@ -16,8 +16,8 @@ const (
 	// httpsPortName names the HTTPS port on a deployment's container and Services.
 	httpsPortName = "https"
 	// runtimeHTTPSPort is where a deployment serving internal TLS listens for
-	// HTTPS, handed to the runtime as HTTPS_PORT, unless its plain HTTP port is
-	// already this one (see httpsPort).
+	// HTTPS, handed to the runtime as HTTPS_PORT; the runtime then opens no plain
+	// HTTP port.
 	runtimeHTTPSPort int32 = 8443
 	// serviceHTTPSPort is the HTTPS port on the deployment's Services, so an
 	// internal https:// address needs no port.
@@ -42,15 +42,6 @@ const (
 // certificateGVR is cert-manager's Certificate, written through the dynamic
 // client so the orchestrator does not link cert-manager's API module.
 var certificateGVR = schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
-
-// httpsPort is where spec's runtime listens for HTTPS: runtimeHTTPSPort, or the
-// port after it when the integration already serves plain HTTP there.
-func httpsPort(spec Spec) int32 {
-	if spec.port() == runtimeHTTPSPort {
-		return runtimeHTTPSPort + 1
-	}
-	return runtimeHTTPSPort
-}
 
 // InternalTLSEnabled reports whether deployments can serve HTTPS inside the
 // cluster: an internal CA issuer is configured.
@@ -144,8 +135,7 @@ func (c *Client) deleteCertificate(ctx context.Context, deploymentID string) err
 }
 
 // servicePorts is a deployment Service's one port: HTTPS when the deployment
-// serves internal TLS, plain HTTP otherwise. The runtime's plain listener keeps
-// running beside its HTTPS one, but nothing routes to it.
+// serves internal TLS, plain HTTP otherwise.
 func (c *Client) servicePorts(spec Spec) []corev1.ServicePort {
 	if c.servesTLS(spec) {
 		return []corev1.ServicePort{{
@@ -167,7 +157,7 @@ func (c *Client) tlsEnv(spec Spec) []corev1.EnvVar {
 	var env []corev1.EnvVar
 	if c.servesTLS(spec) {
 		env = append(env,
-			corev1.EnvVar{Name: envHTTPSPort, Value: fmt.Sprint(httpsPort(spec))},
+			corev1.EnvVar{Name: envHTTPSPort, Value: fmt.Sprint(runtimeHTTPSPort)},
 			corev1.EnvVar{Name: envTLSCertFile, Value: tlsMountPath + "/" + corev1.TLSCertKey},
 			corev1.EnvVar{Name: envTLSKeyFile, Value: tlsMountPath + "/" + corev1.TLSPrivateKeyKey})
 	}
@@ -220,13 +210,14 @@ func (c *Client) tlsVolumes(spec Spec) []corev1.Volume {
 	return volumes
 }
 
-// tlsContainerPorts declares the HTTPS port on the runtime container, which the
-// Services target by name.
-func (c *Client) tlsContainerPorts(spec Spec) []corev1.ContainerPort {
-	if !c.servesTLS(spec) {
-		return nil
+// servingPort is the runtime container's one serving port, which the Services
+// target by name: HTTPS when the deployment serves internal TLS, plain HTTP
+// otherwise.
+func (c *Client) servingPort(spec Spec) corev1.ContainerPort {
+	if c.servesTLS(spec) {
+		return corev1.ContainerPort{Name: httpsPortName, ContainerPort: runtimeHTTPSPort}
 	}
-	return []corev1.ContainerPort{{Name: httpsPortName, ContainerPort: httpsPort(spec)}}
+	return corev1.ContainerPort{Name: "http", ContainerPort: spec.port()}
 }
 
 func toAny(m map[string]string) map[string]any {

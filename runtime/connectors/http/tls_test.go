@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -140,7 +141,7 @@ func TestTLSSources(t *testing.T) {
 }
 
 // TestTLSFromHTTPSPortEnv covers enablement without a tls block: $HTTPS_PORT plus
-// a provisioned certificate adds the HTTPS listener next to plain HTTP.
+// a provisioned certificate moves the one listener to HTTPS on that port.
 func TestTLSFromHTTPSPortEnv(t *testing.T) {
 	certPEM, keyPEM := certstest.SelfSigned(t, "127.0.0.1")
 	provided, err := certs.FromPEM(certPEM, keyPEM)
@@ -152,14 +153,14 @@ func TestTLSFromHTTPSPortEnv(t *testing.T) {
 
 	ctx := core.ContextWithRuntimeServices(context.Background(), tlsServices{cert: provided})
 	c := startTLS(ctx, t, map[string]any{})
-	if c.secureLn == nil {
-		t.Fatal("HTTPS_PORT with a provisioned certificate did not open the HTTPS listener")
+	if c.secureLn != nil || !c.lnTLS {
+		t.Fatal("HTTPS_PORT must move the one listener to HTTPS, not add a second")
+	}
+	if got := c.ln.Addr().(*net.TCPAddr).Port; got != port {
+		t.Fatalf("listening on %d, want HTTPS_PORT %d", got, port)
 	}
 	if got := get(t, httpsClient(t, certPEM), "https://127.0.0.1:"+strconv.Itoa(port)+"/ping"); got != http.StatusOK {
 		t.Fatalf("tls status = %d", got)
-	}
-	if got := get(t, http.DefaultClient, "http://"+c.ln.Addr().String()+"/ping"); got != http.StatusOK {
-		t.Fatalf("plain status = %d", got)
 	}
 }
 

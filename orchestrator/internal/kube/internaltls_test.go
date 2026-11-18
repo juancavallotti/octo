@@ -193,15 +193,6 @@ func TestDeleteWithoutInternalTLSTouchesNoCustomResources(t *testing.T) {
 	}
 }
 
-func TestHTTPSPortAvoidsHTTPPort(t *testing.T) {
-	if got := httpsPort(Spec{Port: int(runtimeHTTPSPort)}); got == runtimeHTTPSPort {
-		t.Errorf("https port %d collides with the HTTP port", got)
-	}
-	if got := httpsPort(Spec{Port: 9090}); got != runtimeHTTPSPort {
-		t.Errorf("https port = %d, want %d", got, runtimeHTTPSPort)
-	}
-}
-
 func TestTraefikReencrypt(t *testing.T) {
 	c, cs, _, _ := tlsClient(tlsConfig("traefik"))
 	ctx := context.Background()
@@ -247,17 +238,13 @@ func TestNginxReencrypt(t *testing.T) {
 	}
 }
 
-// TestUnknownIngressClassRoutesPlainHTTP pins the fallback: a controller this
-// orchestrator cannot configure still reaches the pod, over its HTTP port.
-func TestUnknownIngressClassRoutesPlainHTTP(t *testing.T) {
-	c, cs, _, _ := tlsClient(tlsConfig("haproxy"))
-	ctx := context.Background()
-	if err := c.Apply(ctx, tlsSpec()); err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-	ing, _ := cs.NetworkingV1().Ingresses(testNamespace).Get(ctx, resourceName("d1"), metav1.GetOptions{})
-	if port := ing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port; port.Number != 9090 {
-		t.Errorf("ingress backend port = %+v, want 9090", port)
+// TestUnknownIngressClassRefusesInternalTLS pins that a controller this
+// orchestrator cannot configure is refused rather than routed to a port it
+// cannot speak to.
+func TestUnknownIngressClassRefusesInternalTLS(t *testing.T) {
+	c, _, _, _ := tlsClient(tlsConfig("haproxy"))
+	if err := c.Apply(context.Background(), tlsSpec()); err == nil {
+		t.Fatal("Apply exposed an internal-TLS deployment through an ingress that cannot re-encrypt")
 	}
 }
 

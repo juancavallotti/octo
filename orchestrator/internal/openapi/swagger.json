@@ -390,7 +390,7 @@
                         "type": "string"
                     },
                     "internalTls": {
-                        "description": "InternalTLS has a networked deployment serve HTTPS inside the cluster beside\nplain HTTP, with a certificate from the installation's internal CA. Ignored\nfor integrations with no HTTP source.",
+                        "description": "InternalTLS has a networked deployment serve HTTPS inside the cluster instead\nof plain HTTP, with a certificate from the installation's internal CA.\nIgnored for integrations with no HTTP source.",
                         "type": "boolean"
                     },
                     "replicas": {
@@ -492,10 +492,6 @@
                         "type": "string"
                     },
                     "integrationId": {
-                        "type": "string"
-                    },
-                    "internalHttpUrl": {
-                        "description": "InternalHTTPURL is the plain-HTTP internal address of a deployment serving\ninternal TLS. Deprecated: plain-HTTP internal addresses are deprecated as of\n1.0; use InternalURL.",
                         "type": "string"
                     },
                     "internalTls": {

@@ -3,7 +3,6 @@ package kube
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -90,11 +89,10 @@ func (p *ingressPublisher) publish(ctx context.Context, ep endpoint) error {
 			}
 		case controllerNginx:
 		default:
-			// The Service still answers plain HTTP beside HTTPS, so the endpoint
-			// keeps working; only the hop from the ingress to the pod is unencrypted.
-			slog.Warn("ingress class cannot be configured to re-encrypt; routing plain HTTP to the pod",
-				"ingressClass", p.ingressClass, "endpoint", ep.name)
-			ep.tls = nil
+			// The pod answers HTTPS only, and this controller cannot be told to
+			// speak it: an Ingress would route to a port it cannot talk to.
+			return fmt.Errorf("ingress class %q cannot re-encrypt to a deployment serving internal TLS; "+
+				"expose it without internal TLS, or use Traefik, ingress-nginx or Gateway API", p.ingressClass)
 		}
 	}
 	ing := p.ingress(namespace, ep)

@@ -31,7 +31,7 @@ The `http` connector (label: **HTTP Server**) owns a single HTTP server: host, p
 | `writeTimeout` | duration | No | unset | Server write timeout. |
 | `idleTimeout` | duration | No | unset | Server idle timeout. |
 | `cors` | object | No | unset | Cross-origin resource sharing. Inert unless `allowedOrigins` is set. |
-| `tls` | object | No | unset | HTTPS. Inert unless enabled, a certificate source is set, or `$HTTPS_PORT` is set and the runtime provides a certificate. |
+| `tls` | object | No | unset | HTTPS. Inert unless enabled, a port or certificate source is set, or `$HTTPS_PORT` is set and a certificate is found. |
 
 Duration settings accept Go duration strings (`5s`, `250ms`).
 
@@ -42,7 +42,7 @@ Set `tls` to serve HTTPS. Without `tls.port`, the main `port` speaks TLS. With `
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | boolean | No | `false` | Serve TLS. Implied when any certificate source is set. |
-| `port` | int | No | `$HTTPS_PORT`, else unset | Second, HTTPS-only port. When unset, the main port speaks TLS. |
+| `port` | int | No | unset | Second, HTTPS-only port next to plain HTTP. When unset, the main port speaks TLS. |
 | `cert` / `key` | string | No | unset | Inline PEM certificate chain and private key, usually `${TLS_CERT}` / `${TLS_KEY}`. |
 | `certFile` / `keyFile` | string | No | unset | Paths to a PEM certificate chain and private key. A renewed pair is picked up without a restart. |
 | `certResource` / `keyResource` | string | No | unset | Resources holding the PEM certificate chain and private key. |
@@ -50,7 +50,7 @@ Set `tls` to serve HTTPS. Without `tls.port`, the main `port` speaks TLS. With `
 
 Set at most one certificate source, and set both halves of it. With no source, the certificate comes from the runtime: set `OCTO_TLS_CERT_FILE` and `OCTO_TLS_KEY_FILE` to the paths of a PEM pair. A `tls` block that finds no certificate fails at startup.
 
-When `$HTTPS_PORT` is set and the runtime provides a certificate, the connector adds the HTTPS listener even without a `tls` block. This is how the platform turns on internal HTTPS for a deployment without editing its flows.
+When `$HTTPS_PORT` is set and a certificate is found, the connector serves HTTPS on `$HTTPS_PORT` instead of plain HTTP on `port`, even without a `tls` block; it opens no plain port. This is how the platform switches a deployment to internal HTTPS without editing its flows.
 
 ```yaml
 env:

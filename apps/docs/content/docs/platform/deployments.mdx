@@ -37,25 +37,23 @@ http://octo-int-{slug}.{namespace}:{port}
 
 ### Internal HTTPS
 
-Check **Serve HTTPS inside the cluster** in the deploy dialog (`internalTls: true` in the API, `--internal-tls` in `octopaas deployments create`) to have a networked deployment serve HTTPS beside plain HTTP. You do not change the flow. The orchestrator:
+Check **Serve HTTPS inside the cluster** in the deploy dialog (`internalTls: true` in the API, `--internal-tls` in `octopaas deployments create`) to have a networked deployment serve HTTPS instead of plain HTTP. A deployment speaks one protocol or the other, never both, and you do not change the flow. The orchestrator:
 
 - requests a certificate from the installation's internal CA for the deployment's Service names,
-- mounts it into the pods and sets `HTTPS_PORT`, which makes the [`http` connector](/reference/connectors/http#tls-settings-tls) open an HTTPS listener next to its plain one,
-- adds an `https` port (443) to both Services.
+- mounts it into the pods and sets `HTTPS_PORT`, which makes the [`http` connector](/reference/connectors/http#tls-settings-tls) serve HTTPS there instead of plain HTTP,
+- gives both Services a single `https` port (443).
 
-The deployment's `internalUrl` is then the HTTPS address, and `internalHttpUrl` keeps the plain one:
+The deployment's `internalUrl` is then the HTTPS address:
 
 ```
 https://octo-int-{slug}.{namespace}.svc
 ```
 
-Every runtime pod trusts the internal CA, so a flow calls another deployment's `https://` address with no extra configuration. When the deployment is also exposed externally, the ingress re-encrypts to the pod instead of forwarding plain HTTP. This works on Traefik, ingress-nginx and Gateway API. Other ingress controllers keep forwarding to the plain port.
+Every runtime pod trusts the internal CA, so a flow calls another deployment's `https://` address with no extra configuration. When the deployment is also exposed externally, the ingress re-encrypts to the pod. This works on Traefik, ingress-nginx and Gateway API; other ingress controllers cannot reach a deployment serving internal HTTPS through an external endpoint.
 
-<Callout type="warn">
-Plain-HTTP internal addresses are deprecated as of 1.0. Move callers to `internalUrl` once their targets serve internal HTTPS.
-</Callout>
+Internal HTTPS needs runtime **0.11.18** or newer. A deployment pinned to an older runtime ignores `HTTPS_PORT`, so the API refuses `internalTls` for it, on deploy and on rollout.
 
-Internal HTTPS requires cert-manager and trust-manager in the cluster and the chart's `internalTLS.enabled`. Without them the option is disabled in the deploy dialog, and the API rejects it. See [Deploying with Helm](/deploy/helm).
+It also needs cert-manager and trust-manager in the cluster and the chart's `internalTLS.enabled`. Without them the option is disabled in the deploy dialog, and the API rejects it. See [Deploying with Helm](/deploy/helm).
 
 ### External exposure
 

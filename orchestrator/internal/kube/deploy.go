@@ -358,9 +358,8 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 	// not the integration serves HTTP.
 	ports := []corev1.ContainerPort{{Name: adminPortName, ContainerPort: adminPort}}
 	if spec.networked() {
-		ports = append(ports, corev1.ContainerPort{Name: "http", ContainerPort: spec.port()})
+		ports = append(ports, c.servingPort(spec))
 	}
-	ports = append(ports, c.tlsContainerPorts(spec)...)
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
 		Spec: appsv1.DeploymentSpec{

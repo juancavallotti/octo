@@ -102,8 +102,8 @@ type connectorSettings struct {
 	IdleTimeout duration `json:"idleTimeout" octo:"label=Idle timeout,type=string"`
 	// Cross-origin resource sharing. Inert unless allowedOrigins is set.
 	CORS corsSettings `json:"cors" octo:"label=CORS,type=object"`
-	// HTTPS. Inert unless enabled, a certificate source is set, or $HTTPS_PORT is
-	// set and the runtime provides a certificate.
+	// HTTPS. Inert unless enabled, a port or certificate source is set, or
+	// $HTTPS_PORT is set and a certificate is found.
 	TLS tlsSettings `json:"tls" octo:"label=TLS,type=tls-server"`
 }
 
@@ -218,10 +218,14 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 	return nil
 }
 
-// bind opens the main listener and, when plan asks for a second port, the HTTPS
-// one. Both bind eagerly so a port conflict fails Start; a failure on the second
-// releases the first.
+// bind opens the main listener — on $HTTPS_PORT instead of port when plan moved
+// it there — and, when plan asks for a second port, the HTTPS one. Both bind
+// eagerly so a port conflict fails Start; a failure on the second releases the
+// first.
 func (c *Connector) bind(ctx context.Context, host string, port int, plan *tlsPlan) error {
+	if plan != nil && plan.mainPort != nil {
+		port = *plan.mainPort
+	}
 	ln, err := listen(ctx, host, port)
 	if err != nil {
 		return err

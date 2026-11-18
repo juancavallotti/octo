@@ -15,8 +15,8 @@ import (
 
 const (
 	// envHTTPSPort is the unprefixed env var naming the HTTPS port. When it is set
-	// and the runtime services provision a certificate, the connector serves HTTPS
-	// on it next to plain HTTP even without a tls block.
+	// and a certificate is found, the connector serves HTTPS on it instead of plain
+	// HTTP on its port, even without a tls block.
 	envHTTPSPort = "HTTPS_PORT"
 
 	tlsVersion12 = "1.2"
@@ -28,8 +28,8 @@ const (
 type tlsSettings struct {
 	// Serve TLS. Implied when any certificate source below is set.
 	Enabled bool `json:"enabled" octo:"label=Enabled"`
-	// HTTPS port. When set, HTTPS listens here next to plain HTTP on the main port;
-	// when unset, the main port speaks TLS. Falls back to $HTTPS_PORT.
+	// Second, HTTPS-only port. When set, HTTPS listens here next to plain HTTP on the
+	// main port; when unset, the main port speaks TLS.
 	Port *int `json:"port" octo:"label=HTTPS port"`
 	// PEM certificate chain, usually ${TLS_CERT}.
 	Cert string `json:"cert" octo:"label=Certificate (PEM)"`
@@ -53,6 +53,9 @@ type tlsPlan struct {
 	config *tls.Config
 	// port is the second, HTTPS-only port; nil means the main port speaks TLS.
 	port *int
+	// mainPort, from $HTTPS_PORT, moves the main listener there: the connector then
+	// serves HTTPS on it and opens no plain HTTP port at all.
+	mainPort *int
 }
 
 // resolveTLS decides how the connector serves HTTPS, or returns nil when it serves
@@ -61,11 +64,11 @@ type tlsPlan struct {
 // certificate is not, since the variable alone says nothing about the flow's intent.
 func resolveTLS(ctx context.Context, set tlsSettings) (*tlsPlan, error) {
 	explicit := set.Enabled || set.Port != nil || set.hasSource()
-	port := set.Port
-	if port == nil {
-		port = envHTTPSPortValue()
+	var mainPort *int
+	if set.Port == nil {
+		mainPort = envHTTPSPortValue()
 	}
-	if !explicit && port == nil {
+	if !explicit && mainPort == nil {
 		return nil, nil
 	}
 	src, err := tlsSource(ctx, set)
@@ -84,8 +87,9 @@ func resolveTLS(ctx context.Context, set tlsSettings) (*tlsPlan, error) {
 		return nil, err
 	}
 	return &tlsPlan{
-		config: &tls.Config{MinVersion: minVersion, GetCertificate: src.GetCertificate},
-		port:   port,
+		config:   &tls.Config{MinVersion: minVersion, GetCertificate: src.GetCertificate},
+		port:     set.Port,
+		mainPort: mainPort,
 	}, nil
 }
 
