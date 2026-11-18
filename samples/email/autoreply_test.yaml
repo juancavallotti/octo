@@ -10,12 +10,6 @@ mocks:
   autoreply.from-a-person[then].reply:
     default:
       body: {}
-  # Invoke mode starts no connector that a flow uses as its source, so the
-  # inbox connector is absent and the digest flow's imap-fetch could not be
-  # built. Mocking it lets the whole config build; this suite never runs it.
-  digest.last-day:
-    default:
-      body: []
 
 inputs:
   from-ann:
