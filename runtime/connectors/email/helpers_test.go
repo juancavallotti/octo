@@ -228,3 +228,7 @@ func (f *fakeFlow) seen() []string {
 }
 
 func completeAll(string) types.FlowEventKind { return types.FlowEventCompleted }
+
+func typesConfig(settings map[string]any) types.ConnectorConfig {
+	return types.ConnectorConfig{Settings: settings}
+}

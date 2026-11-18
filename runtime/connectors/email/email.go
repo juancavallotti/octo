@@ -34,4 +34,6 @@ func init() {
 	registerSMTPSend()
 	registerIMAP()
 	registerIMAPFetch()
+	registerPOP3()
+	registerPOP3Fetch()
 }
