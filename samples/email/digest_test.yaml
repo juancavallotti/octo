@@ -1,0 +1,27 @@
+# Tests the digest flow: the tick's window reaches imap-fetch, and the report
+# counts what it returned.
+#
+# The cron source does not run under invoke, so the tick its payload would have
+# produced is seeded. `last-day` is mocked with the list imap-fetch returns.
+flow: digest
+
+mocks:
+  digest.last-day:
+    default:
+      body:
+        - { uid: 1, subject: a, attachments: [] }
+        - { uid: 2, subject: b, attachments: [{ filename: q3.pdf, contentType: application/pdf, encoding: base64, size: 3, data: AAEC }] }
+
+cases:
+  - name: the fetched messages replace the body and are counted
+    input:
+      data: { since: "2026-11-16T12:00:00Z" }
+    expect:
+      that: ['size(body) == 2']
+    spies:
+      digest.last-day:
+        count: 1
+        records:
+          - input:
+              that: ['body.since == "2026-11-16T12:00:00Z"']
+      digest.report: { count: 1 }

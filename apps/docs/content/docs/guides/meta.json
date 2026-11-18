@@ -20,6 +20,7 @@
     "object-storage-and-caching",
     "reading-and-writing-files",
     "serving-html",
+    "email",
     "slack-bot",
     "notion-sync",
     "odoo-crm",

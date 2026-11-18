@@ -1,0 +1,99 @@
+service:
+  name: email
+
+# Email in and out: answer every message that reaches a support mailbox, and
+# once an hour log how much mail the last day brought.
+#
+# The autoreply flow is driven by the imap source. It polls the mailbox every
+# minute, runs each new message through the flow, and only once the flow
+# completes moves the message to the Answered folder — a reply that fails to
+# send leaves the message in the inbox for the next poll.
+#
+# The digest flow is driven by a cron schedule and reads the mailbox on command
+# with the imap-fetch block, without changing anything on the server.
+#
+# Setup:
+#   1. Create an Answered folder in the mailbox.
+#   2. Export the account's details. The sample uses one server for IMAP
+#      (implicit TLS, port 993) and SMTP (STARTTLS, port 587):
+#        export MAIL_HOST=mail.example.com
+#        export MAIL_USER=support@example.com
+#        export MAIL_PASSWORD=...
+#   3. Run: octo run --config samples/email/config.yaml
+
+env:
+  - name: MAIL_HOST
+    required: true
+  - name: MAIL_USER
+    required: true
+  - name: MAIL_PASSWORD
+    required: true
+
+connectors:
+  - name: inbox
+    type: imap
+    settings:
+      host: ${MAIL_HOST}
+      username: ${MAIL_USER}
+      password: ${MAIL_PASSWORD}
+
+  - name: outbox
+    type: smtp
+    settings:
+      host: ${MAIL_HOST}
+      username: ${MAIL_USER}
+      password: ${MAIL_PASSWORD}
+
+  - name: hourly
+    type: cron
+
+flows:
+  - name: autoreply
+    source:
+      connector: inbox
+      type: imap
+      settings:
+        interval: 1m
+        onSuccess: move
+        moveTo: Answered
+    process:
+      # Never answer another robot: auto-replies and bounces carry an
+      # Auto-Submitted header, and a bounce has no sender to write back to.
+      - type: if
+        name: from-a-person
+        condition: 'body.from != null && !("Auto-Submitted" in body.headers)'
+        then:
+          process:
+            - type: smtp-send
+              name: reply
+              settings:
+                connector: outbox
+                from: '"Support <" + env.MAIL_USER + ">"'
+                to: body.from.address
+                subject: '"Re: " + body.subject'
+                inReplyTo: body.messageId
+                text: >
+                  "Hi " + (body.from.name != "" ? body.from.name : "there") +
+                  ",\n\nThanks for writing. We received your message and will answer within one business day.\n"
+
+  - name: digest
+    source:
+      connector: hourly
+      type: cron
+      settings:
+        schedule: "@every 1h"
+        payload: '{"since": string(now - duration("24h"))}'
+    process:
+      # Reads at most 50 messages from the last day; onFetch stays at its
+      # default, none, so the digest never changes the mailbox.
+      - type: imap-fetch
+        name: last-day
+        settings:
+          connector: inbox
+          search: all
+          since: body.since
+          limit: 50
+      - type: log
+        name: report
+        settings:
+          message: '"mail in the last day: " + string(size(body)) + " messages, " + string(size(body.filter(m, m.attachments.size() > 0))) + " with attachments"'

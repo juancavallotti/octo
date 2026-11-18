@@ -1,0 +1,202 @@
+---
+title: "Email"
+description: "Receive mail over IMAP or POP3 and send it over SMTP: sources, fetch blocks, and smtp-send."
+octo_types:
+  - imap
+  - pop3
+  - smtp
+  - imap-fetch
+  - pop3-fetch
+  - smtp-send
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The email connectors connect flows to mail servers. Use `imap` or `pop3` to receive mail, either through a source that runs every new message through a flow or through a fetch block that reads the mailbox when a flow asks. Use `smtp` with the `smtp-send` block to send mail. Every connector can talk in clear text, upgrade with STARTTLS, or use implicit TLS.
+
+## Connection settings
+
+All three connectors share these settings. The default security mode and ports differ by protocol.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `host` | string | Yes | none | Server host name. |
+| `port` | int | No | depends on `security` | Server port. SMTP: 25 / 587 / 465. IMAP: 143 / 143 / 993. POP3: 110 / 110 / 995, for `none` / `starttls` / `tls`. |
+| `security` | enum | No | `starttls` (SMTP), `tls` (IMAP, POP3) | `none` talks in clear text. `starttls` connects in clear text and upgrades (STARTTLS, or STLS for POP3) before authenticating. `tls` negotiates TLS before the protocol starts. |
+| `tlsSkipVerify` | boolean | No | `false` | Accept any server certificate. This turns verification off, so use it only for lab servers with self-signed certificates. |
+| `username` | string | Yes for IMAP and POP3 | none | User to log in as. Leave it empty on `smtp` if the server needs no login. |
+| `password` | string | No | none | Password for the user. Use an `${ENV}` reference. |
+| `timeout` | duration | No | `60s` | Limits one session from dial to goodbye: one send, one poll, or one fetch. |
+
+A connector keeps no connection open. Each send, poll, or fetch opens its own session.
+
+<Callout type="warn">
+SMTP refuses to send credentials over a connection with `security: none`, unless the server is `localhost`. That protection is intentional. Use `starttls` or `tls` for any remote server that needs a login.
+</Callout>
+
+## The received message
+
+Every way of receiving mail produces the same message shape. The IMAP and POP3 sources set it as the body. The fetch blocks set the body to a list of them.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `messageId` | string | The Message-ID, without angle brackets. |
+| `inReplyTo` | string | The Message-ID this message replies to, or `""`. |
+| `references` | list of strings | The thread's Message-IDs from the References header. |
+| `date` | string | The Date header as RFC 3339 in UTC, or `""` if the header is missing or unreadable. |
+| `subject` | string | The decoded subject. |
+| `from` | `{name, address}` or null | The sender. It is null for a message with no From header, such as some bounces. |
+| `to`, `cc`, `replyTo` | list of `{name, address}` | The recipients. |
+| `text`, `html` | string | The first plain-text and HTML body parts, or `""`. |
+| `headers` | map of lists | Every top-level header, keyed by canonical name (`Auto-Submitted`), with each value decoded. |
+| `attachments` | list | One entry per part that carries a filename: `{filename, contentType, encoding: "base64", size, data}`. |
+| `uid`, `mailbox` | int, string | IMAP only. The message's UID and the mailbox it was read from. |
+| `uidl` | string | POP3 only. The message's unique id on the server. |
+
+Attachment data is always base64, because messages pass through JSON and raw bytes would be corrupted. This is the same part shape the multipart CEL functions use, so you can pass `body.attachments` to `smtp-send` as is to forward a file.
+
+## `imap` connector
+
+The connector (label: **IMAP**) takes the [connection settings](#connection-settings).
+
+It provides a source: yes, the **IMAP Mailbox** source (below). Blocks that bind to it: `imap-fetch`.
+
+## `imap` source
+
+The source polls a mailbox and runs each new message through the flow, one at a time. It acts on a message only after its flow completes or drops it. If the flow fails, or runs longer than `flowTimeout`, the message stays in place and the next poll reads it again. Only the replica that holds the source's leadership polls, so a message is handled once across the cluster.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `mailbox` | string | No | `INBOX` | Mailbox to poll. |
+| `interval` | duration | No | `1m` | How often to poll. A poll that takes longer than the interval delays the next one; polls never overlap. |
+| `onSuccess` | enum | No | `seen` | What to do with a message once its flow completes: `seen`, `move`, `delete`, or `none`. |
+| `moveTo` | string | When `onSuccess` is `move` | none | Mailbox to move handled messages to. |
+| `maxPerPoll` | int | No | `10` | The most messages one poll reads, oldest first. |
+| `flowTimeout` | duration | No | `5m` | How long to wait for one message's flow before leaving the message for the next poll. |
+
+With `seen`, `move`, or `delete`, the mailbox itself records what has been handled, and each poll reads the unseen messages. Reading never marks a message seen. The mark is set only after the flow completes.
+
+With `none`, the source never changes the mailbox. It stores the highest UID it has handled in the runtime's key-value store. On its first run it starts from the end of the mailbox, so only mail that arrives afterwards counts as new. It does the same if the mailbox's UIDVALIDITY changes. A poll stops at the first message whose flow does not complete, so the cursor never skips past one.
+
+<Callout type="info">
+A flow that runs longer than `flowTimeout` still finishes, but its message is read again on the next poll. Set `flowTimeout` above the time your flow takes, especially if it calls a model.
+</Callout>
+
+## `imap-fetch` block
+
+**Fetch IMAP Mail** reads messages from a mailbox when the flow reaches the block, rather than when mail arrives. It replaces the body with the messages as a list in ascending UID order.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `imap` connector. |
+| `mailbox` | string | No | `INBOX` | Mailbox to read. |
+| `search` | enum | No | `unseen` | Which messages to read: `unseen` or `all`. |
+| `since` | expression | No | none | CEL expression for the earliest date to read from: a timestamp, or a string in RFC 3339 or `YYYY-MM-DD` form. Only the date counts, because IMAP searches by day. |
+| `limit` | int | No | `10` | The most messages to read. When more match, the block keeps the newest. |
+| `onFetch` | enum | No | `none` | What to do with the messages once they are read: `none`, `seen`, `move`, or `delete`. |
+| `moveTo` | string | When `onFetch` is `move` | none | Mailbox to move the messages to. |
+
+`onFetch` runs in the same session, straight after the messages are read. There is no flow outcome to wait for. If a later step can fail and you must not lose mail, keep `onFetch: none` and act on the messages yourself.
+
+## `pop3` connector
+
+The connector (label: **POP3**) takes the [connection settings](#connection-settings). POP3 has no flags and no folders: a message is either left on the server or deleted. Deletions take effect only when a session ends cleanly, so a session that fails partway through leaves the mailbox as it was.
+
+It provides a source: yes, the **POP3 Mail Drop** source (below). Blocks that bind to it: `pop3-fetch`.
+
+## `pop3` source
+
+The source polls the mailbox on the same terms as the `imap` source: one message at a time, a message is acted on only after its flow completes, and only the leader polls.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `interval` | duration | No | `1m` | How often to poll. |
+| `onSuccess` | enum | No | `keep` | What to do with a message once its flow completes: `keep` or `delete`. |
+| `maxPerPoll` | int | No | `10` | The most messages one poll reads, oldest first. |
+| `flowTimeout` | duration | No | `5m` | How long to wait for one message's flow before leaving the message for the next poll. |
+
+With `delete`, the mailbox is the record of what has been handled: each message is deleted once its flow completes. With `keep`, the source never changes the mailbox. It stores the UIDLs it has handled in the runtime's key-value store, and drops UIDLs that are no longer on the server. On its first run it records the mail already in the mailbox without handling it.
+
+## `pop3-fetch` block
+
+**Fetch POP3 Mail** reads messages from the mailbox when the flow reaches the block. It replaces the body with the messages as a list, in arrival order.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `pop3` connector. |
+| `limit` | int | No | `10` | The most messages to read. When more are waiting, the block keeps the newest. |
+| `onFetch` | enum | No | `keep` | `keep` leaves the messages on the server. `delete` removes them in the same session. |
+
+## `smtp` connector
+
+The connector (label: **SMTP**) takes the [connection settings](#connection-settings). It authenticates with PLAIN when `username` is set.
+
+It provides a source: no. Blocks that bind to it: `smtp-send`.
+
+## `smtp-send` block
+
+**Send Email** builds a message from CEL expressions and sends it through an `smtp` connector. The flow message passes through unchanged. The sent message's Message-ID is stored in the `emailMessageId` variable.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `connector` | string | Yes | none | Name of the `smtp` connector. |
+| `from` | expression | Yes | none | The sender: exactly one address, such as `"Ops <ops@example.com>"`. |
+| `to` | expression | Yes | none | Recipients: an address-list string (`"a@x.com, B <b@y.com>"`) or a list of address strings. |
+| `cc` | expression | No | none | Carbon-copy recipients, in the same form as `to`. |
+| `bcc` | expression | No | none | Blind-copy recipients. They receive the message but appear in no header. |
+| `replyTo` | expression | No | none | The Reply-To address. |
+| `subject` | expression | No | none | The subject line. |
+| `inReplyTo` | expression | No | none | The Message-ID this message replies to, such as a received message's `body.messageId`. It sets In-Reply-To and References, so the reply is threaded in the recipient's mail client. |
+| `text` | expression | One of `text`, `html` | none | The plain-text body. |
+| `html` | expression | One of `text`, `html` | none | The HTML body. When both are set, they are sent as alternatives. |
+| `attachments` | expression | No | none | A list of `{filename, contentType, data, encoding}`. `data` is base64 unless `encoding` is `"text"`. `contentType` defaults to `application/octet-stream`. |
+
+## Example
+
+Adapted from `samples/email/config.yaml`: answer every message from a person and move it to an Answered folder. The reply is threaded under the original.
+
+```yaml
+connectors:
+  - name: inbox
+    type: imap
+    settings:
+      host: ${MAIL_HOST}
+      username: ${MAIL_USER}
+      password: ${MAIL_PASSWORD}
+
+  - name: outbox
+    type: smtp
+    settings:
+      host: ${MAIL_HOST}
+      username: ${MAIL_USER}
+      password: ${MAIL_PASSWORD}
+
+flows:
+  - name: autoreply
+    source:
+      connector: inbox
+      type: imap
+      settings:
+        interval: 1m
+        onSuccess: move
+        moveTo: Answered
+    process:
+      - type: if
+        name: from-a-person
+        condition: 'body.from != null && !("Auto-Submitted" in body.headers)'
+        then:
+          process:
+            - type: smtp-send
+              name: reply
+              settings:
+                connector: outbox
+                from: '"Support <" + env.MAIL_USER + ">"'
+                to: body.from.address
+                subject: '"Re: " + body.subject'
+                inReplyTo: body.messageId
+                text: '"Thanks for writing. We will answer within one business day."'
+```
+
+<Callout type="info">
+Check for the `Auto-Submitted` header before replying automatically. Out-of-office replies and bounces carry it, and answering them can start a loop between two robots.
+</Callout>
