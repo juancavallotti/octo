@@ -128,6 +128,9 @@ func (p *imapFetchProcessor) Process(ctx context.Context, msg *types.Message) (*
 
 	var batch imapBatch
 	err := p.conn.session(ctx, func(client *imapclient.Client) error {
+		if err := checkAction(client, p.onFetch); err != nil {
+			return err
+		}
 		var rerr error
 		batch, rerr = read(client, q)
 		if rerr != nil {

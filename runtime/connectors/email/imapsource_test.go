@@ -153,6 +153,14 @@ func TestIMAPSourceCursorMode(t *testing.T) {
 	if got := flow.seen(); !slices.Equal(got, []string{"a", "b", "b", "c"}) {
 		t.Errorf("third poll saw %v", got)
 	}
+	// With the cursor at the last UID and no new mail, a poll emits nothing:
+	// "N:*" still matches the last message, and must not re-run it.
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("idle poll: %v", err)
+	}
+	if got := flow.seen(); len(got) != 4 {
+		t.Errorf("an idle poll re-emitted mail: %v", got)
+	}
 	// none never changes the mailbox.
 	assertState(t, "INBOX", f.state(t, defaultMailbox), map[string]bool{"before": false, "a": false, "b": false, "c": false})
 

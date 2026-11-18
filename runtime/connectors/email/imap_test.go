@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/emersion/go-imap/v2"
@@ -23,6 +24,13 @@ type imapFixture struct {
 
 func startIMAP(t *testing.T, security string) *imapFixture {
 	t.Helper()
+	return startIMAPWithCaps(t, security, imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}})
+}
+
+// startIMAPWithCaps is startIMAP with the capabilities the server advertises,
+// to exercise servers that lack MOVE or UIDPLUS.
+func startIMAPWithCaps(t *testing.T, security string, caps imap.CapSet) *imapFixture {
+	t.Helper()
 	cfg := selfSignedTLS(t)
 	mem := imapmemserver.New()
 	user := imapmemserver.NewUser("bot", "s3cret")
@@ -37,7 +45,7 @@ func startIMAP(t *testing.T, security string) *imapFixture {
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return mem.NewSession(), nil, nil
 		},
-		Caps:         imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}},
+		Caps:         caps,
 		TLSConfig:    cfg,
 		InsecureAuth: true,
 		Logger:       discardLogger{},
@@ -268,4 +276,55 @@ func TestIMAPLoginFailureSurfaces(t *testing.T) {
 	if _, err := proc.Process(t.Context(), newMessage(t, nil)); err == nil {
 		t.Fatal("expected a login error")
 	}
+}
+
+func TestIMAPActionsTouchOnlyHandledMessages(t *testing.T) {
+	rev1 := imap.CapSet{imap.CapIMAP4rev1: {}}
+	uidPlus := imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapUIDPlus: {}}
+
+	t.Run("delete without UIDPLUS is refused before anything is read", func(t *testing.T) {
+		f := startIMAPWithCaps(t, securityTLS, rev1)
+		f.deliver(t, "a")
+		proc, err := newIMAPFetch(map[string]any{"connector": "inbox", "onFetch": "delete"}, depsWith("inbox", f.conn))
+		if err != nil {
+			t.Fatalf("newIMAPFetch: %v", err)
+		}
+		if _, err := proc.Process(t.Context(), newMessage(t, nil)); err == nil || !strings.Contains(err.Error(), "UIDPLUS") {
+			t.Fatalf("err = %v, want a UIDPLUS refusal", err)
+		}
+		assertState(t, "INBOX", f.state(t, defaultMailbox), map[string]bool{"a": false})
+	})
+
+	t.Run("move without MOVE copies, then removes only the handled message", func(t *testing.T) {
+		f := startIMAPWithCaps(t, securityTLS, uidPlus)
+		f.deliver(t, "keep-me", imap.FlagSeen, imap.FlagDeleted) // read, and pending deletion by someone else
+		f.deliver(t, "b")
+		proc, err := newIMAPFetch(map[string]any{"connector": "inbox", "onFetch": "move", "moveTo": "Done"},
+			depsWith("inbox", f.conn))
+		if err != nil {
+			t.Fatalf("newIMAPFetch: %v", err)
+		}
+		if _, err := proc.Process(t.Context(), newMessage(t, nil)); err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+		inbox := f.state(t, defaultMailbox)
+		if _, ok := inbox["keep-me"]; !ok || len(inbox) != 1 {
+			t.Errorf("INBOX = %v, want only the message flagged by someone else", inbox)
+		}
+		assertState(t, "Done", f.state(t, "Done"), map[string]bool{"b": false})
+	})
+
+	t.Run("a failed copy removes nothing", func(t *testing.T) {
+		f := startIMAPWithCaps(t, securityTLS, uidPlus)
+		f.deliver(t, "c")
+		proc, err := newIMAPFetch(map[string]any{"connector": "inbox", "onFetch": "move", "moveTo": "Missing"},
+			depsWith("inbox", f.conn))
+		if err != nil {
+			t.Fatalf("newIMAPFetch: %v", err)
+		}
+		if _, err := proc.Process(t.Context(), newMessage(t, nil)); err == nil {
+			t.Fatal("expected the copy to a missing mailbox to fail")
+		}
+		assertState(t, "INBOX", f.state(t, defaultMailbox), map[string]bool{"c": false})
+	})
 }

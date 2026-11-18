@@ -269,7 +269,14 @@ func selectUIDs(found []imap.UID, q imapQuery) []imap.UID {
 }
 
 // apply acts on handled messages: marks them seen, moves them to moveTo, or
-// deletes them. none leaves them as they are. The mailbox must be selected.
+// deletes them. none leaves them as they are. The mailbox must be selected, and
+// checkAction must have passed for this session.
+//
+// Nothing here may touch a message it was not given. A move without the MOVE
+// extension copies first and removes the originals only once the copy is known
+// to have succeeded — go-imap's own fallback pipelines all three commands and
+// would delete a message whose copy failed. Removal always uses UID EXPUNGE, so
+// a message someone else flagged \Deleted is left for them.
 func apply(client *imapclient.Client, uids []imap.UID, action, moveTo string) error {
 	if len(uids) == 0 || action == actionNone {
 		return nil
@@ -279,25 +286,53 @@ func apply(client *imapclient.Client, uids []imap.UID, action, moveTo string) er
 	case actionSeen:
 		return storeFlag(client, set, imap.FlagSeen)
 	case actionMove:
-		if _, err := client.Move(set, moveTo).Wait(); err != nil {
-			return fmt.Errorf("imap: move to %q: %w", moveTo, err)
+		if client.Caps().Has(imap.CapMove) {
+			if _, err := client.Move(set, moveTo).Wait(); err != nil {
+				return fmt.Errorf("imap: move to %q: %w", moveTo, err)
+			}
+			return nil
 		}
-		return nil
+		if _, err := client.Copy(set, moveTo).Wait(); err != nil {
+			return fmt.Errorf("imap: copy to %q: %w", moveTo, err)
+		}
+		return remove(client, set)
 	case actionDelete:
-		if err := storeFlag(client, set, imap.FlagDeleted); err != nil {
-			return err
-		}
-		expunge := client.Expunge
-		if client.Caps().Has(imap.CapUIDPlus) {
-			expunge = func() *imapclient.ExpungeCommand { return client.UIDExpunge(set) }
-		}
-		if err := expunge().Close(); err != nil {
-			return fmt.Errorf("imap: expunge: %w", err)
-		}
-		return nil
+		return remove(client, set)
 	default:
 		return fmt.Errorf("imap: unknown action %q", action)
 	}
+}
+
+// remove deletes exactly the messages in set: flag them \Deleted, then UID
+// EXPUNGE them.
+func remove(client *imapclient.Client, set imap.UIDSet) error {
+	if err := storeFlag(client, set, imap.FlagDeleted); err != nil {
+		return err
+	}
+	if err := client.UIDExpunge(set).Close(); err != nil {
+		return fmt.Errorf("imap: expunge: %w", err)
+	}
+	return nil
+}
+
+// checkAction reports whether the server can carry out action without touching
+// other messages, so a poll or fetch fails before any flow runs rather than
+// after — a source whose action then failed would read the same mail again and
+// run its flows twice. Removing messages needs UID EXPUNGE (UIDPLUS, part of
+// IMAP4rev2); a plain EXPUNGE would also remove whatever else is flagged
+// \Deleted. A move needs MOVE, or UID EXPUNGE for the copy-and-remove fallback.
+func checkAction(client *imapclient.Client, action string) error {
+	caps := client.Caps()
+	targeted := caps.Has(imap.CapUIDPlus)
+	switch {
+	case action == actionDelete && !targeted:
+		return errors.New("imap: the server lacks UIDPLUS, so delete cannot remove only the handled messages; " +
+			"use seen or move")
+	case action == actionMove && !caps.Has(imap.CapMove) && !targeted:
+		return errors.New("imap: the server supports neither MOVE nor UIDPLUS, so move cannot remove only the " +
+			"handled messages; use seen")
+	}
+	return nil
 }
 
 func storeFlag(client *imapclient.Client, set imap.UIDSet, flag imap.Flag) error {

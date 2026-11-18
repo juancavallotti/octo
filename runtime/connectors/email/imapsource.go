@@ -118,6 +118,9 @@ func (s *imapSource) poll(ctx context.Context) error {
 
 	var batch imapBatch
 	err := s.conn.session(ctx, func(client *imapclient.Client) error {
+		if err := checkAction(client, s.onSuccess); err != nil {
+			return err
+		}
 		var rerr error
 		batch, rerr = read(client, imapQuery{mailbox: s.mailbox, unseen: true, limit: s.maxPerPoll})
 		return rerr
@@ -133,13 +136,13 @@ func (s *imapSource) poll(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
-			return s.ack(ctx, handled, err)
+			return s.ack(ctx, batch.uidValidity, handled, err)
 		}
 		if ok {
 			handled = append(handled, m.uid)
 		}
 	}
-	return s.ack(ctx, handled, nil)
+	return s.ack(ctx, batch.uidValidity, handled, nil)
 }
 
 // errUnreadable reports a message whose header cannot be parsed. It never
@@ -161,15 +164,25 @@ func (s *imapSource) handle(ctx context.Context, m imapMessage) (bool, error) {
 // error when there is no cause. It acks even when the poll was cut short, so a
 // flow that completed is never run again for the same message. It uses a fresh
 // context: a stopping source should still record what it finished.
-func (s *imapSource) ack(ctx context.Context, uids []imap.UID, cause error) error {
+func (s *imapSource) ack(ctx context.Context, uidValidity uint32, uids []imap.UID, cause error) error {
 	if len(uids) == 0 {
 		return cause
 	}
 	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.conn.ep.timeout)
 	defer cancel()
 	err := s.conn.session(ackCtx, func(client *imapclient.Client) error {
-		if _, err := client.Select(s.mailbox, nil).Wait(); err != nil {
+		selected, err := client.Select(s.mailbox, nil).Wait()
+		if err != nil {
 			return fmt.Errorf("imap: select %q: %w", s.mailbox, err)
+		}
+		// The flows ran for as long as they took; if the mailbox was recreated
+		// meanwhile its UIDs name other messages, and acting on them would mark,
+		// move or delete the wrong mail. The handled messages are gone with the
+		// old mailbox, so there is nothing left to act on.
+		if selected.UIDValidity != uidValidity {
+			slog.Warn("imap source: mailbox UIDVALIDITY changed while flows ran; not acting on stale UIDs",
+				"mailbox", s.mailbox, "was", uidValidity, "now", selected.UIDValidity)
+			return nil
 		}
 		return apply(client, uids, s.onSuccess, s.moveTo)
 	})
