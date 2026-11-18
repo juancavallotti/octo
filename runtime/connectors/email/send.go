@@ -61,6 +61,9 @@ type sendSettings struct {
 	ReplyTo string `json:"replyTo" octo:"label=Reply-To,type=cel"`
 	// CEL expression for the subject line.
 	Subject string `json:"subject" octo:"label=Subject,type=cel"`
+	// CEL expression for the Message-ID this message replies to, e.g. a
+	// received email's body.messageId; threads the reply in the recipient's client.
+	InReplyTo string `json:"inReplyTo" octo:"label=In reply to,type=cel"`
 	// CEL expression for the plain-text body (text or html is required).
 	Text string `json:"text" octo:"label=Text body,type=cel"`
 	// CEL expression for the HTML body; sent as an alternative to text when both are set.
@@ -80,6 +83,7 @@ type sendProcessor struct {
 	bcc         *expr.Program
 	replyTo     *expr.Program
 	subject     *expr.Program
+	inReplyTo   *expr.Program
 	text        *expr.Program
 	html        *expr.Program
 	attachments *expr.Program
@@ -108,6 +112,7 @@ func newSMTPSend(raw types.Settings, deps core.BlockDeps) (core.MessageProcessor
 	p.bcc = c.optional("bcc", cfg.Bcc)
 	p.replyTo = c.optional("replyTo", cfg.ReplyTo)
 	p.subject = c.optional("subject", cfg.Subject)
+	p.inReplyTo = c.optional("inReplyTo", cfg.InReplyTo)
 	p.text = c.optional("text", cfg.Text)
 	p.html = c.optional("html", cfg.HTML)
 	p.attachments = c.optional("attachments", cfg.Attachments)
@@ -147,6 +152,7 @@ func (p *sendProcessor) compose(act map[string]any) (outgoing, error) {
 	bcc := e.addresses("bcc", p.bcc)
 	replyTo := e.addresses("replyTo", p.replyTo)
 	subject := e.text("subject", p.subject)
+	inReplyTo := strings.Trim(strings.TrimSpace(e.text("inReplyTo", p.inReplyTo)), "<>")
 	body := mimeBody{text: e.text("text", p.text), html: e.text("html", p.html)}
 	attachments := e.attachments(p.attachments)
 	if e.err != nil {
@@ -170,6 +176,12 @@ func (p *sendProcessor) compose(act map[string]any) (outgoing, error) {
 		h.SetAddressList("Reply-To", replyTo)
 	}
 	h.SetSubject(subject)
+	if inReplyTo != "" {
+		// References carries the parent alone: the received message's own
+		// References are the flow's to pass on if it wants the full chain.
+		h.SetMsgIDList("In-Reply-To", []string{inReplyTo})
+		h.SetMsgIDList("References", []string{inReplyTo})
+	}
 	if err := h.GenerateMessageID(); err != nil {
 		return outgoing{}, fmt.Errorf("smtp-send: message id: %w", err)
 	}

@@ -131,6 +131,7 @@ func TestSMTPSendSecurityModes(t *testing.T) {
 				"to":        "body.to",
 				"bcc":       `["audit@example.com"]`,
 				"subject":   `"Hello " + body.name`,
+				"inReplyTo": `"<parent@example.com>"`,
 				"text":      `"Hi " + body.name`,
 			}, depsWith("mail", conn))
 			if err != nil {
@@ -159,6 +160,9 @@ func TestSMTPSendSecurityModes(t *testing.T) {
 			}
 			if strings.Contains(got.data, "audit@example.com") {
 				t.Error("bcc address leaked into the message headers")
+			}
+			if !strings.Contains(got.data, "In-Reply-To: <parent@example.com>") {
+				t.Errorf("message not threaded:\n%s", got.data)
 			}
 			if !strings.Contains(got.data, "Subject: Hello Ann") || !strings.Contains(got.data, "Hi Ann") {
 				t.Errorf("message missing subject or body:\n%s", got.data)
