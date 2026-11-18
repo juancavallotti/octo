@@ -44,6 +44,23 @@
   resources: ["ingresses"]
   verbs: ["get", "list", "watch", "create", "update", "delete"]
 {{- end }}
+{{- if .Values.internalTLS.enabled }}
+# In-cluster HTTPS: one Certificate per deployment that asks for it, and the
+# object that tells the external endpoint to re-encrypt to the pod — a Traefik
+# ServersTransport under Ingress, a BackendTLSPolicy under Gateway API.
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificates"]
+  verbs: ["get", "create", "update", "delete"]
+{{- if eq (include "octo.networking.mode" .) "gateway" }}
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["backendtlspolicies"]
+  verbs: ["get", "create", "update", "delete"]
+{{- else }}
+- apiGroups: ["traefik.io"]
+  resources: ["serverstransports"]
+  verbs: ["get", "create", "update", "delete"]
+{{- end }}
+{{- end }}
 {{- end }}
 {{- include "octo-common.rbac" (dict
       "root" $

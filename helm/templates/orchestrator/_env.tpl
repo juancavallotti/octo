@@ -145,6 +145,12 @@
 - name: BASE_DOMAIN
   value: {{ .Values.orchestrator.baseDomain | quote }}
 {{- end }}
+{{- if .Values.internalTLS.enabled }}
+- name: INTERNAL_TLS_ISSUER
+  value: {{ .Values.internalTLS.issuerName | quote }}
+- name: INTERNAL_CA_CONFIGMAP
+  value: {{ .Values.internalTLS.caConfigMap | quote }}
+{{- end }}
 {{- if .Values.orchestrator.devRuns.enabled }}
 {{- /* Dev runs: the editor's Run as a pod of its own. The orchestrator reads the two
        images together with ORCHESTRATOR_URL (set above) to decide the feature is on —
