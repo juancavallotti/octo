@@ -232,3 +232,8 @@ func completeAll(string) types.FlowEventKind { return types.FlowEventCompleted }
 func typesConfig(settings map[string]any) types.ConnectorConfig {
 	return types.ConnectorConfig{Settings: settings}
 }
+
+//nolint:ireturn // returns the KV the context's services carry
+func servicesKV(ctx context.Context) core.KV {
+	return core.RuntimeServicesFromContext(ctx).KV()
+}

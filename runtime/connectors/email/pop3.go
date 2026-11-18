@@ -56,6 +56,12 @@ func registerPOP3() {
 		Label:    "POP3",
 		Icon:     iconInbox,
 		Settings: reflect.TypeFor[pop3Settings](),
+		Sources: []core.SourceMeta{{
+			Type:     pop3Type,
+			Label:    "POP3 Mail Drop",
+			Icon:     iconInbox,
+			Settings: reflect.TypeFor[pop3SourceSettings](),
+		}},
 	})
 }
 
@@ -81,12 +87,14 @@ type pop3Settings struct {
 
 // POP3Connector reads a mail drop on a POP3 server. It is safe for concurrent
 // use: every session dials its own connection and the endpoint is read-only
-// after Start.
+// after Start. Flows bound to it receive mail through its pop3 source.
 type POP3Connector struct {
-	ep endpoint
+	ep      endpoint
+	pending *pendingFlows
 }
 
-// Start decodes and validates the settings.
+// Start decodes and validates the settings and starts correlating flow outcomes
+// for the connector's sources.
 func (c *POP3Connector) Start(_ context.Context, config types.ConnectorConfig) error {
 	var set pop3Settings
 	if err := config.Settings.Decode(&set); err != nil {
@@ -108,11 +116,17 @@ func (c *POP3Connector) Start(_ context.Context, config types.ConnectorConfig) e
 		return err
 	}
 	c.ep = ep
+	c.pending = newPendingFlows()
 	return nil
 }
 
-// Stop releases nothing: no connection outlives a session.
-func (c *POP3Connector) Stop(context.Context) error { return nil }
+// Stop stops correlating flow outcomes, releasing any source parked on one.
+func (c *POP3Connector) Stop(context.Context) error {
+	if c.pending != nil {
+		c.pending.close()
+	}
+	return nil
+}
 
 // session runs fn on a logged-in client and ends with QUIT, which commits any
 // deletions fn made. When fn fails the connection is dropped without QUIT, so
