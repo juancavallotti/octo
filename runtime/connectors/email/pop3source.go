@@ -84,6 +84,7 @@ func (c *POP3Connector) NewSource(
 		interval:  durationOr(set.Interval, defaultInterval),
 		poll:      s.poll,
 	}
+	s.emitter.leading = s.poller.leading
 	return s, nil
 }
 

@@ -124,11 +124,18 @@ var errStopped = errors.New("source stopped")
 // leader polls the rest, and two replicas must not both run them.
 var errLostLeadership = errors.New("lost leadership mid-poll")
 
+// leaseRecheck is how often a send blocked on a full flow channel re-checks
+// that this replica still leads.
+const leaseRecheck = 250 * time.Millisecond
+
 // emitter hands messages to a flow and waits for each outcome.
 type emitter struct {
 	out         chan<- *types.Message
 	pending     *pendingFlows
 	flowTimeout time.Duration
+	// leading reports whether this replica still holds the source's
+	// leadership; nil means always.
+	leading func() bool
 }
 
 // emit sends body to the flow and reports whether the flow handled it: true for
@@ -147,10 +154,8 @@ func (e emitter) emit(ctx context.Context, body map[string]any, attrs map[string
 	ch := e.pending.track(msg.EventID)
 	defer e.pending.forget(msg.EventID)
 
-	select {
-	case e.out <- msg:
-	case <-ctx.Done():
-		return false, errStopped
+	if err := e.admit(ctx, msg); err != nil {
+		return false, err
 	}
 
 	timer := time.NewTimer(e.flowTimeout)
@@ -171,6 +176,29 @@ func (e emitter) emit(ctx context.Context, body map[string]any, attrs map[string
 		return false, errStopped
 	case <-e.pending.done:
 		return false, errStopped
+	}
+}
+
+// admit sends msg to the flow. A send can wait on a full flow channel for as
+// long as the flows ahead of it take, so while it waits it keeps checking
+// leadership and gives up once another replica leads — the leadership check
+// before the send is only as good as it is recent. This narrows the window to
+// one recheck interval; it is not a fence, and a send that lands in that
+// window can still run on a replica that has just lost the lease.
+func (e emitter) admit(ctx context.Context, msg *types.Message) error {
+	ticker := time.NewTicker(leaseRecheck)
+	defer ticker.Stop()
+	for {
+		select {
+		case e.out <- msg:
+			return nil
+		case <-ctx.Done():
+			return errStopped
+		case <-ticker.C:
+			if e.leading != nil && !e.leading() {
+				return errLostLeadership
+			}
+		}
 	}
 }
 

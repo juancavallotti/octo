@@ -157,18 +157,16 @@ func parseParts(r *mail.Reader) (text, html string, attachments []any) {
 		if step == partSkip {
 			continue
 		}
-		contentType, filename := partInfo(part.Header)
+		mediaType, params, filename := partInfo(part.Header)
 		if filename != "" {
-			if step == partTranscoded {
-				contentType = mime.FormatMediaType(contentType, map[string]string{charsetParam: charsetUTF8})
-			}
+			contentType := attachmentType(mediaType, params, step == partTranscoded)
 			attachments = append(attachments, attachmentPart(filename, contentType, body))
 			continue
 		}
 		switch {
-		case contentType == textPlain && text == "":
+		case mediaType == textPlain && text == "":
 			text = string(body)
-		case contentType == textHTML && html == "":
+		case mediaType == textHTML && html == "":
 			html = string(body)
 		}
 	}
@@ -233,29 +231,49 @@ func transcodes(h mail.PartHeader) bool {
 	return true
 }
 
-// partInfo returns a part's media type and the filename it carries, if any.
-func partInfo(h mail.PartHeader) (contentType, filename string) {
+// partInfo returns a part's media type, its Content-Type parameters, and the
+// filename it carries, if any.
+func partInfo(h mail.PartHeader) (mediaType string, params map[string]string, filename string) {
 	switch ph := h.(type) {
 	case *mail.InlineHeader:
-		contentType, _, _ = ph.ContentType()
-		if _, params, err := ph.ContentDisposition(); err == nil {
-			filename = params["filename"]
+		mediaType, params, _ = ph.ContentType()
+		if _, disposition, err := ph.ContentDisposition(); err == nil {
+			filename = disposition["filename"]
 		}
 		if filename == "" {
-			_, params, _ := ph.ContentType()
 			filename = decodeWord(params["name"])
 		}
 	case *mail.AttachmentHeader:
-		contentType, _, _ = ph.ContentType()
+		mediaType, params, _ = ph.ContentType()
 		filename, _ = ph.Filename()
 		if filename == "" {
 			filename = "attachment"
 		}
 	}
-	if contentType == "" {
-		contentType = textPlain
+	if mediaType == "" {
+		mediaType = textPlain
 	}
-	return contentType, filename
+	return mediaType, params, filename
+}
+
+// attachmentType is the content type an attachment keeps: its media type and
+// parameters — a text file's charset matters to whoever opens it — except name,
+// which the filename already carries. A part go-message transcoded is relabelled
+// charset=utf-8, since that is what its bytes now are.
+func attachmentType(mediaType string, params map[string]string, transcoded bool) string {
+	kept := map[string]string{}
+	for k, v := range params {
+		if k != "name" {
+			kept[k] = v
+		}
+	}
+	if transcoded {
+		kept[charsetParam] = charsetUTF8
+	}
+	if formatted := mime.FormatMediaType(mediaType, kept); formatted != "" {
+		return formatted
+	}
+	return mediaType
 }
 
 // attachmentPart builds an attachment in the multipart part shape, its bytes

@@ -243,7 +243,8 @@ func TestParseReadsWhatSendWrites(t *testing.T) {
 		t.Fatalf("toAttachment: %v", err)
 	}
 	expectEq(t, string(text.data), "café")
-	expectEq(t, parts[1].(map[string]any)[partContentType], "text/plain")
+	// A UTF-8 text attachment keeps its charset label through the round trip.
+	expectEq(t, parts[1].(map[string]any)[partContentType], "text/plain; charset=utf-8")
 }
 
 func expectEq[T comparable](t *testing.T, got any, want T) {

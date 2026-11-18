@@ -333,3 +333,23 @@ func TestIMAPSourceStopsWhenLeadershipIsLost(t *testing.T) {
 	}
 	assertState(t, "INBOX", f.state(t, defaultMailbox), map[string]bool{"1": true, "2": false, "3": false})
 }
+
+func TestEmitGivesUpABlockedSendWhenLeadershipIsLost(t *testing.T) {
+	pending := newPendingFlows()
+	t.Cleanup(pending.close)
+	lease := &flipLeadership{n: 1}
+	e := emitter{
+		out:         make(chan *types.Message), // nobody reads: the send blocks
+		pending:     pending,
+		flowTimeout: time.Minute,
+		leading:     lease.IsLeader,
+	}
+	start := time.Now()
+	_, err := e.emit(t.Context(), map[string]any{keySubject: "stuck"}, nil)
+	if !errors.Is(err, errLostLeadership) {
+		t.Fatalf("emit = %v, want errLostLeadership", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("blocked send held on for %v after leadership was lost", took)
+	}
+}
