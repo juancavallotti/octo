@@ -202,7 +202,12 @@ flow completes. A failed flow leaves the message for the next poll. `pop3`'s
 `onSuccess` is `keep|delete`. The body is the received message: `messageId`,
 `subject`, `from` (`{name, address}`, null for some bounces), `to`, `cc`,
 `text`, `html`, `headers` (name → list), and `attachments` (base64 parts).
-`imap` adds `uid` and `mailbox`; `pop3` adds `uidl`.
+`imap` adds `uid` and `mailbox`; `pop3` adds `uidl`. A connector takes one source
+per mailbox (one per `pop3` connector); to run a message through several flows,
+read it in one and `flow-ref` the rest. `onSuccess: none` / `keep` keep progress
+in the `system` KV namespace under `email_imap_<connector>/<mailbox>` or
+`email_pop3_<connector>/handled`; deleting that key resets the source to the
+mailbox's current end.
 
 ## LLM connectors
 

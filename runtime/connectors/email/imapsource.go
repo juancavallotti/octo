@@ -68,9 +68,14 @@ func (c *IMAPConnector) NewSource(
 	if err != nil {
 		return nil, err
 	}
+	mailbox := canonicalMailbox(set.Mailbox)
+	if !c.claims.claim(mailbox) {
+		return nil, fmt.Errorf("imap connector %q: mailbox %q already has a source; "+
+			"read it from one flow and hand messages on with flow-ref", cfg.Connector, mailbox)
+	}
 	s := &imapSource{
 		conn:       c,
-		mailbox:    orDefault(strings.TrimSpace(set.Mailbox), defaultMailbox),
+		mailbox:    mailbox,
 		onSuccess:  onSuccess,
 		moveTo:     set.MoveTo,
 		maxPerPoll: positiveOr(set.MaxPerPoll, defaultMaxPerPoll),
@@ -80,8 +85,11 @@ func (c *IMAPConnector) NewSource(
 			flowTimeout: durationOr(set.FlowTimeout, defaultFlowTimeout),
 		},
 	}
-	key := leaderKey(imapType, cfg)
-	s.cursorKey = key + "/" + s.mailbox
+	// One key names the mailbox being read: the source campaigns for it and, with
+	// onSuccess none, keeps its cursor under it. Mailboxes on one connector so
+	// elect and progress independently.
+	key := leaderKey(imapType, cfg) + "/" + mailbox
+	s.cursorKey = key
 	s.poller = poller{
 		label:     "imap",
 		leaderKey: key,
@@ -273,6 +281,16 @@ func (s *imapSource) saveCursor(ctx context.Context, kv core.KV, cursor imapCurs
 		return 0, fmt.Errorf("imap source: write cursor: %w", err)
 	}
 	return next, nil
+}
+
+// canonicalMailbox resolves the mailbox setting, spelling INBOX the one way:
+// IMAP treats that name case-insensitively and every other name as written.
+func canonicalMailbox(setting string) string {
+	mailbox := orDefault(strings.TrimSpace(setting), defaultMailbox)
+	if strings.EqualFold(mailbox, defaultMailbox) {
+		return defaultMailbox
+	}
+	return mailbox
 }
 
 func positiveOr(v, fallback int) int {

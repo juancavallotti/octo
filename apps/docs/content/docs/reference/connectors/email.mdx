@@ -78,6 +78,8 @@ With `seen`, `move`, or `delete`, the mailbox itself records what has been handl
 
 With `none`, the source never changes the mailbox. It stores the highest UID it has handled in the runtime's key-value store. On its first run it starts from the end of the mailbox, so only mail that arrives afterwards counts as new. It does the same if the mailbox's UIDVALIDITY changes. A poll stops at the first message whose flow does not complete, so the cursor never skips past one.
 
+A connector takes one source per mailbox. A second flow reading the same mailbox through the same connector is refused at startup, because two sources would race over the same messages. To run one message through several flows, read the mailbox from one flow and call the others with `flow-ref`. Sources on different mailboxes of one connector are independent.
+
 <Callout type="info">
 A flow that runs longer than `flowTimeout` still finishes, but its message is read again on the next poll. Set `flowTimeout` above the time your flow takes, especially if it calls a model.
 </Callout>
@@ -116,6 +118,21 @@ The source polls the mailbox on the same terms as the `imap` source: one message
 | `flowTimeout` | duration | No | `5m` | How long to wait for one message's flow before leaving the message for the next poll. |
 
 With `delete`, the mailbox is the record of what has been handled: each message is deleted once its flow completes. With `keep`, the source never changes the mailbox. It stores the UIDLs it has handled in the runtime's key-value store, and drops UIDLs that are no longer on the server. On its first run it records the mail already in the mailbox without handling it.
+
+A `pop3` connector takes one source. A second flow on the same connector is refused at startup.
+
+## Source state and resetting it
+
+`onSuccess: none` (IMAP) and `onSuccess: keep` (POP3) keep their progress in the runtime's key-value store, in the `system` namespace, under a key named for the connector and what it reads:
+
+| Source | Key | Value |
+| --- | --- | --- |
+| `imap`, `onSuccess: none` | `email_imap_<connector>/<mailbox>` | `{"uidValidity": …, "lastUid": …}`: the highest UID handled |
+| `pop3`, `onSuccess: keep` | `email_pop3_<connector>/handled` | `{"uidls": [...]}`: the UIDLs handled that are still on the server |
+
+`<connector>` is the connector's `name`. The store is scoped to the deployment, so two apps never share this state. The other modes keep none, because the mailbox records what has been handled.
+
+To reset a source, delete its key, for example from the deployment's object browser with the `system` namespace selected. On its next poll the source starts again from the mailbox's current end: it records what is there without handling it. To process mail that is already in the mailbox, read it on purpose with `imap-fetch` or `pop3-fetch`. Renaming the connector also starts fresh, because the name is part of the key.
 
 ## `pop3-fetch` block
 

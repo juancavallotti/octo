@@ -57,6 +57,10 @@ func (c *POP3Connector) NewSource(
 	if err != nil {
 		return nil, err
 	}
+	if !c.claims.claim(pop3Type) {
+		return nil, fmt.Errorf("pop3 connector %q already has a source; "+
+			"read the mail drop from one flow and hand messages on with flow-ref", cfg.Connector)
+	}
 	key := leaderKey(pop3Type, cfg)
 	s := &pop3Source{
 		conn:       c,

@@ -91,6 +91,7 @@ type pop3Settings struct {
 type POP3Connector struct {
 	ep      endpoint
 	pending *pendingFlows
+	claims  sourceClaims
 }
 
 // Start decodes and validates the settings and starts correlating flow outcomes

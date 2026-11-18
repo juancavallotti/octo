@@ -35,6 +35,30 @@ func leaderKey(kind string, cfg types.SourceConfig) string {
 	return "email_" + kind + "_" + name
 }
 
+// sourceClaims records what a connector's sources read, so a connector can
+// refuse a second source on the same mailbox: two consumers of one mailbox race
+// over its messages and share its leadership and progress keys, and neither can
+// be right. A connector is built fresh for every runtime generation, hot reloads
+// included, so a claim lives exactly as long as the source that made it.
+type sourceClaims struct {
+	mu   sync.Mutex
+	held map[string]bool
+}
+
+// claim takes what for a source, reporting false when another source holds it.
+func (c *sourceClaims) claim(what string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.held == nil {
+		c.held = map[string]bool{}
+	}
+	if c.held[what] {
+		return false
+	}
+	c.held[what] = true
+	return true
+}
+
 // pendingFlows correlates terminal flow events back to the source waiting on
 // them, by EventID. Each mail connector owns one, subscribed to the flow-event
 // bus for as long as the connector runs.

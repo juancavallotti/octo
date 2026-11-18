@@ -216,3 +216,34 @@ func TestIMAPSourceSettingsValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestIMAPSourceOneSourcePerMailbox(t *testing.T) {
+	f := startIMAP(t, securityTLS)
+	build := func(settings map[string]any) (*imapSource, error) {
+		src, err := f.conn.NewSource(types.SourceConfig{Connector: "inbox", Type: imapType, Settings: settings},
+			make(chan *types.Message), core.SourceDeps{})
+		if err != nil {
+			return nil, err
+		}
+		return src.(*imapSource), nil
+	}
+
+	first, err := build(map[string]any{})
+	if err != nil {
+		t.Fatalf("first source: %v", err)
+	}
+	// INBOX is case-insensitive in IMAP, so "inbox" names the same mailbox.
+	if _, err := build(map[string]any{"mailbox": "inbox"}); err == nil {
+		t.Fatal("a second source on INBOX should be refused")
+	}
+	other, err := build(map[string]any{"mailbox": "Done"})
+	if err != nil {
+		t.Fatalf("a source on another mailbox: %v", err)
+	}
+	if first.poller.leaderKey == other.poller.leaderKey {
+		t.Errorf("mailboxes share leader key %q", first.poller.leaderKey)
+	}
+	if first.cursorKey != "email_imap_inbox/INBOX" || other.cursorKey != "email_imap_inbox/Done" {
+		t.Errorf("cursor keys = %q, %q", first.cursorKey, other.cursorKey)
+	}
+}

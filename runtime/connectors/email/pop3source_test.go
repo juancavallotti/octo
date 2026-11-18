@@ -106,3 +106,14 @@ func TestPOP3SourceSettingsValidation(t *testing.T) {
 		t.Fatal("expected a settings error")
 	}
 }
+
+func TestPOP3SourceOneSourcePerConnector(t *testing.T) {
+	f := startPOP3(t, securityTLS)
+	cfg := types.SourceConfig{Connector: "drop", Type: pop3Type, Settings: map[string]any{}}
+	if _, err := f.conn.NewSource(cfg, make(chan *types.Message), core.SourceDeps{}); err != nil {
+		t.Fatalf("first source: %v", err)
+	}
+	if _, err := f.conn.NewSource(cfg, make(chan *types.Message), core.SourceDeps{}); err == nil {
+		t.Fatal("a second source on one pop3 connector should be refused")
+	}
+}

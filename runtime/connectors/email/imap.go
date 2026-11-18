@@ -101,6 +101,7 @@ type imapSettings struct {
 type IMAPConnector struct {
 	ep      endpoint
 	pending *pendingFlows
+	claims  sourceClaims
 }
 
 // Start decodes and validates the settings and starts correlating flow outcomes
