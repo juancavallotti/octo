@@ -112,7 +112,7 @@ func (p *routePublisher) route(namespace string, ep endpoint) *gatewayv1.HTTPRou
 
 	port := gatewayv1.PortNumber(ep.port)
 	if ep.tls != nil {
-		port = gatewayv1.PortNumber(serviceHTTPSPort)
+		port = gatewayv1.PortNumber(httpsPort)
 	}
 	pathPrefix := gatewayv1.PathMatchPathPrefix
 	rootPath := "/"

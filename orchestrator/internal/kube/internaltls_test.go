@@ -267,7 +267,7 @@ func TestGatewayReencrypt(t *testing.T) {
 		t.Errorf("validation = %+v", policy.Spec.Validation)
 	}
 	rt, _ := gw.GatewayV1().HTTPRoutes(testNamespace).Get(ctx, name, metav1.GetOptions{})
-	if port := rt.Spec.Rules[0].BackendRefs[0].Port; port == nil || int32(*port) != serviceHTTPSPort {
+	if port := rt.Spec.Rules[0].BackendRefs[0].Port; port == nil || int32(*port) != httpsPort {
 		t.Errorf("route backend port = %v, want 443", port)
 	}
 }

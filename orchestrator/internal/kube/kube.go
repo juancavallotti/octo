@@ -575,7 +575,7 @@ func (c *Client) InternalHTTPSURL(ctx context.Context, slug string) string {
 	if slug == "" {
 		return ""
 	}
-	return fmt.Sprintf("https://%s.%s.svc", internalServiceName(slug), c.ns(ctx))
+	return fmt.Sprintf("https://%s.%s:%d", internalServiceName(slug), c.ns(ctx), httpsPort)
 }
 
 func (c *Client) labels(spec Spec) map[string]string {

@@ -28,7 +28,7 @@ func TestDeployInternalTLS(t *testing.T) {
 		t.Error("internalTls was not persisted, so a rollout would drop it")
 	}
 	meta := ParseMetadata(repo.gotMetadata)
-	if meta.InternalURL != "https://octo-int-orders.octo-dev.svc" {
+	if meta.InternalURL != "https://octo-int-orders.octo-dev:8443" {
 		t.Errorf("internalUrl = %q, want the https address", meta.InternalURL)
 	}
 }

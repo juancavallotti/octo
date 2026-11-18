@@ -41,12 +41,12 @@ Check **Serve HTTPS inside the cluster** in the deploy dialog (`internalTls: tru
 
 - requests a certificate from the installation's internal CA for the deployment's Service names,
 - mounts it into the pods and sets `HTTPS_PORT`, which makes the [`http` connector](/reference/connectors/http#tls-settings-tls) serve HTTPS there instead of plain HTTP,
-- gives both Services a single `https` port (443).
+- gives both Services a single `https` port (8443).
 
 The deployment's `internalUrl` is then the HTTPS address:
 
 ```
-https://octo-int-{slug}.{namespace}.svc
+https://octo-int-{slug}.{namespace}:8443
 ```
 
 Every runtime pod trusts the internal CA, so a flow calls another deployment's `https://` address with no extra configuration. When the deployment is also exposed externally, the ingress re-encrypts to the pod. This works on Traefik, ingress-nginx and Gateway API; other ingress controllers cannot reach a deployment serving internal HTTPS through an external endpoint.

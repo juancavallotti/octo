@@ -15,13 +15,11 @@ import (
 const (
 	// httpsPortName names the HTTPS port on a deployment's container and Services.
 	httpsPortName = "https"
-	// runtimeHTTPSPort is where a deployment serving internal TLS listens for
-	// HTTPS, handed to the runtime as HTTPS_PORT; the runtime then opens no plain
-	// HTTP port.
-	runtimeHTTPSPort int32 = 8443
-	// serviceHTTPSPort is the HTTPS port on the deployment's Services, so an
-	// internal https:// address needs no port.
-	serviceHTTPSPort int32 = 443
+	// httpsPort is where a deployment serving internal TLS listens for HTTPS,
+	// handed to the runtime as HTTPS_PORT (the runtime then opens no plain HTTP
+	// port), and the https port on its Services, so its address names it the way
+	// a plain one names its HTTP port.
+	httpsPort int32 = 8443
 
 	envHTTPSPort   = "HTTPS_PORT"
 	envTLSCertFile = "OCTO_TLS_CERT_FILE"
@@ -140,7 +138,7 @@ func (c *Client) servicePorts(spec Spec) []corev1.ServicePort {
 	if c.servesTLS(spec) {
 		return []corev1.ServicePort{{
 			Name:       httpsPortName,
-			Port:       serviceHTTPSPort,
+			Port:       httpsPort,
 			TargetPort: intstr.FromString(httpsPortName),
 		}}
 	}
@@ -157,7 +155,7 @@ func (c *Client) tlsEnv(spec Spec) []corev1.EnvVar {
 	var env []corev1.EnvVar
 	if c.servesTLS(spec) {
 		env = append(env,
-			corev1.EnvVar{Name: envHTTPSPort, Value: fmt.Sprint(runtimeHTTPSPort)},
+			corev1.EnvVar{Name: envHTTPSPort, Value: fmt.Sprint(httpsPort)},
 			corev1.EnvVar{Name: envTLSCertFile, Value: tlsMountPath + "/" + corev1.TLSCertKey},
 			corev1.EnvVar{Name: envTLSKeyFile, Value: tlsMountPath + "/" + corev1.TLSPrivateKeyKey})
 	}
@@ -215,7 +213,7 @@ func (c *Client) tlsVolumes(spec Spec) []corev1.Volume {
 // otherwise.
 func (c *Client) servingPort(spec Spec) corev1.ContainerPort {
 	if c.servesTLS(spec) {
-		return corev1.ContainerPort{Name: httpsPortName, ContainerPort: runtimeHTTPSPort}
+		return corev1.ContainerPort{Name: httpsPortName, ContainerPort: httpsPort}
 	}
 	return corev1.ContainerPort{Name: "http", ContainerPort: spec.port()}
 }

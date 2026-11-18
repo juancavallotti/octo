@@ -86,7 +86,7 @@ spec:
 {{- define "octo.platformTLS.servicePorts" -}}
 {{- if .Values.internalTLS.enabled -}}
 - name: https
-  port: 443
+  port: {{ include "octo.platformTLS.httpsPort" . }}
   targetPort: {{ include "octo.platformTLS.httpsPort" . }}
 {{- else -}}
 []

@@ -283,7 +283,7 @@ func (f *fakeKube) InternalHTTPSURL(_ context.Context, slug string) string {
 	if slug == "" {
 		return ""
 	}
-	return "https://octo-int-" + slug + ".octo-dev.svc"
+	return "https://octo-int-" + slug + ".octo-dev:8443"
 }
 
 func (f *fakeKube) RunnerEnabled(r kube.Runner) bool { return !f.runnersDisabled[r] }
