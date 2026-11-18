@@ -290,10 +290,13 @@ func TestStreamedServerToolTurn(t *testing.T) {
 		{"message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}`},
 		{"message_stop", `{"type":"message_stop"}`},
 	}
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls++
-		if calls == 1 {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		bodies = append(bodies, body)
+		if len(bodies) == 1 {
 			writeSSE(t, w, first)
 			return
 		}
@@ -322,7 +325,22 @@ func TestStreamedServerToolTurn(t *testing.T) {
 		t.Errorf("resumed text event = %+v, want text at index 1", ev)
 	}
 	if resp.Text != "found" || resp.Raw.Opaque == nil {
-		t.Errorf("resp text = %q, opaque = %v", resp.Text, resp.Raw.Opaque)
+		t.Fatalf("resp text = %q, opaque = %v", resp.Text, resp.Raw.Opaque)
+	}
+
+	// Streamed blocks are sent back as the API sent them, so what the deltas
+	// filled in must be there: the resumed request carries the search's input,
+	// and the kept turn carries it and the streamed text.
+	resumed := assistantContent(t, bodies[1])
+	if input, _ := resumed[0]["input"].(map[string]any); input["query"] != "q" {
+		t.Errorf("resumed server_tool_use = %v, want the streamed input", resumed[0])
+	}
+	var kept []map[string]any
+	if err := json.Unmarshal(resp.Raw.Opaque.Content, &kept); err != nil {
+		t.Fatalf("decode opaque turn: %v", err)
+	}
+	if input, _ := kept[0]["input"].(map[string]any); len(kept) != 2 || input["query"] != "q" || kept[1]["text"] != "found" {
+		t.Errorf("kept turn = %v, want the streamed input and text", kept)
 	}
 }
 
