@@ -27,4 +27,6 @@ func init() {
 
 	registerSMTP()
 	registerSMTPSend()
+	registerIMAP()
+	registerIMAPFetch()
 }

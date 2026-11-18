@@ -33,6 +33,7 @@ export const BLOCK_CLASSES: Record<string, WorkClass> = {
   sql: "io",
   "queue-dispatch": "io",
   "smtp-send": "io",
+  "imap-fetch": "io",
   "publish-event": "io",
   // Writes a frame to a client's open stream.
   "sse-event": "io",
