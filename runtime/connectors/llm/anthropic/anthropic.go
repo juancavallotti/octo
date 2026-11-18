@@ -363,11 +363,15 @@ func toMessages(msgs []core.LLMMessage) ([]sdk.MessageParam, error) {
 			}
 			out = append(out, sdk.NewUserMessage(blocks...))
 		case core.LLMRoleAssistant:
-			blocks, err := assistantBlocks(m)
-			if err != nil {
-				return nil, err
+			if raw := m.OpaqueFor(core.ProviderAnthropic); raw != nil {
+				msg, err := opaqueMessage(raw)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, msg)
+				continue
 			}
-			out = append(out, sdk.NewAssistantMessage(blocks...))
+			out = append(out, sdk.NewAssistantMessage(assistantBlocks(m)...))
 		case core.LLMRoleTool:
 			blocks := make([]sdk.ContentBlockParamUnion, 0, len(m.ToolResults))
 			for _, tr := range m.ToolResults {
@@ -488,17 +492,15 @@ func describeAttachment(a core.LLMAttachment, i int) string {
 	return fmt.Sprintf("at index %d", i)
 }
 
-// assistantBlocks builds one assistant turn's content: the turn verbatim when this
-// connector kept it opaque, otherwise thinking, then text, then tool_use.
+// assistantBlocks builds one assistant turn's content from its portable fields:
+// thinking, then text, then tool_use. A turn this connector kept opaque is sent
+// verbatim instead, by toMessages.
 //
 // Thinking leads, in the order the model produced it, because the server validates
 // the thinking runs of an echoed turn — a block that went missing merges two runs
 // into one it cannot verify, and a block that moved splits one. Either way the
 // request is rejected, so the order here is load-bearing rather than cosmetic.
-func assistantBlocks(m core.LLMMessage) ([]sdk.ContentBlockParamUnion, error) {
-	if raw := m.OpaqueFor(core.ProviderAnthropic); raw != nil {
-		return opaqueBlocks(raw)
-	}
+func assistantBlocks(m core.LLMMessage) []sdk.ContentBlockParamUnion {
 	blocks := make([]sdk.ContentBlockParamUnion, 0, len(m.Thinking)+1+len(m.ToolCalls))
 	for _, tb := range m.Thinking {
 		if len(tb.Redacted) > 0 {
@@ -517,7 +519,7 @@ func assistantBlocks(m core.LLMMessage) ([]sdk.ContentBlockParamUnion, error) {
 		}
 		blocks = append(blocks, sdk.NewToolUseBlock(tc.ID, input, tc.Name))
 	}
-	return blocks, nil
+	return blocks
 }
 
 // toTools converts tool definitions to SDK tool params, decoding each JSON Schema

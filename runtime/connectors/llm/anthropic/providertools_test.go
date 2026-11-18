@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -187,10 +188,10 @@ func TestForeignOpaqueTurnFallsBackToPortableFields(t *testing.T) {
 		Text:   "hello",
 		Opaque: &core.LLMOpaqueTurn{Provider: core.ProviderOpenAI, Content: json.RawMessage(`[{"type":"web_search_call"}]`)},
 	}
-	blocks, err := assistantBlocks(m)
-	if err != nil {
-		t.Fatalf("assistant blocks: %v", err)
+	if m.OpaqueFor(core.ProviderAnthropic) != nil {
+		t.Fatal("another provider's opaque turn should not be ours to echo")
 	}
+	blocks := assistantBlocks(m)
 	if len(blocks) != 1 || blocks[0].OfText == nil || blocks[0].OfText.Text != "hello" {
 		t.Errorf("blocks = %+v, want the portable text", blocks)
 	}
@@ -322,5 +323,68 @@ func TestStreamedServerToolTurn(t *testing.T) {
 	}
 	if resp.Text != "found" || resp.Raw.Opaque == nil {
 		t.Errorf("resp text = %q, opaque = %v", resp.Text, resp.Raw.Opaque)
+	}
+}
+
+// dynamicFilteringResponse carries the blocks a latest web tool produces when it
+// filters results with code, in the shapes the API returned them on a live run.
+const dynamicFilteringResponse = `{"id":"m","type":"message","role":"assistant","model":"claude-haiku-5-5",
+	"content":[
+		{"type":"server_tool_use","id":"srvtoolu_1","name":"code_execution","input":{"code":"print(1)"}},
+		{"type":"code_execution_tool_result","tool_use_id":"srvtoolu_1",
+		 "content":{"type":"encrypted_code_execution_result","encrypted_stdout":"ENC","stderr":"","return_code":0,"content":[]}},
+		{"type":"server_tool_use","id":"srvtoolu_2","name":"web_fetch","input":{"url":"https://go.dev"},
+		 "caller":{"type":"code_execution_20260120","tool_id":"srvtoolu_1"}},
+		{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_2",
+		 "content":{"type":"web_fetch_tool_result_error","error_code":"url_not_in_prior_context"},
+		 "caller":{"type":"code_execution_20260120","tool_id":"srvtoolu_1"}},
+		{"type":"text","text":"Done."}
+	],
+	"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`
+
+// The echo sends every block back exactly as received: the SDK's request types
+// drop an encrypted code execution result, a web fetch result's content and a
+// block's caller, and the API rejects the turn without them.
+func TestServerToolTurnEchoesBlocksByteForByte(t *testing.T) {
+	var bodies [][]byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, raw)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, dynamicFilteringResponse)
+	}))
+	defer srv.Close()
+	c := startAgainst(t, srv)
+
+	req := core.LLMRequest{
+		Messages:      []core.LLMMessage{{Role: core.LLMRoleUser, Text: "latest go?"}},
+		ProviderTools: []core.LLMProviderTool{{Type: toolWebSearch}, {Type: toolWebFetch}},
+	}
+	resp, err := c.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	req.Messages = append(req.Messages, resp.Raw)
+	if _, err := c.Complete(context.Background(), req); err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+
+	var sent struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(bodies[1], &sent); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	var got, want struct {
+		Content []any `json:"content"`
+	}
+	_ = json.Unmarshal([]byte(dynamicFilteringResponse), &want)
+	if err := json.Unmarshal([]byte(`{"content":`+string(sent.Messages[1].Content)+`}`), &got); err != nil {
+		t.Fatalf("decode echoed content: %v", err)
+	}
+	if !reflect.DeepEqual(got.Content, want.Content) {
+		t.Errorf("echoed content differs from the response:\n got  %v\n want %v", got.Content, want.Content)
 	}
 }

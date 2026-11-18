@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 
 	"github.com/juancavallotti/octo/runtime/core"
 )
@@ -73,14 +74,21 @@ func (p *pausedTurn) resume(params *sdk.MessageNewParams) bool {
 			"model", p.last.Model, "continuations", p.rounds)
 		return false
 	}
-	p.rounds++
-	soFar := make([]sdk.ContentBlockParamUnion, len(p.content))
-	for i, block := range p.content {
-		soFar[i] = block.ToParam()
+	soFar, ok := rawBlocks(p.content)
+	if !ok {
+		slog.Warn("llm-anthropic cannot resume a paused turn with a block of unknown form; returning it as finished",
+			"model", p.last.Model)
+		return false
 	}
+	assistant, err := verbatimAssistant(soFar)
+	if err != nil {
+		slog.Warn("llm-anthropic cannot resume a paused turn", "model", p.last.Model, "error", err)
+		return false
+	}
+	p.rounds++
 	messages := make([]sdk.MessageParam, 0, len(p.base)+1)
 	messages = append(messages, p.base...)
-	messages = append(messages, sdk.NewAssistantMessage(soFar...))
+	messages = append(messages, assistant)
 	params.Messages = messages
 	return true
 }
@@ -94,7 +102,7 @@ func (p *pausedTurn) message() *sdk.Message {
 	return &out
 }
 
-// opaqueTurn returns the content verbatim, in request form, when it carries a
+// opaqueTurn returns the content verbatim, as the API sent it, when it carries a
 // block the portable fields cannot express, and nil otherwise.
 func opaqueTurn(content []sdk.ContentBlockUnion) *core.LLMOpaqueTurn {
 	needed := false
@@ -107,18 +115,14 @@ func opaqueTurn(content []sdk.ContentBlockUnion) *core.LLMOpaqueTurn {
 	if !needed {
 		return nil
 	}
-	params := make([]sdk.ContentBlockParamUnion, 0, len(content))
-	for _, block := range content {
-		if block.AsAny() == nil {
-			// A block type newer than this SDK has no request form to echo. Dropping
-			// the opaque turn falls back to the portable fields, which lose the server
-			// tool exchange but keep the conversation valid.
-			slog.Warn("llm-anthropic cannot echo a content block of unknown type", "type", block.Type)
-			return nil
-		}
-		params = append(params, block.ToParam())
+	blocks, ok := rawBlocks(content)
+	if !ok {
+		// Falling back to the portable fields loses the server tool exchange but
+		// keeps the conversation valid.
+		slog.Warn("llm-anthropic cannot keep a server tool turn without its wire form")
+		return nil
 	}
-	raw, err := json.Marshal(params)
+	raw, err := json.Marshal(blocks)
 	if err != nil {
 		slog.Warn("llm-anthropic cannot encode a server tool turn", "error", err)
 		return nil
@@ -126,12 +130,44 @@ func opaqueTurn(content []sdk.ContentBlockUnion) *core.LLMOpaqueTurn {
 	return &core.LLMOpaqueTurn{Provider: core.ProviderAnthropic, Content: raw}
 }
 
-// opaqueBlocks decodes an opaque turn this connector wrote back into the content
-// it echoes.
-func opaqueBlocks(raw json.RawMessage) ([]sdk.ContentBlockParamUnion, error) {
-	var blocks []sdk.ContentBlockParamUnion
-	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return nil, fmt.Errorf("llm-anthropic: decode opaque assistant turn: %w", err)
+// rawBlocks returns each block as the API sent it. The second return is false
+// when a block has no wire form to send back.
+func rawBlocks(content []sdk.ContentBlockUnion) ([]json.RawMessage, bool) {
+	out := make([]json.RawMessage, len(content))
+	for i, block := range content {
+		raw := block.RawJSON()
+		if raw == "" {
+			return nil, false
+		}
+		out[i] = json.RawMessage(raw)
 	}
-	return blocks, nil
+	return out, true
+}
+
+// verbatimAssistant is an assistant message whose content is the given blocks
+// byte for byte.
+//
+// The SDK's request types cannot carry them: ToParam drops whatever those types
+// do not model, such as an encrypted code execution result, a web fetch result's
+// content, or the caller of a tool invoked from code, and the API rejects a turn
+// that lost any of it.
+func verbatimAssistant(blocks []json.RawMessage) (sdk.MessageParam, error) {
+	raw, err := json.Marshal(struct {
+		Role    string            `json:"role"`
+		Content []json.RawMessage `json:"content"`
+	}{Role: string(sdk.MessageParamRoleAssistant), Content: blocks})
+	if err != nil {
+		return sdk.MessageParam{}, fmt.Errorf("llm-anthropic: encode assistant turn: %w", err)
+	}
+	return param.Override[sdk.MessageParam](json.RawMessage(raw)), nil
+}
+
+// opaqueMessage rebuilds the assistant message for an opaque turn this connector
+// wrote.
+func opaqueMessage(raw json.RawMessage) (sdk.MessageParam, error) {
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return sdk.MessageParam{}, fmt.Errorf("llm-anthropic: decode opaque assistant turn: %w", err)
+	}
+	return verbatimAssistant(blocks)
 }
