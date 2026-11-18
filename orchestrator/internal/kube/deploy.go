@@ -652,8 +652,9 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// matter, since that API authorizes the token it is presented and an address was
 	// never a boundary. Absent when there is no such address, rather than empty,
 	// which would turn every query into a confusing failure inside the flow.
-	if c.runtimeServices.ObservabilityURL != "" {
-		env = append(env, corev1.EnvVar{Name: envObservability, Value: c.runtimeServices.ObservabilityURL})
+	urls := c.platformURLs(spec)
+	if urls.Observability != "" {
+		env = append(env, corev1.EnvVar{Name: envObservability, Value: urls.Observability})
 	}
 	// The stats sidecar scrapes this runtime's /metrics, which the runtime does
 	// not serve unless asked. Emitted only when the sidecar is being injected, so
@@ -666,10 +667,10 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// Where the mounted token is, and where the pod renews it. Both or neither: a
 	// pod told where its token lives but not where to renew it would present the
 	// same one until it expired.
-	if spec.Token != "" && c.runtimeServices.IAMURL != "" {
+	if spec.Token != "" && urls.IAM != "" {
 		env = append(env,
 			corev1.EnvVar{Name: envTokenFile, Value: tokenMountPath + "/" + tokenFileName},
-			corev1.EnvVar{Name: envIAMURL, Value: c.runtimeServices.IAMURL})
+			corev1.EnvVar{Name: envIAMURL, Value: urls.IAM})
 	}
 	// Last, like the switches above: HTTPS_PORT and the certificate paths are the
 	// orchestrator's to set, so they win over the integration's own declarations.
@@ -703,7 +704,7 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: envServicesModule, Value: c.runtimeServices.Module},
 		{Name: envDeploymentID, Value: spec.ID},
-		{Name: envOrchestrator, Value: c.runtimeServices.OrchestratorURL},
+		{Name: envOrchestrator, Value: c.platformURLs(spec).Orchestrator},
 		{Name: envPodName, ValueFrom: fieldRef("metadata.name")},
 		{Name: envPodNamespace, ValueFrom: fieldRef("metadata.namespace")},
 	}

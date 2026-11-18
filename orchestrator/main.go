@@ -478,6 +478,13 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// an embedding reads nothing and writes nothing, so there is no boundary to
 		// gate, and the URL in every pod is what keeps the provider key out of them.
 		EmbeddingsURL: os.Getenv("EMBEDDINGS_URL"),
+		// The platform APIs over HTTPS, for pods on a runtime that verifies the
+		// internal CA. Unset leaves every pod on the plain URLs above.
+		HTTPS: kube.PlatformURLs{
+			Orchestrator:  os.Getenv("ORCHESTRATOR_HTTPS_URL"),
+			IAM:           os.Getenv("IAM_HTTPS_URL"),
+			Observability: os.Getenv("OBSERVABILITY_HTTPS_URL"),
+		},
 	}
 }
 

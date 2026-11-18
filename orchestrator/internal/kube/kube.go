@@ -76,6 +76,38 @@ type RuntimeServices struct {
 	// such boundary: it reads nothing and writes nothing, and the URL in every pod is
 	// what keeps the provider API key out of all of them.
 	EmbeddingsURL string
+	// HTTPS is the HTTPS form of OrchestratorURL, IAMURL and ObservabilityURL,
+	// injected instead of them into pods whose runtime verifies the internal CA.
+	// An empty field leaves that one plain.
+	HTTPS PlatformURLs
+}
+
+// PlatformURLs are the platform APIs a runtime pod calls.
+type PlatformURLs struct {
+	Orchestrator  string
+	IAM           string
+	Observability string
+}
+
+// platformURLs is what spec's pods are told the platform APIs are at: the HTTPS
+// forms when the installation has them and the pods' runtime serves and trusts
+// internal TLS, the plain ones otherwise, field by field.
+func (c *Client) platformURLs(spec Spec) PlatformURLs {
+	rs := c.runtimeServices
+	ret := PlatformURLs{Orchestrator: rs.OrchestratorURL, IAM: rs.IAMURL, Observability: rs.ObservabilityURL}
+	if !runtimeversion.SupportsInternalTLS(spec.RuntimePin) {
+		return ret
+	}
+	for _, f := range []struct{ secure, dst *string }{
+		{&rs.HTTPS.Orchestrator, &ret.Orchestrator},
+		{&rs.HTTPS.IAM, &ret.IAM},
+		{&rs.HTTPS.Observability, &ret.Observability},
+	} {
+		if *f.secure != "" {
+			*f.dst = *f.secure
+		}
+	}
+	return ret
 }
 
 // SecretKeyRef names one key in one Secret in the release namespace. Integration

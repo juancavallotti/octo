@@ -272,6 +272,27 @@ func TestGatewayReencrypt(t *testing.T) {
 	}
 }
 
+func TestPlatformURLsFollowRuntime(t *testing.T) {
+	cfg := testConfig("octo.example.com")
+	cfg.RuntimeServices = RuntimeServices{
+		Module:          "k8s",
+		OrchestratorURL: "http://orch:8090",
+		IAMURL:          "http://iam:8093",
+		HTTPS:           PlatformURLs{Orchestrator: "https://orch.svc:8443"},
+	}
+	c := testClientFor(cfg)
+	cases := map[string]PlatformURLs{
+		"":        {Orchestrator: "https://orch.svc:8443", IAM: "http://iam:8093"},
+		"0.11.18": {Orchestrator: "https://orch.svc:8443", IAM: "http://iam:8093"},
+		"0.11.14": {Orchestrator: "http://orch:8090", IAM: "http://iam:8093"},
+	}
+	for pin, want := range cases {
+		if got := c.platformURLs(Spec{RuntimePin: pin}); got != want {
+			t.Errorf("pin %q: got %+v, want %+v", pin, got, want)
+		}
+	}
+}
+
 func portNames(ports []corev1.ServicePort) []string {
 	out := make([]string, len(ports))
 	for i, p := range ports {
