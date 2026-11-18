@@ -312,6 +312,17 @@ internalTLS:
 Both cert-manager and trust-manager must be installed first. Locally,
 `task cluster:addons` installs them, and `task cluster:deploy` runs it for you.
 
+The same setting puts the platform APIs — the orchestrator, iam and the
+observability service — on HTTPS beside plain HTTP. Each gets a certificate from
+the internal CA and serves HTTPS on port 8443, next to its HTTP port, on the same
+Service. Runtime pods on 0.11.18 or newer are given the HTTPS addresses; pods
+pinned to an older runtime keep the plain ones.
+
+<Callout type="warn">
+Plain HTTP on the platform APIs is deprecated as of 1.0. Integrations are not
+affected: each deployment serves HTTP or HTTPS, as its internal HTTPS setting says.
+</Callout>
+
 ### What answers an address nothing is deployed at
 
 With a `baseDomain` set, every subdomain under it resolves whether or not
