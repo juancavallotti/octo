@@ -14,7 +14,9 @@ import { BAR_BUTTON, BAR_COUNT } from "./barButton";
  * any flow may use any of them; clicking one opens the file that declares it and
  * selects it so its settings open in the right panel. An "Add connection" row
  * expands a menu of connector types — picking one creates and selects a new
- * connection in the open file, mirroring how SourcePicker adds a source.
+ * connection in the open file, mirroring how SourcePicker adds a source. The menu
+ * opens with a filter focused, matched as a substring of the label or the type id
+ * like the sidebar's, and Enter takes the first match.
  */
 export default function ConnectionsLauncher() {
   const { state, dispatch } = useEditorState();
@@ -24,6 +26,7 @@ export default function ConnectionsLauncher() {
   const layout = useLayout();
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   const files = useProjectFiles();
@@ -34,11 +37,27 @@ export default function ConnectionsLauncher() {
   // Derived on render (not at module load) so a schema injected at boot via
   // setCapabilities is reflected — a module-level const would freeze the fallback.
   const connectors = listConnectors();
+  const filter = query.trim().toLowerCase();
+  const matches = connectors.filter(
+    (spec) =>
+      spec.label.toLowerCase().includes(filter) ||
+      spec.type.toLowerCase().includes(filter),
+  );
 
-  // Closing always collapses the add-submenu so it reopens to the list.
+  // Closing always collapses the add-submenu and clears its filter, so it reopens
+  // to the list.
   const close = () => {
     setOpen(false);
     setAdding(false);
+    setQuery("");
+  };
+
+  const addConnection = (type: string) => {
+    close();
+    dispatch({ type: EditorActionType.ADD_CONNECTION, data: { type } });
+    // A new connection is selected on creation, and its settings are the point of
+    // creating it.
+    layout?.showSettings();
   };
 
   useEffect(() => {
@@ -141,31 +160,47 @@ export default function ConnectionsLauncher() {
 
           <div className="border-t border-black/10 dark:border-white/10">
             {adding ? (
-              <ul className="max-h-60 overflow-y-auto py-1">
-                {connectors.map((spec) => (
-                  <button
-                    key={spec.type}
-                    type="button"
-                    onClick={() => {
-                      close();
-                      dispatch({
-                        type: EditorActionType.ADD_CONNECTION,
-                        data: { type: spec.type },
-                      });
-                      // A new connection is selected on creation, and its settings
-                      // are the point of creating it.
-                      layout?.showSettings();
+              <>
+                <div className="px-3 pt-2 pb-1">
+                  <input
+                    type="search"
+                    autoFocus
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && matches.length > 0) {
+                        e.preventDefault();
+                        addConnection(matches[0].type);
+                      }
                     }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-                  >
-                    {createElement(resolveIcon(spec.icon ?? ""), {
-                      size: 18,
-                      className: "text-zinc-500 shrink-0",
-                    })}
-                    <span className="text-sm font-medium">{spec.label}</span>
-                  </button>
-                ))}
-              </ul>
+                    placeholder="Filter…"
+                    aria-label="Filter connector types"
+                    className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30"
+                  />
+                </div>
+                {matches.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-zinc-400 dark:text-zinc-500">
+                    No connector matches.
+                  </p>
+                ) : (
+                  <ul className="max-h-60 overflow-y-auto py-1">
+                    {matches.map((spec) => (
+                      <button
+                        key={spec.type}
+                        type="button"
+                        onClick={() => addConnection(spec.type)}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                      >
+                        {createElement(resolveIcon(spec.icon ?? ""), {
+                          size: 18,
+                          className: "text-zinc-500 shrink-0",
+                        })}
+                        <span className="text-sm font-medium">{spec.label}</span>
+                      </button>
+                    ))}
+                  </ul>
+                )}
+              </>
             ) : (
               <button
                 type="button"
