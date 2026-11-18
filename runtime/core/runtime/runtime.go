@@ -237,16 +237,55 @@ type connectorSet struct {
 	configs  []types.ConnectorConfig // the generation's configured connectors
 	running  []core.Connector        // ordered, for reverse teardown
 	byName   map[string]core.Connector
+
+	// deferred holds configured connectors invoke mode did not start because a
+	// flow names them as its source; one starts the first time a block asks for
+	// it, with ctx, the context the set was started under.
+	deferred map[string]types.ConnectorConfig
+	ctx      context.Context //nolint:containedctx // the generation's start context, for deferred starts
 }
 
-// lookup returns a started connector by instance name, for block dependencies.
+// lookup returns a connector by instance name, for block dependencies. A
+// connector invoke mode deferred is started on this first request: it was
+// skipped because its source does not run, not because nothing needs it.
 //
 //nolint:ireturn // returns the Connector interface a block depends on
 func (set *connectorSet) lookup(name string) (core.Connector, bool) {
 	set.mu.Lock()
 	defer set.mu.Unlock()
-	c, ok := set.byName[name]
-	return c, ok
+	if c, ok := set.byName[name]; ok {
+		return c, true
+	}
+	cfg, ok := set.deferred[name]
+	if !ok {
+		return nil, false
+	}
+	delete(set.deferred, name)
+	connector, err := set.start(cfg)
+	if err != nil {
+		// The block reports the connector as missing; the reason is here.
+		slog.Error("starting deferred connector failed", "connector", name, "type", cfg.Type, "error", err)
+		return nil, false
+	}
+	return connector, true
+}
+
+// start creates and starts a configured connector and records it as running.
+// The caller holds mu, or owns the set exclusively.
+//
+//nolint:ireturn // returns the Connector interface it started
+func (set *connectorSet) start(cfg types.ConnectorConfig) (core.Connector, error) {
+	connector, err := set.registry.New(cfg.Type)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("starting connector", "connector", cfg.Name, "type", cfg.Type)
+	if err := connector.Start(set.ctx, cfg); err != nil {
+		return nil, fmt.Errorf("start connector %q: %w", cfg.Name, err)
+	}
+	set.running = append(set.running, connector)
+	set.byName[cfg.Name] = connector
+	return connector, nil
 }
 
 // resolveConnector finds or starts the connector backing a source. An explicit,
@@ -340,10 +379,14 @@ func (s *Service) startConnectors(ctx context.Context) (*connectorSet, error) {
 		configs:  s.config.Connectors,
 		running:  make([]core.Connector, 0, len(s.config.Connectors)),
 		byName:   make(map[string]core.Connector, len(s.config.Connectors)),
+		deferred: map[string]types.ConnectorConfig{},
+		ctx:      ctx,
 	}
 
-	// In invoke mode, connectors used only as a flow source acquire no resources
-	// (their sources are replaced by implicit sources), so skip starting them.
+	// In invoke mode a flow's source is replaced by an implicit one, so a
+	// connector named as a source is deferred rather than started: an http
+	// server would otherwise bind its port for every invoke. A block that needs
+	// the same connector starts it on first lookup.
 	var sourceConnectors map[string]struct{}
 	if s.invokeMode {
 		sourceConnectors = s.sourceConnectorNames()
@@ -351,29 +394,22 @@ func (s *Service) startConnectors(ctx context.Context) (*connectorSet, error) {
 
 	for _, connectorConfig := range s.config.Connectors {
 		if _, isSource := sourceConnectors[connectorConfig.Name]; isSource {
-			slog.Info("skipping source connector (invoke mode)",
+			slog.Info("deferring source connector (invoke mode)",
 				"connector", connectorConfig.Name, "type", connectorConfig.Type)
+			set.deferred[connectorConfig.Name] = connectorConfig
 			continue
 		}
-		connector, err := s.registry.New(connectorConfig.Type)
-		if err != nil {
+		if _, err := set.start(connectorConfig); err != nil {
 			_ = stopConnectors(set.running)
 			return nil, err
 		}
-		slog.Info("starting connector", "connector", connectorConfig.Name, "type", connectorConfig.Type)
-		if err := connector.Start(ctx, connectorConfig); err != nil {
-			_ = stopConnectors(set.running)
-			return nil, fmt.Errorf("start connector %q: %w", connectorConfig.Name, err)
-		}
-		set.running = append(set.running, connector)
-		set.byName[connectorConfig.Name] = connector
 	}
 
 	return set, nil
 }
 
 // sourceConnectorNames collects the names of connectors referenced as a flow's
-// source, so invoke mode can skip starting them.
+// source, so invoke mode can defer starting them.
 func (s *Service) sourceConnectorNames() map[string]struct{} {
 	names := make(map[string]struct{})
 	for i := range s.config.Flows {
