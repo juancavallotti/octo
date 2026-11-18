@@ -78,7 +78,7 @@ With `seen`, `move`, or `delete`, the mailbox itself records what has been handl
 
 With `none`, the source never changes the mailbox. It stores the highest UID it has handled in the runtime's key-value store. On its first run it starts from the end of the mailbox, so only mail that arrives afterwards counts as new. It does the same if the mailbox's UIDVALIDITY changes. A poll stops at the first message whose flow does not complete, so the cursor never skips past one.
 
-A message whose flow fails every time is read again on every poll, oldest first. If `maxPerPoll` or more messages keep failing, they fill every poll and newer mail waits behind them. Fix or move the failing mail, or raise `maxPerPoll`. The same applies to the `pop3` source.
+A message whose flow fails every time is read again on every poll, oldest first. If `maxPerPoll` or more messages keep failing, they fill every poll and newer mail waits behind them. Fix or move the failing mail, or raise `maxPerPoll`. The same applies to the `pop3` source, where a message that cannot be parsed counts as failing in delete mode: it never reaches a flow, so it is never deleted, and enough of them at the head of the mailbox hold back everything behind them.
 
 A connector takes one source per mailbox. A second flow reading the same mailbox through the same connector is refused at startup, because two sources would race over the same messages. To run one message through several flows, read the mailbox from one flow and call the others with `flow-ref`. Sources on different mailboxes of one connector are independent.
 

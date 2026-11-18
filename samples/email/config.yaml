@@ -88,7 +88,7 @@ flows:
         payload: '{"since": string(now - duration("24h"))}'
     process:
       # Reads at most 50 answered messages. IMAP's SINCE compares dates, not
-      # times, so this is everything received on or after yesterday's date —
+      # times, so this is mail received on or after yesterday's date —
       # up to 48 hours of mail, not a rolling 24. onFetch stays at its
       # default, none, so the digest never changes the mailbox.
       - type: imap-fetch

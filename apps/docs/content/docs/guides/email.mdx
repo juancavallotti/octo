@@ -128,7 +128,7 @@ To read mail at a time the flow chooses, use `imap-fetch` instead of a source. T
         message: '"answered since yesterday: " + string(size(body)) + " messages, " + string(size(body.filter(m, m.attachments.size() > 0))) + " with attachments"'
 ```
 
-`imap-fetch` replaces the body with a list of messages. `since` matches on the date only, because IMAP searches by day, so this reads everything received on or after yesterday's date rather than exactly the last 24 hours. Its `onFetch` defaults to `none`, so the digest never marks, moves or deletes anything. A POP3 mailbox works the same way with the `pop3` source and `pop3-fetch`. POP3 has no folders, though, so it can only keep or delete messages.
+`imap-fetch` replaces the body with a list of messages. `since` matches on the date only, because IMAP searches by day, so this reads up to 50 matching messages received on or after yesterday's date, rather than exactly the last 24 hours. Its `onFetch` defaults to `none`, so the digest never marks, moves or deletes anything. A POP3 mailbox works the same way with the `pop3` source and `pop3-fetch`. POP3 has no folders, though, so it can only keep or delete messages.
 
 ## Test it
 
