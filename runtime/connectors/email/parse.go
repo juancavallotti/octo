@@ -1,0 +1,229 @@
+// This file turns a received message — the raw RFC 5322 bytes a server hands
+// back — into the JSON shape a flow sees as its body. The imap and pop3 sources
+// and fetch blocks all build their messages here, so a flow reads mail the same
+// way whichever protocol delivered it.
+//
+// The shape:
+//
+//	messageId, inReplyTo  string
+//	references            list of strings
+//	date                  RFC 3339 string ("" when the header is missing or unreadable)
+//	subject               string
+//	from                  {name, address}, or null
+//	to, cc, replyTo       lists of {name, address}
+//	text, html            the first plain-text and HTML body parts
+//	headers               every top-level header, name → list of values
+//	attachments           parts carrying a filename, in the multipart part shape
+package email
+
+import (
+	"bytes"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"net/textproto"
+	"time"
+
+	"github.com/emersion/go-message"
+	// Registers decoders for the non-UTF-8 charsets real mail still arrives in.
+	_ "github.com/emersion/go-message/charset"
+	"github.com/emersion/go-message/mail"
+)
+
+// The keys of a parsed message. Attachment keys are shared with smtp-send's
+// attachment decoding (expressions.go).
+const (
+	keyMessageID   = "messageId"
+	keyInReplyTo   = "inReplyTo"
+	keyReferences  = "references"
+	keyDate        = "date"
+	keySubject     = "subject"
+	keyFrom        = "from"
+	keyTo          = "to"
+	keyCc          = "cc"
+	keyReplyTo     = "replyTo"
+	keyText        = "text"
+	keyHTML        = "html"
+	keyHeaders     = "headers"
+	keyAttachments = "attachments"
+	keyName        = "name"
+	keyAddress     = "address"
+)
+
+// parseMessage parses raw message bytes into the body shape. A message whose
+// MIME structure is broken still yields its headers; the error is returned only
+// when not even the header can be read.
+func parseMessage(raw []byte) (map[string]any, error) {
+	r, err := mail.CreateReader(bytes.NewReader(raw))
+	if err != nil && r == nil {
+		return nil, fmt.Errorf("parse message: %w", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	out := parseHeader(r.Header)
+	text, html, attachments, err := parseParts(r)
+	if err != nil {
+		return nil, err
+	}
+	out[keyText] = text
+	out[keyHTML] = html
+	out[keyAttachments] = attachments
+	return out, nil
+}
+
+// parseHeader extracts the top-level header fields. A field that is present but
+// malformed degrades to its empty value rather than failing the message: one
+// sender's odd Date header should not stop a mailbox from being read.
+func parseHeader(h mail.Header) map[string]any {
+	out := map[string]any{}
+	out[keyMessageID], _ = h.MessageID()
+	inReplyTo, _ := h.MsgIDList("In-Reply-To")
+	out[keyInReplyTo] = firstOr(inReplyTo, "")
+	refs, _ := h.MsgIDList("References")
+	out[keyReferences] = toAnyList(refs)
+	out[keySubject], _ = h.Subject()
+
+	out[keyDate] = ""
+	if date, err := h.Date(); err == nil && !date.IsZero() {
+		out[keyDate] = date.UTC().Format(time.RFC3339)
+	}
+
+	from := addressList(h, "From")
+	out[keyFrom] = nil
+	if len(from) > 0 {
+		out[keyFrom] = from[0]
+	}
+	out[keyTo] = addressList(h, "To")
+	out[keyCc] = addressList(h, "Cc")
+	out[keyReplyTo] = addressList(h, "Reply-To")
+
+	headers := map[string]any{}
+	fields := h.Fields()
+	for fields.Next() {
+		key := textproto.CanonicalMIMEHeaderKey(fields.Key())
+		value, err := fields.Text()
+		if err != nil {
+			value = fields.Value()
+		}
+		list, _ := headers[key].([]any)
+		headers[key] = append(list, value)
+	}
+	out[keyHeaders] = headers
+	return out
+}
+
+// addressList reads an address header as a list of {name, address}; a malformed
+// list reads as empty.
+func addressList(h mail.Header, key string) []any {
+	list, err := h.AddressList(key)
+	if err != nil {
+		return []any{}
+	}
+	out := make([]any, 0, len(list))
+	for _, a := range list {
+		out = append(out, map[string]any{keyName: a.Name, keyAddress: a.Address})
+	}
+	return out
+}
+
+// parseParts walks the body: the first text/plain and text/html inline parts
+// become the bodies, and every part with a filename becomes an attachment —
+// including an inline image that names one, since a flow wanting the file
+// should not have to know how the sender's client chose to display it.
+func parseParts(r *mail.Reader) (text, html string, attachments []any, err error) {
+	attachments = []any{}
+	for {
+		part, perr := r.NextPart()
+		if errors.Is(perr, io.EOF) {
+			return text, html, attachments, nil
+		}
+		// A part in a charset or transfer encoding go-message cannot decode is
+		// still returned, carrying its undecoded bytes; keeping those beats
+		// losing the part.
+		if perr != nil && !message.IsUnknownCharset(perr) {
+			return "", "", nil, fmt.Errorf("parse message part: %w", perr)
+		}
+		body, rerr := io.ReadAll(part.Body)
+		if rerr != nil {
+			return "", "", nil, fmt.Errorf("read message part: %w", rerr)
+		}
+
+		contentType, filename := partInfo(part.Header)
+		if filename != "" {
+			attachments = append(attachments, attachmentPart(filename, contentType, body))
+			continue
+		}
+		switch {
+		case contentType == textPlain && text == "":
+			text = string(body)
+		case contentType == textHTML && html == "":
+			html = string(body)
+		}
+	}
+}
+
+// partInfo returns a part's media type and the filename it carries, if any.
+func partInfo(h mail.PartHeader) (contentType, filename string) {
+	switch ph := h.(type) {
+	case *mail.InlineHeader:
+		contentType, _, _ = ph.ContentType()
+		if _, params, err := ph.ContentDisposition(); err == nil {
+			filename = params["filename"]
+		}
+		if filename == "" {
+			_, params, _ := ph.ContentType()
+			filename = decodeWord(params["name"])
+		}
+	case *mail.AttachmentHeader:
+		contentType, _, _ = ph.ContentType()
+		filename, _ = ph.Filename()
+		if filename == "" {
+			filename = "attachment"
+		}
+	}
+	if contentType == "" {
+		contentType = textPlain
+	}
+	return contentType, filename
+}
+
+// attachmentPart builds an attachment in the multipart part shape, its bytes
+// base64 encoded so they survive the message's JSON round trips.
+func attachmentPart(filename, contentType string, body []byte) map[string]any {
+	return map[string]any{
+		partFilename:    filename,
+		partContentType: contentType,
+		partEncoding:    encodingBase64,
+		partSize:        len(body),
+		partData:        base64.StdEncoding.EncodeToString(body),
+	}
+}
+
+var wordDecoder mime.WordDecoder
+
+// decodeWord decodes an RFC 2047 encoded word, returning s unchanged when it is
+// not one.
+func decodeWord(s string) string {
+	decoded, err := wordDecoder.DecodeHeader(s)
+	if err != nil {
+		return s
+	}
+	return decoded
+}
+
+func firstOr(list []string, fallback string) string {
+	if len(list) == 0 {
+		return fallback
+	}
+	return list[0]
+}
+
+func toAnyList(list []string) []any {
+	out := make([]any, 0, len(list))
+	for _, s := range list {
+		out = append(out, s)
+	}
+	return out
+}
