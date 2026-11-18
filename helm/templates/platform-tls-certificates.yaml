@@ -1,0 +1,8 @@
+{{- if .Values.internalTLS.enabled }}
+{{- range $i, $component := list "orchestrator" "iam" "observability" }}
+{{- if $i }}
+---
+{{- end }}
+{{ include "octo.platformTLS.certificate" (dict "root" $ "component" $component) }}
+{{- end }}
+{{- end }}

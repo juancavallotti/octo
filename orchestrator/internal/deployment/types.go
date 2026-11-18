@@ -47,6 +47,10 @@ type Settings struct {
 	// Subdomain is the external host label; empty defaults to the integration
 	// slug. Only meaningful when Expose is "external".
 	Subdomain string `json:"subdomain,omitempty"`
+	// InternalTLS has a networked deployment serve HTTPS inside the cluster instead
+	// of plain HTTP, with a certificate from the installation's internal CA.
+	// Ignored for integrations with no HTTP source.
+	InternalTLS bool `json:"internalTls,omitempty"`
 	// Env binds the integration's declared environment variables for this
 	// deployment, keyed by env var name. Each binding is either a literal value or a
 	// reference to a cluster secret. HTTP_PORT/HTTP_HOST are orchestrator-managed and

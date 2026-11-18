@@ -129,6 +129,7 @@ type Spec struct {
 	Expose        bool              // when true, also publish an external Ingress
 	Subdomain     string            // external host label; the Ingress host is {Subdomain}.{baseDomain}
 	Tracing       bool              // when true, run the pods with the runtime's tracer on
+	InternalTLS   bool              // when true, also serve HTTPS inside the cluster (needs an internal CA issuer)
 	// Runner selects the image these pods run. The zero value is RunnerStandard, so
 	// a deployment written before runners existed keeps exactly the pod it had.
 	Runner Runner
@@ -181,6 +182,13 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	if err := c.putToken(ctx, spec, labels); err != nil {
 		return err
 	}
+	// Also before the Deployment, for the same reason: the pod mounts the Secret
+	// cert-manager writes from this Certificate.
+	if c.servesTLS(spec) {
+		if err := c.ensureCertificate(ctx, spec, labels); err != nil {
+			return err
+		}
+	}
 
 	deps := c.clientset.AppsV1().Deployments(c.ns(ctx))
 	if _, err := deps.Create(ctx, c.deployment(name, labels, spec), metav1.CreateOptions{}); err != nil {
@@ -199,11 +207,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
 			Selector: map[string]string{labelDeploymentID: spec.ID},
-			Ports: []corev1.ServicePort{{
-				Name:       "http",
-				Port:       spec.port(),
-				TargetPort: intstr.FromInt(int(spec.port())),
-			}},
+			Ports:    c.servicePorts(spec),
 		},
 	}, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("kube: create service: %w", err)
@@ -224,6 +228,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 			host:   c.ExternalHost(spec.Subdomain),
 			port:   spec.port(),
 			labels: labels,
+			tls:    c.backendTLSFor(ctx, spec),
 		}); err != nil {
 			return fmt.Errorf("kube: publish endpoint: %w", err)
 		}
@@ -247,11 +252,7 @@ func (c *Client) ensureInternalService(ctx context.Context, spec Spec) error {
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
 			Selector: map[string]string{labelDeploymentID: spec.ID},
-			Ports: []corev1.ServicePort{{
-				Name:       "http",
-				Port:       spec.port(),
-				TargetPort: intstr.FromInt(int(spec.port())),
-			}},
+			Ports:    c.servicePorts(spec),
 		},
 	}, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
@@ -357,7 +358,7 @@ func (c *Client) deployment(name string, labels map[string]string, spec Spec) *a
 	// not the integration serves HTTP.
 	ports := []corev1.ContainerPort{{Name: adminPortName, ContainerPort: adminPort}}
 	if spec.networked() {
-		ports = append(ports, corev1.ContainerPort{Name: "http", ContainerPort: spec.port()})
+		ports = append(ports, c.servingPort(spec))
 	}
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
@@ -461,7 +462,7 @@ func (c *Client) volumeMounts(spec Spec) []corev1.VolumeMount {
 			ReadOnly:  true,
 		})
 	}
-	return mounts
+	return append(mounts, c.tlsMounts(spec)...)
 }
 
 // volumes backs those mounts: the per-deployment ConfigMap, and — on the agentic
@@ -510,7 +511,7 @@ func (c *Client) volumes(name string, spec Spec) []corev1.Volume {
 			},
 		})
 	}
-	return volumes
+	return append(volumes, c.tlsVolumes(spec)...)
 }
 
 // putToken writes the deployment's token into a Secret of its own, creating it
@@ -651,8 +652,9 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// matter, since that API authorizes the token it is presented and an address was
 	// never a boundary. Absent when there is no such address, rather than empty,
 	// which would turn every query into a confusing failure inside the flow.
-	if c.runtimeServices.ObservabilityURL != "" {
-		env = append(env, corev1.EnvVar{Name: envObservability, Value: c.runtimeServices.ObservabilityURL})
+	urls := c.platformURLs(spec)
+	if urls.Observability != "" {
+		env = append(env, corev1.EnvVar{Name: envObservability, Value: urls.Observability})
 	}
 	// The stats sidecar scrapes this runtime's /metrics, which the runtime does
 	// not serve unless asked. Emitted only when the sidecar is being injected, so
@@ -665,11 +667,14 @@ func (c *Client) podEnv(spec Spec) []corev1.EnvVar {
 	// Where the mounted token is, and where the pod renews it. Both or neither: a
 	// pod told where its token lives but not where to renew it would present the
 	// same one until it expired.
-	if spec.Token != "" && c.runtimeServices.IAMURL != "" {
+	if spec.Token != "" && urls.IAM != "" {
 		env = append(env,
 			corev1.EnvVar{Name: envTokenFile, Value: tokenMountPath + "/" + tokenFileName},
-			corev1.EnvVar{Name: envIAMURL, Value: c.runtimeServices.IAMURL})
+			corev1.EnvVar{Name: envIAMURL, Value: urls.IAM})
 	}
+	// Last, like the switches above: HTTPS_PORT and the certificate paths are the
+	// orchestrator's to set, so they win over the integration's own declarations.
+	env = append(env, c.tlsEnv(spec)...)
 	if len(env) == 0 {
 		return nil
 	}
@@ -699,7 +704,7 @@ func (c *Client) runtimeServicesEnv(spec Spec) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: envServicesModule, Value: c.runtimeServices.Module},
 		{Name: envDeploymentID, Value: spec.ID},
-		{Name: envOrchestrator, Value: c.runtimeServices.OrchestratorURL},
+		{Name: envOrchestrator, Value: c.platformURLs(spec).Orchestrator},
 		{Name: envPodName, ValueFrom: fieldRef("metadata.name")},
 		{Name: envPodNamespace, ValueFrom: fieldRef("metadata.namespace")},
 	}
@@ -829,6 +834,13 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 	if err := c.clientset.CoreV1().Secrets(c.ns(ctx)).Delete(
 		ctx, tokenSecretName(deploymentID), del); ignoreNotFound(err) != nil {
 		errs = append(errs, fmt.Errorf("delete token secret: %w", err))
+	}
+	// Only deployments serving internal TLS have one, and only an installation
+	// that issues them holds the RBAC to look; a missing one is ignored.
+	if c.InternalTLSEnabled() {
+		if err := c.deleteCertificate(ctx, deploymentID); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("kube: delete %s: %w", name, errors.Join(errs...))

@@ -19,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/client-go/rest"
@@ -75,6 +76,38 @@ type RuntimeServices struct {
 	// such boundary: it reads nothing and writes nothing, and the URL in every pod is
 	// what keeps the provider API key out of all of them.
 	EmbeddingsURL string
+	// HTTPS is the HTTPS form of OrchestratorURL, IAMURL and ObservabilityURL,
+	// injected instead of them into pods whose runtime verifies the internal CA.
+	// An empty field leaves that one plain.
+	HTTPS PlatformURLs
+}
+
+// PlatformURLs are the platform APIs a runtime pod calls.
+type PlatformURLs struct {
+	Orchestrator  string
+	IAM           string
+	Observability string
+}
+
+// platformURLs is what spec's pods are told the platform APIs are at: the HTTPS
+// forms when the installation has them and the pods' runtime serves and trusts
+// internal TLS, the plain ones otherwise, field by field.
+func (c *Client) platformURLs(spec Spec) PlatformURLs {
+	rs := c.runtimeServices
+	ret := PlatformURLs{Orchestrator: rs.OrchestratorURL, IAM: rs.IAMURL, Observability: rs.ObservabilityURL}
+	if !runtimeversion.SupportsInternalTLS(spec.RuntimePin) {
+		return ret
+	}
+	for _, f := range []struct{ secure, dst *string }{
+		{&rs.HTTPS.Orchestrator, &ret.Orchestrator},
+		{&rs.HTTPS.IAM, &ret.IAM},
+		{&rs.HTTPS.Observability, &ret.Observability},
+	} {
+		if *f.secure != "" {
+			*f.dst = *f.secure
+		}
+	}
+	return ret
 }
 
 // SecretKeyRef names one key in one Secret in the release namespace. Integration
@@ -150,6 +183,15 @@ type Client struct {
 	// runtimeServices is the env the orchestrator injects so deployed runtime pods
 	// can reach leader election + the KV API. Zero value disables injection.
 	runtimeServices RuntimeServices
+	// dynamic writes the objects of APIs the orchestrator does not link a typed
+	// client for: cert-manager Certificates and Traefik ServersTransports.
+	dynamic dynamic.Interface
+	// internalTLSIssuer names the cert-manager ClusterIssuer that signs
+	// deployments' internal certificates. Empty disables internal TLS.
+	internalTLSIssuer string
+	// internalCAConfigMap names the ConfigMap, present in every namespace, holding
+	// the internal CA certificate pods trust. Empty mounts no extra trust root.
+	internalCAConfigMap string
 
 	// Informer-backed read path, one per watched namespace; see namespaces.go.
 	informers informerSet
@@ -295,6 +337,12 @@ type Config struct {
 	// zero value leaves environments unavailable, which is every install whose
 	// chart has not granted the cluster-scoped rules that provisioning takes.
 	Environments EnvironmentRBAC
+	// InternalTLSIssuer is the ClusterIssuer for deployments' internal
+	// certificates; "" disables internal TLS.
+	InternalTLSIssuer string
+	// InternalCAConfigMap is the CA bundle ConfigMap pods mount as a trust root;
+	// "" mounts none.
+	InternalCAConfigMap string
 }
 
 // Validate reports configuration that cannot work, before anything is built from
@@ -349,30 +397,37 @@ func New(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kube: gateway clientset: %w", err)
 	}
-	return newClient(cfg, cs, gwcs), nil
+	dyn, err := dynamic.NewForConfig(rc)
+	if err != nil {
+		return nil, fmt.Errorf("kube: dynamic client: %w", err)
+	}
+	return newClient(cfg, cs, gwcs, dyn), nil
 }
 
 // newClient assembles a Client around already-built API clients. New supplies
 // real ones; the tests supply fakes. It is the single place the configuration
 // becomes a Client, so the two paths cannot drift.
-func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface) *Client {
+func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface, dyn dynamic.Interface) *Client {
 	c := &Client{
-		clientset:          cs,
-		namespace:          cfg.Namespace,
-		runtimeImage:       cfg.RuntimeImage,
-		runtimeVersion:     cfg.RuntimeVersion,
-		agenticRunnerImage: cfg.AgenticRunnerImage,
-		agenticResources:   cfg.AgenticRunnerResources,
-		workspaceSize:      parseWorkspaceSize(cfg.AgenticRunnerWorkspaceSize),
-		devRuntimeImage:    cfg.DevRuntimeImage,
-		sidecarImage:       cfg.SidecarImage,
-		sidecarPort:        cfg.SidecarPort,
-		statsSidecar:       cfg.StatsSidecar,
-		orchestratorURL:    cfg.OrchestratorURL,
-		baseDomain:         cfg.BaseDomain,
-		imagePullSecrets:   cfg.ImagePullSecrets,
-		runtimeServices:    cfg.RuntimeServices,
-		environments:       cfg.Environments,
+		clientset:           cs,
+		namespace:           cfg.Namespace,
+		runtimeImage:        cfg.RuntimeImage,
+		runtimeVersion:      cfg.RuntimeVersion,
+		agenticRunnerImage:  cfg.AgenticRunnerImage,
+		agenticResources:    cfg.AgenticRunnerResources,
+		workspaceSize:       parseWorkspaceSize(cfg.AgenticRunnerWorkspaceSize),
+		devRuntimeImage:     cfg.DevRuntimeImage,
+		sidecarImage:        cfg.SidecarImage,
+		sidecarPort:         cfg.SidecarPort,
+		statsSidecar:        cfg.StatsSidecar,
+		orchestratorURL:     cfg.OrchestratorURL,
+		baseDomain:          cfg.BaseDomain,
+		imagePullSecrets:    cfg.ImagePullSecrets,
+		runtimeServices:     cfg.RuntimeServices,
+		environments:        cfg.Environments,
+		dynamic:             dyn,
+		internalTLSIssuer:   cfg.InternalTLSIssuer,
+		internalCAConfigMap: cfg.InternalCAConfigMap,
 	}
 	if c.sidecarPort == 0 {
 		c.sidecarPort = defaultSidecarPort
@@ -389,11 +444,15 @@ func newClient(cfg Config, cs kubernetes.Interface, gwcs gatewayclient.Interface
 		if cfg.Gateway.Namespace == "" {
 			cfg.Gateway.Namespace = cfg.Namespace
 		}
-		c.endpoints = &routePublisher{client: gwcs, ns: c.ns, gateway: cfg.Gateway}
+		c.endpoints = &routePublisher{
+			client: gwcs, ns: c.ns, gateway: cfg.Gateway, reencrypt: cfg.InternalTLSIssuer != "",
+		}
 	} else {
 		c.wildcardTLSSecret = cfg.WildcardTLSSecret
 		c.endpoints = &ingressPublisher{
 			clientset:         cs,
+			dynamic:           dyn,
+			reencrypt:         cfg.InternalTLSIssuer != "",
 			ns:                c.ns,
 			clusterIssuer:     cfg.ClusterIssuer,
 			wildcardTLSSecret: cfg.WildcardTLSSecret,
@@ -540,6 +599,15 @@ func (c *Client) InternalURL(ctx context.Context, slug string, port int) string 
 		p = runtimePort
 	}
 	return fmt.Sprintf("http://%s.%s:%d", internalServiceName(slug), c.ns(ctx), p)
+}
+
+// InternalHTTPSURL is the in-cluster HTTPS address of the stable internal Service
+// for slug, served by a deployment with internal TLS, or "" without a slug.
+func (c *Client) InternalHTTPSURL(ctx context.Context, slug string) string {
+	if slug == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://%s.%s:%d", internalServiceName(slug), c.ns(ctx), httpsPort)
 }
 
 func (c *Client) labels(spec Spec) map[string]string {

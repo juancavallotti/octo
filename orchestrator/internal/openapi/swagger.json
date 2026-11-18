@@ -389,6 +389,10 @@
                         "description": "Expose opts the deployment into an external HTTP endpoint. \"external\"\npublishes a {subdomain}.{baseDomain} Ingress with TLS; empty = internal only.",
                         "type": "string"
                     },
+                    "internalTls": {
+                        "description": "InternalTLS has a networked deployment serve HTTPS inside the cluster instead\nof plain HTTP, with a certificate from the installation's internal CA.\nIgnored for integrations with no HTTP source.",
+                        "type": "boolean"
+                    },
                     "replicas": {
                         "description": "Replicas is the desired runtime replica count; \u003c1 is normalized to 1. The\nper-deployment Service load-balances across them for internal callers.",
                         "type": "integer"
@@ -435,6 +439,10 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "internalTlsAvailable": {
+                        "description": "InternalTLSAvailable reports whether a deploy may set internalTls.",
+                        "type": "boolean"
                     },
                     "networked": {
                         "type": "boolean"
@@ -485,6 +493,10 @@
                     },
                     "integrationId": {
                         "type": "string"
+                    },
+                    "internalTls": {
+                        "description": "InternalTLS reports whether the deployment serves HTTPS inside the cluster,\nin which case InternalURL is its https:// address.",
+                        "type": "boolean"
                     },
                     "internalUrl": {
                         "type": "string"

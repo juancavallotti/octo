@@ -11,6 +11,7 @@ export function toDeploymentInput(
     replicas: input.replicas,
     ...(input.slug ? { slug: input.slug } : {}),
     ...(input.expose ? { expose: input.expose } : {}),
+    ...(input.internalTls ? { internalTls: true } : {}),
     ...(input.env ? { env: input.env } : {}),
     ...(input.tracing ? { tracing: true } : {}),
     ...(input.access?.length ? { access: input.access } : {}),

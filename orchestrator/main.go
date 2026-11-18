@@ -150,8 +150,14 @@ func run() error {
 		return err
 	}
 	httpServer := httpx.NewServer(":"+port, srv)
+	// HTTPS beside plain HTTP, when the installation provisions a certificate.
+	// Plain HTTP stays for runtimes that predate it.
+	httpsServer, err := httpx.HTTPSFromEnv(httpServer)
+	if err != nil {
+		return err
+	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		slog.Info("orchestrator listening", "addr", httpServer.Addr,
 			"db", database != nil)
@@ -159,6 +165,14 @@ func run() error {
 			errCh <- err
 		}
 	}()
+	if httpsServer != nil {
+		go func() {
+			slog.Info("orchestrator listening for HTTPS", "addr", httpsServer.Addr)
+			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -167,7 +181,11 @@ func run() error {
 		slog.Info("shutdown signal received, draining")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		if httpsServer != nil {
+			err = errors.Join(err, httpsServer.Shutdown(shutdownCtx))
+		}
+		return err
 	}
 }
 
@@ -247,6 +265,10 @@ func kubeConfig() (kube.Config, error) {
 		},
 		ImagePullSecrets: imagePullSecretsConfig(),
 		RuntimeServices:  runtimeServicesConfig(),
+		// In-cluster HTTPS. Unset leaves every deployment on plain HTTP and adds
+		// no trust root to its pods.
+		InternalTLSIssuer:   os.Getenv("INTERNAL_TLS_ISSUER"),
+		InternalCAConfigMap: os.Getenv("INTERNAL_CA_CONFIGMAP"),
 		// What an environment's namespace is wired with. The chart sets all three
 		// together; any one unset leaves environments unmanageable.
 		Environments: kube.EnvironmentRBAC{
@@ -456,6 +478,13 @@ func runtimeServicesConfig() kube.RuntimeServices {
 		// an embedding reads nothing and writes nothing, so there is no boundary to
 		// gate, and the URL in every pod is what keeps the provider key out of them.
 		EmbeddingsURL: os.Getenv("EMBEDDINGS_URL"),
+		// The platform APIs over HTTPS, for pods on a runtime that verifies the
+		// internal CA. Unset leaves every pod on the plain URLs above.
+		HTTPS: kube.PlatformURLs{
+			Orchestrator:  os.Getenv("ORCHESTRATOR_HTTPS_URL"),
+			IAM:           os.Getenv("IAM_HTTPS_URL"),
+			Observability: os.Getenv("OBSERVABILITY_HTTPS_URL"),
+		},
 	}
 }
 

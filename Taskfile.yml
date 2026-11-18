@@ -605,6 +605,22 @@ tasks:
       - task: cluster:images:dev:ensure
       - devspace dev --kube-context {{.KCTX}} --namespace octo-dev
 
+  cluster:addons:
+    desc: Install cert-manager and trust-manager into the local k3d cluster (internal HTTPS)
+    cmds:
+      # The chart's internalTLS templates are cert-manager and trust-manager
+      # objects, so both controllers (and their CRDs) must exist before the
+      # release is installed. upgrade --install makes a re-run a no-op.
+      - helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null
+      - >-
+        helm upgrade --install cert-manager jetstack/cert-manager
+        --kube-context {{.KCTX}} --namespace cert-manager --create-namespace
+        --set crds.enabled=true --wait --timeout 5m
+      - >-
+        helm upgrade --install trust-manager jetstack/trust-manager
+        --kube-context {{.KCTX}} --namespace cert-manager
+        --set crds.enabled=true --wait --timeout 5m
+
   cluster:deploy:
     desc: Spin up the local k3d (k3s) cluster and deploy platform, Postgres, orchestrator
     vars:
@@ -656,6 +672,7 @@ tasks:
       # is missing one. The default rebuilds, because that is what somebody typing
       # `task cluster:deploy` after changing a Dockerfile is asking for.
       - task: 'cluster:images{{if eq .IMAGES "ensure"}}:ensure{{end}}'
+      - task: cluster:addons
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.
@@ -1118,6 +1135,19 @@ tasks:
           --set networking.gateway.className=kgateway \
           --set orchestrator.baseDomain=apps.example.com \
           --set wildcardTLS.enabled=true --set wildcardTLS.clusterIssuer=letsencrypt-dns
+        # In-cluster HTTPS under both networking modes: the CA issuers and trust
+        # Bundle, the orchestrator's env, and the re-encrypt object its Role covers.
+        check_contains internal-tls-ingress \
+          "kind: Bundle" "name: INTERNAL_TLS_ISSUER" "serverstransports" \
+          "name: octo-orchestrator-tls" "name: octo-iam-tls" "name: octo-observability-tls" -- \
+          --set internalTLS.enabled=true \
+          --set ingress.className=traefik --set orchestrator.ingressClass=traefik
+        check_contains internal-tls-gateway \
+          "kind: Bundle" "name: INTERNAL_CA_CONFIGMAP" "backendtlspolicies" -- \
+          --set internalTLS.enabled=true \
+          --set networking.mode=gateway --set networking.gateway.name=shared-gw
+        check_absent internal-tls-off "kind: Bundle"
+        check_absent internal-tls-off-env "HTTPS_PORT"
         check gke-gce-ingress -f helm/values-gke-autopilot.yaml \
           --set ingress.className=gce --set ingress.tls.mode=gke-managed-cert \
           --set gke.backendConfig.enabled=true --set gke.frontendConfig.enabled=true

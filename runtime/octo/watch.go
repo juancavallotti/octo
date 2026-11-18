@@ -15,6 +15,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/core/certs"
 	"github.com/juancavallotti/octo/runtime/core/runtime"
 )
 
@@ -277,6 +278,15 @@ func (s recordingServices) LogSink() slog.Handler {
 		return shipper.LogSink()
 	}
 	return nil
+}
+
+// ServerCertificate carries the optional core.ServerTLSProvider facet through the
+// wrapper for the same reason LogSink does.
+func (s recordingServices) ServerCertificate() (*certs.Source, error) {
+	if provider, ok := s.RuntimeServices.(core.ServerTLSProvider); ok {
+		return provider.ServerCertificate()
+	}
+	return nil, nil
 }
 
 type recordingLoader struct {

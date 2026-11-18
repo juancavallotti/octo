@@ -75,6 +75,8 @@ type kubeClient interface {
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(ctx context.Context, slug string, port int) string
+	InternalHTTPSURL(ctx context.Context, slug string) string
+	InternalTLSEnabled() bool
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	RunnerEnabled(runner kube.Runner) bool
@@ -244,6 +246,16 @@ func (s *Service) parseRuntimePin(requested string) (string, error) {
 	return requested, nil
 }
 
+// requireTLSRuntime refuses internal TLS on a runtime pinned to a release that
+// does not serve it: its pods would ignore HTTPS_PORT, and the HTTPS Service in
+// front of them would have nothing to reach.
+func requireTLSRuntime(internalTLS bool, pin string) error {
+	if internalTLS && !runtimeversion.SupportsInternalTLS(pin) {
+		return fmt.Errorf("%w: %s predates %s", ErrInternalTLSRuntime, pin, runtimeversion.InternalTLSRelease)
+	}
+	return nil
+}
+
 // RunnerAvailable reports whether a deployment could ask for this runner and be
 // served, answering *before* anything is deployed. It takes the settings spelling —
 // the string a Settings carries — so the question is asked in the same words the
@@ -334,6 +346,12 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// same integration.
 	// The user picks the slug (a free default is suggested up front); an empty slug
 	// asks the orchestrator to allocate one.
+	// Like external exposure, TLS needs an HTTP source to sit on; a deployment
+	// without one is a bare workload either way, so it is not refused for it.
+	internalTLS := settings.InternalTLS && networked
+	if internalTLS && !s.kube.InternalTLSEnabled() {
+		return Deployment{}, ErrInternalTLSUnavailable
+	}
 	slug := ""
 	internalURL := ""
 	if networked {
@@ -342,6 +360,9 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 			return Deployment{}, err
 		}
 		internalURL = s.kube.InternalURL(ctx, slug, port)
+		if internalTLS {
+			internalURL = s.kube.InternalHTTPSURL(ctx, slug)
+		}
 	}
 
 	// Optional external endpoint: validate up front so a bad request fails before
@@ -383,6 +404,9 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	if err != nil {
 		return Deployment{}, err
 	}
+	if err := requireTLSRuntime(internalTLS, pin); err != nil {
+		return Deployment{}, err
+	}
 
 	persisted := Settings{Replicas: replicas}
 	if external {
@@ -393,6 +417,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// them. Literal values are stored as-is; secret bindings hold only the name.
 	persisted.Env = settings.Env
 	persisted.Tracing = settings.Tracing
+	persisted.InternalTLS = internalTLS
 	// The platform-access grants are persisted for the same reason as the env
 	// bindings: they are what the next rollout starts from, and what a future access
 	// model reads to decide whether a call was ever meant to be allowed.
@@ -450,6 +475,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Expose:        external,
 		Subdomain:     subdomain,
 		Tracing:       settings.Tracing,
+		InternalTLS:   internalTLS,
 		Runner:        runner,
 		RuntimePin:    pin,
 	}
@@ -569,6 +595,8 @@ type DeployOptions struct {
 	Slug          string // normalized (slugified) candidate
 	SlugValid     bool   // candidate has a usable DNS-1123 form
 	SlugAvailable bool   // candidate is not already claimed by a deployment
+	// InternalTLSAvailable reports whether a deploy may ask for internal TLS.
+	InternalTLSAvailable bool
 }
 
 // DeployOptions resolves the deploy choices for integrationID. With an empty
@@ -596,7 +624,11 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 		definition = snap.Definition
 	}
 	_, _, networked := resolveRuntimeEnv(definition)
-	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(definition)}
+	opts := DeployOptions{
+		Networked:            networked,
+		EnvVars:              declaredEnvVars(definition),
+		InternalTLSAvailable: s.kube != nil && s.kube.InternalTLSEnabled(),
+	}
 	// Keys the .env resources already supply, so the modal doesn't block on (nor
 	// force a value for) a required var a .env file covers — the operator may still
 	// override it. A selected tag reads its frozen resources; Current reads the live
@@ -881,6 +913,9 @@ func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) 
 		}
 		settings.RuntimeVersion = pin
 	}
+	if err := requireTLSRuntime(settings.InternalTLS, settings.RuntimeVersion); err != nil {
+		return Deployment{}, err
+	}
 
 	// The runtime port/env come from the new frozen definition. A networked
 	// deployment has a slug (and Service); flipping networked-ness would add or
@@ -945,6 +980,7 @@ func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) 
 		Expose:        settings.External(),
 		Subdomain:     settings.Subdomain,
 		Tracing:       settings.Tracing,
+		InternalTLS:   settings.InternalTLS,
 		Runner:        resolvedRunner,
 		RuntimePin:    settings.RuntimeVersion,
 	}

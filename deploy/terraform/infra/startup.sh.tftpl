@@ -125,6 +125,13 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --set "extraArgs={--cluster-issuer-ambient-credentials=true}" \
   --wait --timeout 5m
 
+# --- trust-manager: publishes the chart's internal CA to every namespace, so
+# deployments serving in-cluster HTTPS are trusted by the pods calling them. ---
+helm upgrade --install trust-manager jetstack/trust-manager \
+  --namespace cert-manager \
+  --set crds.enabled=true \
+  --wait --timeout 5m
+
 # --- Let's Encrypt ClusterIssuers ---
 # letsencrypt-prod: HTTP-01 via Traefik, for the apex host and any per-host certs.
 # letsencrypt-dns:  DNS-01 via Cloud DNS (ambient creds), the only ACME method

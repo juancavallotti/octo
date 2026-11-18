@@ -10,6 +10,7 @@ import {
 import { subscribeIntegrationEvents } from "@octo/events";
 import { localRunTransport } from "@/app/run/localRunTransport";
 import { localDevEnvStore } from "@/app/run/devEnvStore";
+import { localCertificateMinter } from "@/app/run/certificates";
 import { localDiskResourceStore } from "@/app/run/resourceStore";
 import { localEditorMetaStore } from "@/app/run/editorMetaStore";
 import { localTestSuiteStore } from "@/app/run/testSuiteStore";
@@ -74,6 +75,7 @@ export default function StandaloneEditor({
       run={localRunTransport}
       devEnv={localDevEnvStore}
       resources={localDiskResourceStore}
+      certificates={localCertificateMinter}
       meta={localEditorMetaStore}
       metaToken={metaToken}
       tests={localTestSuiteStore}

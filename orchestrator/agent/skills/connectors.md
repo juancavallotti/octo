@@ -42,7 +42,15 @@ one by type on demand, so a flow using them usually declares no connector entry.
     requestTimeout: 30s
     cors:
       allowedOrigins: ["https://example.com"]
+    tls:                        # optional HTTPS
+      port: 8443                # second, HTTPS-only port; omit to make `port` speak TLS
+      cert: ${TLS_CERT}         # or certFile/keyFile, or certResource/keyResource
+      key: ${TLS_KEY}
 ```
+
+Set at most one certificate source. A deployment on the platform does not need a
+`tls` block for internal HTTPS: deploying with `internalTls` hands the connector its
+certificate and `HTTPS_PORT`.
 
 Its **source**:
 

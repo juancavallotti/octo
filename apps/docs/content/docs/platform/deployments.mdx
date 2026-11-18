@@ -35,6 +35,26 @@ Every networked deployment gets a **slug**, unique among the deployments of its 
 http://octo-int-{slug}.{namespace}:{port}
 ```
 
+### Internal HTTPS
+
+Check **Serve HTTPS inside the cluster** in the deploy dialog (`internalTls: true` in the API, `--internal-tls` in `octopaas deployments create`) to have a networked deployment serve HTTPS instead of plain HTTP. A deployment speaks one protocol or the other, never both, and you do not change the flow. The orchestrator:
+
+- requests a certificate from the installation's internal CA for the deployment's Service names,
+- mounts it into the pods and sets `HTTPS_PORT`, which makes the [`http` connector](/reference/connectors/http#tls-settings-tls) serve HTTPS there instead of plain HTTP,
+- gives both Services a single `https` port (8443).
+
+The deployment's `internalUrl` is then the HTTPS address:
+
+```
+https://octo-int-{slug}.{namespace}:8443
+```
+
+Every runtime pod trusts the internal CA, so a flow calls another deployment's `https://` address with no extra configuration. When the deployment is also exposed externally, the ingress re-encrypts to the pod. This works on Traefik, ingress-nginx and Gateway API; other ingress controllers cannot reach a deployment serving internal HTTPS through an external endpoint.
+
+Internal HTTPS needs runtime **0.11.18** or newer. A deployment pinned to an older runtime ignores `HTTPS_PORT`, so the API refuses `internalTls` for it, on deploy and on rollout.
+
+It also needs cert-manager and trust-manager in the cluster and the chart's `internalTLS.enabled`. Without them the option is disabled in the deploy dialog, and the API rejects it. See [Deploying with Helm](/deploy/helm).
+
 ### External exposure
 
 Toggling external exposure additionally creates an Ingress at `https://{subdomain}.{baseDomain}`; the subdomain defaults to the slug and must be unique across integrations. Which controller serves it is the chart's `orchestrator.ingressClass`; empty (the default) leaves it to whichever IngressClass the cluster marks default. TLS is whatever that domain is set up for: a per-host certificate issued by the configured ClusterIssuer over HTTP-01, a shared pre-issued wildcard when the chart's `wildcardTLS` is enabled, or none of the chart's doing when something upstream terminates. The public address is reported as `externalUrl`.

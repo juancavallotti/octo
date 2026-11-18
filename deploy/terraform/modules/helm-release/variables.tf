@@ -151,6 +151,12 @@ variable "wildcard_tls" {
   default     = true
 }
 
+variable "internal_tls" {
+  type        = bool
+  description = "Let deployments serve HTTPS inside the cluster (internalTLS in the chart). Requires cert-manager and trust-manager in the cluster."
+  default     = true
+}
+
 variable "wildcard_cluster_issuer" {
   type        = string
   description = "DNS-01 cert-manager ClusterIssuer that issues the wildcard cert (created by the VM bootstrap, or by modules/cluster-addons on GKE)."

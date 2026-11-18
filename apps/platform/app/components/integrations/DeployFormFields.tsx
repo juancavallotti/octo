@@ -9,6 +9,7 @@ import SlugField from "./SlugField";
 import DeployEnvFields, { type EnvBinding } from "./DeployEnvFields";
 import Field from "./Field";
 import TracingToggle from "./TracingToggle";
+import InternalTlsToggle from "./InternalTlsToggle";
 import AdvancedDeployFields from "./AdvancedDeployFields";
 import DeployVersionField from "./DeployVersionField";
 
@@ -33,6 +34,9 @@ export default function DeployFormFields({
   networked,
   expose,
   onExpose,
+  internalTls,
+  internalTlsAvailable,
+  onInternalTls,
   slug,
   onSlug,
   onSlugOk,
@@ -70,6 +74,11 @@ export default function DeployFormFields({
   networked: boolean;
   expose: boolean;
   onExpose: (on: boolean) => void;
+  /** Serve HTTPS inside the cluster instead of plain HTTP. */
+  internalTls: boolean;
+  /** The installation has an internal CA to issue the certificate from. */
+  internalTlsAvailable: boolean;
+  onInternalTls: (on: boolean) => void;
   slug: string;
   onSlug: (slug: string) => void;
   onSlugOk: (ok: boolean) => void;
@@ -149,6 +158,12 @@ export default function DeployFormFields({
             <Globe size={14} />
             Expose externally at this address
           </label>
+          <InternalTlsToggle
+            available={internalTlsAvailable}
+            checked={internalTls}
+            busy={busy}
+            onChange={onInternalTls}
+          />
         </Field>
       ) : (
         <p className="text-sm text-zinc-400">

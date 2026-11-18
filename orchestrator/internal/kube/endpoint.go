@@ -6,6 +6,7 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -18,6 +19,9 @@ type endpoint struct {
 	host   string            // fully-qualified external host ({subdomain}.{baseDomain})
 	port   int32             // port of the deployment's Service, the routing backend
 	labels map[string]string // deployment labels, so the object is found and cleaned up like the rest
+	// tls, when set, has the endpoint reach the deployment over HTTPS on its
+	// Service's https port and verify it, instead of plain HTTP on port.
+	tls *backendTLS
 }
 
 // endpointPublisher publishes the external endpoint of one deployment — the
@@ -52,6 +56,10 @@ type endpointPublisher interface {
 // requires. None of that is part of a route in the Gateway API path.
 type ingressPublisher struct {
 	clientset kubernetes.Interface
+	dynamic   dynamic.Interface
+	// reencrypt is whether this installation serves internal TLS, and so whether
+	// it may hold re-encrypt objects at all — and the RBAC to touch them.
+	reencrypt bool
 	// ns is the namespace an Ingress goes in: the environment's the request acts in.
 	ns func(context.Context) string
 	// clusterIssuer names a cert-manager ClusterIssuer for per-host TLS. Empty =
@@ -72,8 +80,23 @@ type ingressPublisher struct {
 }
 
 func (p *ingressPublisher) publish(ctx context.Context, ep endpoint) error {
-	_, err := p.clientset.NetworkingV1().Ingresses(p.ns(ctx)).Create(ctx, p.ingress(ep), metav1.CreateOptions{})
-	if err != nil {
+	namespace := p.ns(ctx)
+	if ep.tls != nil {
+		switch ingressController(p.ingressClass) {
+		case controllerTraefik:
+			if err := p.publishTraefikTransport(ctx, namespace, ep); err != nil {
+				return err
+			}
+		case controllerNginx:
+		default:
+			// The pod answers HTTPS only, and this controller cannot be told to
+			// speak it: an Ingress would route to a port it cannot talk to.
+			return fmt.Errorf("ingress class %q cannot re-encrypt to a deployment serving internal TLS; "+
+				"expose it without internal TLS, or use Traefik, ingress-nginx or Gateway API", p.ingressClass)
+		}
+	}
+	ing := p.ingress(namespace, ep)
+	if _, err := p.clientset.NetworkingV1().Ingresses(namespace).Create(ctx, ing, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("create ingress: %w", err)
 	}
 	return nil
@@ -83,6 +106,9 @@ func (p *ingressPublisher) withdraw(ctx context.Context, name string) error {
 	err := p.clientset.NetworkingV1().Ingresses(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete ingress: %w", err)
+	}
+	if p.reencrypt && ingressController(p.ingressClass) == controllerTraefik {
+		return p.withdrawTraefikTransport(ctx, name)
 	}
 	return nil
 }
@@ -98,7 +124,7 @@ func (p *ingressPublisher) preflight(context.Context) error { return nil }
 // is configured; otherwise, if a ClusterIssuer is set, cert-manager issues a
 // per-host cert via its annotation; otherwise the Ingress carries no TLS at all
 // (the cluster terminates TLS elsewhere, or this endpoint is plain HTTP).
-func (p *ingressPublisher) ingress(ep endpoint) *networkingv1.Ingress {
+func (p *ingressPublisher) ingress(namespace string, ep endpoint) *networkingv1.Ingress {
 	pathType := networkingv1.PathTypePrefix
 
 	// Copy extraAnnotations rather than mutate the shared map, and let the
@@ -117,6 +143,15 @@ func (p *ingressPublisher) ingress(ep endpoint) *networkingv1.Ingress {
 	case p.clusterIssuer != "":
 		annotations["cert-manager.io/cluster-issuer"] = p.clusterIssuer
 		tls = []networkingv1.IngressTLS{{Hosts: []string{ep.host}, SecretName: ep.name + "-tls"}}
+	}
+	backendPort := networkingv1.ServiceBackendPort{Number: ep.port}
+	if ep.tls != nil {
+		backendPort = networkingv1.ServiceBackendPort{Name: httpsPortName}
+		if ingressController(p.ingressClass) == controllerNginx {
+			for k, v := range nginxReencryptAnnotations(namespace, ep.tls) {
+				annotations[k] = v
+			}
+		}
 	}
 	if len(annotations) == 0 {
 		annotations = nil
@@ -147,7 +182,7 @@ func (p *ingressPublisher) ingress(ep endpoint) *networkingv1.Ingress {
 							Backend: networkingv1.IngressBackend{
 								Service: &networkingv1.IngressServiceBackend{
 									Name: ep.name,
-									Port: networkingv1.ServiceBackendPort{Number: ep.port},
+									Port: backendPort,
 								},
 							},
 						}},

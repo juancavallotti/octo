@@ -47,6 +47,7 @@ octopaas deployments create billing --version v1.3.0 --replicas 2 \
 | `--access` | what the deployment's own token may do besides its stores: developer, operator |  |
 | `--env` | bind a declared env var to a value, as NAME=value (repeatable) |  |
 | `--expose` | external to publish it outside the cluster |  |
+| `--internal-tls` | also serve HTTPS inside the cluster (needs an internal CA) |  |
 | `--no-wait` | return once the platform accepts the change |  |
 | `--replicas` | how many replicas to run (default: the platform's) |  |
 | `--runner` | standard or agentic (default: picked from the integration) |  |

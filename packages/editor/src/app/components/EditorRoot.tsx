@@ -18,6 +18,10 @@ import {
   type ResourceStore,
 } from "../providers/ResourceStoreProvider";
 import {
+  CertificateProvider,
+  type CertificateMinter,
+} from "../providers/CertificateProvider";
+import {
   EditorMetaProvider,
   type EditorMetaStore,
 } from "../providers/EditorMetaProvider";
@@ -63,6 +67,7 @@ export default function EditorRoot({
   run,
   devEnv,
   resources,
+  certificates,
   meta,
   metaToken,
   tests,
@@ -102,6 +107,11 @@ export default function EditorRoot({
   devEnv?: DevEnvStore | null;
   /** Resource-store capability backing the Resources tab; omit to hide the tab. */
   resources?: ResourceStore | null;
+  /**
+   * Certificate capability: minting a self-signed certificate into a connector's TLS
+   * settings. Omit and the TLS settings offer no minting action.
+   */
+  certificates?: CertificateMinter | null;
   /**
    * Editor-meta capability (`.octo/editor-meta.json`), holding a flow's saved test
    * inputs. Omit and inputs still work — they just live for the session.
@@ -161,6 +171,10 @@ export default function EditorRoot({
   if (resources)
     tree = (
       <ResourceStoreProvider value={resources}>{tree}</ResourceStoreProvider>
+    );
+  if (certificates)
+    tree = (
+      <CertificateProvider value={certificates}>{tree}</CertificateProvider>
     );
   if (run) {
     // FlowRunProvider sits inside RunProvider and drives the console (it opens the tab

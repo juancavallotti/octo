@@ -8,6 +8,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	gatewayfake "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/fake"
 )
@@ -39,7 +41,17 @@ func testConfig(baseDomain string) Config {
 // testClientFor builds a Client from cfg through the same assembly New uses, so
 // a test cannot construct a combination the real constructor never produces.
 func testClientFor(cfg Config, objects ...runtime.Object) *Client {
-	return newClient(cfg, fake.NewSimpleClientset(objects...), gatewayfake.NewSimpleClientset())
+	return newClient(cfg, fake.NewSimpleClientset(objects...), gatewayfake.NewSimpleClientset(), testDynamic())
+}
+
+// testDynamic is a fake dynamic client that knows the custom resources the
+// orchestrator writes through it.
+func testDynamic() *dynamicfake.FakeDynamicClient {
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{
+			certificateGVR:      "CertificateList",
+			serversTransportGVR: "ServersTransportList",
+		})
 }
 
 func TestSpecPortDefaultsToRuntimePort(t *testing.T) {
