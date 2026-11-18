@@ -129,7 +129,8 @@ func (e endpoint) addr() string {
 // dial opens a connection to the server, wrapped in TLS when the security mode
 // is implicit TLS. The whole session that follows is bounded by the endpoint's
 // timeout, so a stalled server cannot hold the caller past it; the deadline is
-// also cut short by ctx's own.
+// also cut short by ctx's own, and cancelling ctx closes the connection, so a
+// stopping source or flow is not held for the rest of the timeout.
 func (e endpoint) dial(ctx context.Context) (net.Conn, error) {
 	deadline := time.Now().Add(e.timeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
@@ -145,6 +146,7 @@ func (e endpoint) dial(ctx context.Context) (net.Conn, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("%s: set deadline: %w", e.proto.name, err)
 	}
+	conn = closeOnCancel(ctx, conn)
 	if e.security != securityTLS {
 		return conn, nil
 	}
@@ -155,4 +157,24 @@ func (e endpoint) dial(ctx context.Context) (net.Conn, error) {
 		return nil, fmt.Errorf("%s: tls handshake with %s: %w", e.proto.name, e.addr(), err)
 	}
 	return tlsConn, nil
+}
+
+// cancelConn closes its connection when a context is cancelled, until the
+// connection is closed normally.
+type cancelConn struct {
+	net.Conn
+	stop func() bool
+}
+
+// closeOnCancel ties conn to ctx: cancelling ctx closes conn, which unblocks
+// whatever read or write the session is parked on.
+func closeOnCancel(ctx context.Context, conn net.Conn) net.Conn {
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	return &cancelConn{Conn: conn, stop: stop}
+}
+
+// Close stops watching the context and closes the connection.
+func (c *cancelConn) Close() error {
+	c.stop()
+	return c.Conn.Close() //nolint:wrapcheck // a net.Conn's Close error is the caller's to read as is
 }

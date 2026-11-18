@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/smtp"
 	"os"
 	"reflect"
@@ -138,8 +139,11 @@ func (c *SMTPConnector) Send(ctx context.Context, from string, recipients []stri
 	if err := c.submit(client, from, recipients, data); err != nil {
 		return err
 	}
+	// The message is the server's once DATA is accepted; a connection lost on
+	// the way out does not undo that, and reporting it as a failure would invite
+	// sending the message again.
 	if err := client.Quit(); err != nil {
-		return fmt.Errorf("smtp: quit: %w", err)
+		slog.Debug("smtp: quit after a successful send failed", "server", c.ep.addr(), "error", err)
 	}
 	return nil
 }

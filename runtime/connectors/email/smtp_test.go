@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeSMTP is a minimal SMTP server: enough of EHLO, STARTTLS, AUTH PLAIN, MAIL,
@@ -16,6 +17,8 @@ import (
 type fakeSMTP struct {
 	tls      *tls.Config
 	startTLS bool
+	// dropOnQuit closes the connection on QUIT without answering.
+	dropOnQuit bool
 
 	mu     sync.Mutex
 	auth   string
@@ -81,7 +84,9 @@ func (f *fakeSMTP) session(conn net.Conn) {
 			f.record(func() { f.data = strings.Join(lines, "\n") })
 			_ = tp.PrintfLine("250 queued")
 		case "QUIT":
-			_ = tp.PrintfLine("221 bye")
+			if !f.dropOnQuit {
+				_ = tp.PrintfLine("221 bye")
+			}
 			return
 		default:
 			_ = tp.PrintfLine("250 ok")
@@ -276,5 +281,46 @@ func TestEndpointDefaults(t *testing.T) {
 	}
 	if _, err := newEndpoint(smtpProtocol, serverSettings{}); err == nil {
 		t.Error("expected a missing-host error")
+	}
+}
+
+func TestSMTPSendSucceedsWhenOnlyQuitFails(t *testing.T) {
+	srv, settings := startFakeSMTP(t, securityTLS)
+	srv.dropOnQuit = true
+	conn := &SMTPConnector{}
+	startConnector(t, conn, settings)
+
+	if err := conn.Send(t.Context(), "a@example.com", []string{"b@example.com"}, []byte("Subject: x\r\n\r\nhi\r\n")); err != nil {
+		t.Fatalf("a message the server accepted at DATA was reported as failed: %v", err)
+	}
+	if got := srv.snapshot().data; !strings.Contains(got, "hi") {
+		t.Errorf("message not delivered: %q", got)
+	}
+}
+
+func TestSMTPSendStopsWhenTheContextIsCancelled(t *testing.T) {
+	// A server that accepts the connection and never greets.
+	ln := listen(t, nil, false)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	host, port := hostPort(t, ln)
+	conn := &SMTPConnector{}
+	startConnector(t, conn, map[string]any{"host": host, "port": port, "security": securityNone, "timeout": "30s"})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start := time.Now()
+	if err := conn.Send(ctx, "a@example.com", []string{"b@example.com"}, []byte("x")); err == nil {
+		t.Fatal("expected the cancelled send to fail")
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("send took %v after cancellation, want it to stop promptly", took)
 	}
 }
