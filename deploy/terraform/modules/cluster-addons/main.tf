@@ -157,6 +157,29 @@ resource "helm_release" "cert_manager" {
   ]
 }
 
+# --- trust-manager ---
+#
+# Publishes the octo chart's internal CA to every namespace, so deployments that
+# serve in-cluster HTTPS are trusted by the pods calling them. Its trust namespace
+# defaults to cert-manager's, which is where the chart puts the CA Secret.
+resource "helm_release" "trust_manager" {
+  name       = "trust-manager"
+  repository = "https://charts.jetstack.io"
+  chart      = "trust-manager"
+  version    = var.trust_manager_version
+  namespace  = local.cert_manager_namespace
+
+  wait    = true
+  timeout = var.timeout
+
+  set {
+    name  = "crds.enabled"
+    value = "true"
+  }
+
+  depends_on = [helm_release.cert_manager]
+}
+
 # --- ClusterIssuers ---
 #
 # A local chart rather than kubernetes_manifest: that resource validates against

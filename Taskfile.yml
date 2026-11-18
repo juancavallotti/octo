@@ -605,6 +605,22 @@ tasks:
       - task: cluster:images:dev:ensure
       - devspace dev --kube-context {{.KCTX}} --namespace octo-dev
 
+  cluster:addons:
+    desc: Install cert-manager and trust-manager into the local k3d cluster (internal HTTPS)
+    cmds:
+      # The chart's internalTLS templates are cert-manager and trust-manager
+      # objects, so both controllers (and their CRDs) must exist before the
+      # release is installed. upgrade --install makes a re-run a no-op.
+      - helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null
+      - >-
+        helm upgrade --install cert-manager jetstack/cert-manager
+        --kube-context {{.KCTX}} --namespace cert-manager --create-namespace
+        --set crds.enabled=true --wait --timeout 5m
+      - >-
+        helm upgrade --install trust-manager jetstack/trust-manager
+        --kube-context {{.KCTX}} --namespace cert-manager
+        --set crds.enabled=true --wait --timeout 5m
+
   cluster:deploy:
     desc: Spin up the local k3d (k3s) cluster and deploy platform, Postgres, orchestrator
     vars:
@@ -656,6 +672,7 @@ tasks:
       # is missing one. The default rebuilds, because that is what somebody typing
       # `task cluster:deploy` after changing a Dockerfile is asking for.
       - task: 'cluster:images{{if eq .IMAGES "ensure"}}:ensure{{end}}'
+      - task: cluster:addons
       - devspace deploy --kube-context {{.KCTX}} --namespace octo-dev
       # Fixed :dev tags don't change between runs, so nudge the apps to pull the
       # freshly imported images. Harmless on first run; ignored if not yet present.

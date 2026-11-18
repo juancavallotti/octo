@@ -240,6 +240,10 @@ resource "helm_release" "octo" {
     name  = "wildcardTLS.clusterIssuer"
     value = var.wildcard_cluster_issuer
   }
+  set {
+    name  = "internalTLS.enabled"
+    value = var.internal_tls
+  }
 
   # --- Public API ---
   dynamic "set" {

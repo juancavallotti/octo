@@ -182,3 +182,8 @@ postgres:
 # nothing answers on.
 auth:
   url: "http://localhost:30030"
+
+# In-cluster HTTPS for deployments that ask for it. `task cluster:addons`
+# installs the cert-manager and trust-manager it needs.
+internalTLS:
+  enabled: true
