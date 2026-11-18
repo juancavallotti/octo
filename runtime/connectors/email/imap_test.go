@@ -60,11 +60,11 @@ type discardLogger struct{}
 
 func (discardLogger) Printf(string, ...any) {}
 
-// deliver appends a minimal message with the given subject to mailbox.
-func (f *imapFixture) deliver(t *testing.T, mailbox, subject string, flags ...imap.Flag) {
+// deliver appends a minimal message with the given subject to the INBOX.
+func (f *imapFixture) deliver(t *testing.T, subject string, flags ...imap.Flag) {
 	t.Helper()
 	raw := crlf(fmt.Sprintf("From: a@example.com\nTo: bot@example.com\nSubject: %s\nContent-Type: text/plain\n\nbody of %s\n", subject, subject))
-	if _, err := f.user.Append(mailbox, bytes.NewReader(raw), &imap.AppendOptions{Flags: flags}); err != nil {
+	if _, err := f.user.Append(defaultMailbox, bytes.NewReader(raw), &imap.AppendOptions{Flags: flags}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 }
@@ -110,7 +110,7 @@ func TestIMAPFetchSecurityModes(t *testing.T) {
 	for _, security := range []string{securityNone, securityStartTLS, securityTLS} {
 		t.Run(security, func(t *testing.T) {
 			f := startIMAP(t, security)
-			f.deliver(t, defaultMailbox, "one")
+			f.deliver(t, "one")
 
 			proc, err := newIMAPFetch(map[string]any{"connector": "inbox"}, depsWith("inbox", f.conn))
 			if err != nil {
@@ -179,9 +179,9 @@ func TestIMAPFetchSearchLimitAndActions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := startIMAP(t, securityTLS)
-			f.deliver(t, defaultMailbox, "a", imap.FlagSeen)
+			f.deliver(t, "a", imap.FlagSeen)
 			for _, s := range []string{"b", "c", "d"} {
-				f.deliver(t, defaultMailbox, s)
+				f.deliver(t, s)
 			}
 
 			settings := map[string]any{"connector": "inbox"}

@@ -64,8 +64,14 @@ func registerIMAP() {
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     imapType,
 		Label:    "IMAP",
-		Icon:     "Inbox",
+		Icon:     iconInbox,
 		Settings: reflect.TypeFor[imapSettings](),
+		Sources: []core.SourceMeta{{
+			Type:     imapType,
+			Label:    "IMAP Mailbox",
+			Icon:     iconInbox,
+			Settings: reflect.TypeFor[imapSourceSettings](),
+		}},
 	})
 }
 
@@ -91,12 +97,14 @@ type imapSettings struct {
 
 // IMAPConnector reads a mailbox on an IMAP server. It is safe for concurrent
 // use: every session dials its own connection and the endpoint is read-only
-// after Start.
+// after Start. Flows bound to it receive mail through its imap source.
 type IMAPConnector struct {
-	ep endpoint
+	ep      endpoint
+	pending *pendingFlows
 }
 
-// Start decodes and validates the settings.
+// Start decodes and validates the settings and starts correlating flow outcomes
+// for the connector's sources.
 func (c *IMAPConnector) Start(_ context.Context, config types.ConnectorConfig) error {
 	var set imapSettings
 	if err := config.Settings.Decode(&set); err != nil {
@@ -118,11 +126,17 @@ func (c *IMAPConnector) Start(_ context.Context, config types.ConnectorConfig) e
 		return err
 	}
 	c.ep = ep
+	c.pending = newPendingFlows()
 	return nil
 }
 
-// Stop releases nothing: no connection outlives a session.
-func (c *IMAPConnector) Stop(context.Context) error { return nil }
+// Stop stops correlating flow outcomes, releasing any source parked on one.
+func (c *IMAPConnector) Stop(context.Context) error {
+	if c.pending != nil {
+		c.pending.close()
+	}
+	return nil
+}
 
 // session runs fn on a logged-in client and logs out after it.
 func (c *IMAPConnector) session(ctx context.Context, fn func(*imapclient.Client) error) error {

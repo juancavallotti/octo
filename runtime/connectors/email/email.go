@@ -14,8 +14,13 @@ import (
 	"github.com/juancavallotti/octo/runtime/core"
 )
 
-// displayName is the palette group the email connectors and blocks share.
-const displayName = "Email"
+// displayName is the palette group the email connectors and blocks share;
+// iconInbox marks what receives mail and iconSend what sends it.
+const (
+	displayName = "Email"
+	iconInbox   = "Inbox"
+	iconSend    = "Send"
+)
 
 // init is this module's manifest: the one place that says what importing this
 // package puts into the runtime, in a deterministic order. Each connector and

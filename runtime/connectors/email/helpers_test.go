@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,3 +103,128 @@ func newMessage(t *testing.T, body any) *types.Message {
 	msg.Body = body
 	return msg
 }
+
+// fakeServices is a RuntimeServices with fixed leadership and an in-memory KV,
+// to drive the sources' leader gating and cursor in tests.
+type fakeServices struct {
+	leader bool
+	kv     *memKV
+}
+
+//nolint:ireturn // implements core.RuntimeServices, which returns interfaces
+func (f fakeServices) LeaderElection() core.LeaderElection { return fakeElection{leader: f.leader} }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Leases() core.Leases { return core.NoopLeases() }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (f fakeServices) KV() core.KV { return f.kv }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Secrets() core.SecretStore { return nil }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Queues() core.Queues { return core.NoopQueues() }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Topics() core.Topics { return core.NoopTopics() }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Resources() core.ResourceLoader { return core.NoopResourceLoader{} }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) Traces() core.TracePublisher { return core.NoopTracer() }
+
+//nolint:ireturn // implements core.RuntimeServices
+func (fakeServices) AgentMemory() core.AgentMemory { return core.NoopAgentMemory() }
+func (fakeServices) Close() error                  { return nil }
+
+type fakeElection struct{ leader bool }
+
+//nolint:ireturn // implements core.LeaderElection
+func (f fakeElection) Acquire(context.Context, string) (core.Leadership, error) {
+	return fakeLeadership(f), nil
+}
+
+type fakeLeadership struct{ leader bool }
+
+func (f fakeLeadership) IsLeader() bool { return f.leader }
+func (fakeLeadership) Close() error     { return nil }
+
+// memKV is a versioned in-memory KV.
+type memKV struct {
+	mu      sync.Mutex
+	entries map[string]core.Entry
+}
+
+func newMemKV() *memKV { return &memKV{entries: map[string]core.Entry{}} }
+
+func (m *memKV) Get(_ context.Context, ns, key string) (core.Entry, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.entries[ns+"/"+key]
+	return e, ok, nil
+}
+
+func (m *memKV) Set(_ context.Context, ns, key string, value []byte, expected int64) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur := m.entries[ns+"/"+key]
+	if cur.Version != expected {
+		return 0, core.ErrVersionConflict
+	}
+	next := core.Entry{Value: append([]byte(nil), value...), Version: cur.Version + 1}
+	m.entries[ns+"/"+key] = next
+	return next.Version, nil
+}
+
+func (m *memKV) Delete(_ context.Context, ns, key string, _ int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.entries, ns+"/"+key)
+	return nil
+}
+
+// servicesCtx returns a context carrying fake services.
+func servicesCtx(t *testing.T, leader bool, kv *memKV) context.Context {
+	t.Helper()
+	return core.ContextWithRuntimeServices(t.Context(), fakeServices{leader: leader, kv: kv})
+}
+
+// fakeFlow drains a source's output, records each message's subject, and
+// publishes the outcome outcome(subject) picks on the flow-event bus.
+type fakeFlow struct {
+	mu       sync.Mutex
+	subjects []string
+}
+
+func runFakeFlow(t *testing.T, out chan *types.Message, outcome func(subject string) types.FlowEventKind) *fakeFlow {
+	t.Helper()
+	f := &fakeFlow{}
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		for {
+			select {
+			case msg := <-out:
+				body, _ := msg.Body.(map[string]any)
+				subject, _ := body[keySubject].(string)
+				f.mu.Lock()
+				f.subjects = append(f.subjects, subject)
+				f.mu.Unlock()
+				core.DefaultEventBus().Publish(types.FlowEvent{Kind: outcome(subject), EventID: msg.EventID})
+			case <-done:
+				return
+			}
+		}
+	}()
+	return f
+}
+
+func (f *fakeFlow) seen() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.subjects...)
+}
+
+func completeAll(string) types.FlowEventKind { return types.FlowEventCompleted }

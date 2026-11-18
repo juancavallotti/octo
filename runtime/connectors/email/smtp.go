@@ -41,7 +41,7 @@ func registerSMTP() {
 	core.RegisterConnectorMeta(core.ConnectorMeta{
 		Type:     smtpType,
 		Label:    "SMTP",
-		Icon:     "Send",
+		Icon:     iconSend,
 		Settings: reflect.TypeFor[smtpSettings](),
 	})
 }

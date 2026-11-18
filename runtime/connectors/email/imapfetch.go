@@ -36,7 +36,7 @@ func registerIMAPFetch() {
 		Type:        imapFetchType,
 		Label:       "Fetch IMAP Mail",
 		Category:    core.CategoryProcessor,
-		Icon:        "Inbox",
+		Icon:        iconInbox,
 		Description: "Read messages from an IMAP mailbox into the body, as a list.",
 		Config:      reflect.TypeFor[imapFetchSettings](),
 	})

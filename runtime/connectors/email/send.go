@@ -37,7 +37,7 @@ func registerSMTPSend() {
 		Type:        smtpSendType,
 		Label:       "Send Email",
 		Category:    core.CategoryProcessor,
-		Icon:        "Send",
+		Icon:        iconSend,
 		Description: "Compose an email and send it through an smtp connector.",
 		Config:      reflect.TypeFor[sendSettings](),
 	})
