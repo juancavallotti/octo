@@ -59,6 +59,11 @@
 - apiGroups: ["traefik.io"]
   resources: ["serverstransports"]
   verbs: ["get", "create", "update", "delete"]
+# Traefik reads the backend scheme and the transport from annotations on the
+# deployment's Service, which the orchestrator adds once the transport exists.
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["patch"]
 {{- end }}
 {{- end }}
 {{- end }}
