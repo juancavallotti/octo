@@ -150,8 +150,14 @@ func run() error {
 		return err
 	}
 	httpServer := httpx.NewServer(":"+port, srv)
+	// HTTPS beside plain HTTP, when the installation provisions a certificate.
+	// Plain HTTP stays for runtimes that predate it.
+	httpsServer, err := httpx.HTTPSFromEnv(httpServer)
+	if err != nil {
+		return err
+	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		slog.Info("orchestrator listening", "addr", httpServer.Addr,
 			"db", database != nil)
@@ -159,6 +165,14 @@ func run() error {
 			errCh <- err
 		}
 	}()
+	if httpsServer != nil {
+		go func() {
+			slog.Info("orchestrator listening for HTTPS", "addr", httpsServer.Addr)
+			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -167,7 +181,11 @@ func run() error {
 		slog.Info("shutdown signal received, draining")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		if httpsServer != nil {
+			err = errors.Join(err, httpsServer.Shutdown(shutdownCtx))
+		}
+		return err
 	}
 }
 
