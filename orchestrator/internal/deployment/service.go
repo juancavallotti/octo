@@ -75,6 +75,8 @@ type kubeClient interface {
 	Scale(ctx context.Context, deploymentID string, replicas int32) error
 	Delete(ctx context.Context, deploymentID string) error
 	InternalURL(ctx context.Context, slug string, port int) string
+	InternalHTTPSURL(ctx context.Context, slug string) string
+	InternalTLSEnabled() bool
 	DeleteInternalService(ctx context.Context, slug string) error
 	ExternalEnabled() bool
 	RunnerEnabled(runner kube.Runner) bool
@@ -334,14 +336,23 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// same integration.
 	// The user picks the slug (a free default is suggested up front); an empty slug
 	// asks the orchestrator to allocate one.
+	if settings.InternalTLS && !s.kube.InternalTLSEnabled() {
+		return Deployment{}, ErrInternalTLSUnavailable
+	}
+	// Like external exposure, TLS needs an HTTP source to sit on; a deployment
+	// without one is a bare workload either way.
+	internalTLS := settings.InternalTLS && networked
 	slug := ""
-	internalURL := ""
+	internalURL, internalHTTPURL := "", ""
 	if networked {
 		slug, err = s.resolveSlug(ctx, settings.Slug, slugify(it.Name))
 		if err != nil {
 			return Deployment{}, err
 		}
 		internalURL = s.kube.InternalURL(ctx, slug, port)
+		if internalTLS {
+			internalHTTPURL, internalURL = internalURL, s.kube.InternalHTTPSURL(ctx, slug)
+		}
 	}
 
 	// Optional external endpoint: validate up front so a bad request fails before
@@ -393,6 +404,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	// them. Literal values are stored as-is; secret bindings hold only the name.
 	persisted.Env = settings.Env
 	persisted.Tracing = settings.Tracing
+	persisted.InternalTLS = internalTLS
 	// The platform-access grants are persisted for the same reason as the env
 	// bindings: they are what the next rollout starts from, and what a future access
 	// model reads to decide whether a call was ever meant to be allowed.
@@ -409,12 +421,13 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 	}
 	now := time.Now().UTC()
 	metadata, err := json.Marshal(Metadata{
-		Name:        it.Name,
-		Slug:        slug,
-		InternalURL: internalURL,
-		ExternalURL: externalURL,
-		SnapshotID:  snapID,
-		Tag:         snapTag,
+		Name:            it.Name,
+		Slug:            slug,
+		InternalURL:     internalURL,
+		InternalHTTPURL: internalHTTPURL,
+		ExternalURL:     externalURL,
+		SnapshotID:      snapID,
+		Tag:             snapTag,
 		// The image this deploy is about to ship, from the same resolution the pod
 		// spec uses — recorded here rather than read back later, because the answer
 		// changes when the orchestrator is upgraded and this deployment's pods do
@@ -450,6 +463,7 @@ func (s *Service) Deploy(ctx context.Context, integrationID string, settings Set
 		Expose:        external,
 		Subdomain:     subdomain,
 		Tracing:       settings.Tracing,
+		InternalTLS:   internalTLS,
 		Runner:        runner,
 		RuntimePin:    pin,
 	}
@@ -569,6 +583,8 @@ type DeployOptions struct {
 	Slug          string // normalized (slugified) candidate
 	SlugValid     bool   // candidate has a usable DNS-1123 form
 	SlugAvailable bool   // candidate is not already claimed by a deployment
+	// InternalTLSAvailable reports whether a deploy may ask for internal TLS.
+	InternalTLSAvailable bool
 }
 
 // DeployOptions resolves the deploy choices for integrationID. With an empty
@@ -596,7 +612,11 @@ func (s *Service) DeployOptions(ctx context.Context, integrationID, candidate st
 		definition = snap.Definition
 	}
 	_, _, networked := resolveRuntimeEnv(definition)
-	opts := DeployOptions{Networked: networked, EnvVars: declaredEnvVars(definition)}
+	opts := DeployOptions{
+		Networked:            networked,
+		EnvVars:              declaredEnvVars(definition),
+		InternalTLSAvailable: s.kube != nil && s.kube.InternalTLSEnabled(),
+	}
 	// Keys the .env resources already supply, so the modal doesn't block on (nor
 	// force a value for) a required var a .env file covers — the operator may still
 	// override it. A selected tag reads its frozen resources; Current reads the live
@@ -945,6 +965,7 @@ func (s *Service) Rollout(ctx context.Context, id string, change RolloutChange) 
 		Expose:        settings.External(),
 		Subdomain:     settings.Subdomain,
 		Tracing:       settings.Tracing,
+		InternalTLS:   settings.InternalTLS,
 		Runner:        resolvedRunner,
 		RuntimePin:    settings.RuntimeVersion,
 	}

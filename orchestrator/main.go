@@ -247,6 +247,10 @@ func kubeConfig() (kube.Config, error) {
 		},
 		ImagePullSecrets: imagePullSecretsConfig(),
 		RuntimeServices:  runtimeServicesConfig(),
+		// In-cluster HTTPS. Unset leaves every deployment on plain HTTP and adds
+		// no trust root to its pods.
+		InternalTLSIssuer:   os.Getenv("INTERNAL_TLS_ISSUER"),
+		InternalCAConfigMap: os.Getenv("INTERNAL_CA_CONFIGMAP"),
 		// What an environment's namespace is wired with. The chart sets all three
 		// together; any one unset leaves environments unmanageable.
 		Environments: kube.EnvironmentRBAC{

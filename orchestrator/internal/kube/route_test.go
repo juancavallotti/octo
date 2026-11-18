@@ -27,7 +27,7 @@ func gatewayConfig(baseDomain string) Config {
 // the core clientset the other tests read.
 func testGatewayClient(cfg Config, objects ...runtime.Object) (*Client, *gatewayfake.Clientset) {
 	gw := gatewayfake.NewSimpleClientset()
-	return newClient(cfg, fake.NewSimpleClientset(objects...), gw), gw
+	return newClient(cfg, fake.NewSimpleClientset(objects...), gw, testDynamic()), gw
 }
 
 // exposedSpec is the deployment shape every endpoint test uses: networked,

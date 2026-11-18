@@ -16,6 +16,9 @@ var (
 	// ErrExternalUnavailable is returned when an external endpoint is requested
 	// but no base domain is configured on the orchestrator.
 	ErrExternalUnavailable = errors.New("external endpoints unavailable: no base domain configured")
+	// ErrInternalTLSUnavailable is returned when in-cluster HTTPS is requested but
+	// no internal CA issuer is configured on the orchestrator.
+	ErrInternalTLSUnavailable = errors.New("internal TLS unavailable: no internal CA issuer configured")
 	// ErrRunnerUnavailable is returned when a deployment asks for a runner this
 	// installation does not configure — in practice the agentic one, on a chart
 	// that names no image for it. Refusing is the point: falling back to the

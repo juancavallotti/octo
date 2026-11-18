@@ -26,6 +26,13 @@ type routePublisher struct {
 
 func (p *routePublisher) publish(ctx context.Context, ep endpoint) error {
 	namespace := p.ns(ctx)
+	if ep.tls != nil {
+		policies := p.client.GatewayV1().BackendTLSPolicies(namespace)
+		if _, err := policies.Create(ctx, backendTLSPolicy(ep), metav1.CreateOptions{}); err != nil &&
+			!apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("create backendtlspolicy: %w", err)
+		}
+	}
 	_, err := p.client.GatewayV1().HTTPRoutes(namespace).Create(ctx, p.route(namespace, ep), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("create httproute: %w", err)
@@ -37,6 +44,10 @@ func (p *routePublisher) withdraw(ctx context.Context, name string) error {
 	err := p.client.GatewayV1().HTTPRoutes(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete httproute: %w", err)
+	}
+	err = p.client.GatewayV1().BackendTLSPolicies(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
+	if err := ignoreNotFound(err); err != nil {
+		return fmt.Errorf("delete backendtlspolicy: %w", err)
 	}
 	return nil
 }
@@ -94,6 +105,9 @@ func (p *routePublisher) route(namespace string, ep endpoint) *gatewayv1.HTTPRou
 	}
 
 	port := gatewayv1.PortNumber(ep.port)
+	if ep.tls != nil {
+		port = gatewayv1.PortNumber(serviceHTTPSPort)
+	}
 	pathPrefix := gatewayv1.PathMatchPathPrefix
 	rootPath := "/"
 
