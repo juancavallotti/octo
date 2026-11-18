@@ -152,6 +152,50 @@ AAEC`),
 				}
 			},
 		},
+		{
+			name: "an unknown root transfer encoding keeps the header",
+			raw: crlf(`
+From: a@example.com
+Subject: odd encoding
+Content-Type: text/plain
+Content-Transfer-Encoding: x-uuencode-ish
+
+????
+`),
+			check: func(t *testing.T, got map[string]any) {
+				t.Helper()
+				expectEq(t, got[keySubject], "odd encoding")
+				expectEq(t, got[keyText], "")
+				expectEq(t, len(got[keyAttachments].([]any)), 0)
+			},
+		},
+		{
+			name: "a text attachment converted to UTF-8 is labelled UTF-8",
+			raw: crlf(`
+From: a@example.com
+Subject: latin
+Content-Type: multipart/mixed; boundary=b
+
+--b
+Content-Type: text/plain; charset=utf-8
+
+see attached
+--b
+Content-Type: text/plain; charset=iso-8859-1
+Content-Disposition: attachment; filename="menu.txt"
+Content-Transfer-Encoding: quoted-printable
+
+caf=E9
+--b--
+`),
+			check: func(t *testing.T, got map[string]any) {
+				t.Helper()
+				a := got[keyAttachments].([]any)[0].(map[string]any)
+				expectEq(t, a[partContentType], "text/plain; charset=utf-8")
+				data, _ := base64.StdEncoding.DecodeString(a[partData].(string))
+				expectEq(t, strings.TrimSpace(string(data)), "café")
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,7 +216,8 @@ func TestParseReadsWhatSendWrites(t *testing.T) {
 	h.SetAddressList("From", []*mail.Address{{Address: "a@example.com"}})
 	h.SetSubject("fwd")
 	att := attachment{filename: "data.bin", contentType: "application/octet-stream", data: []byte{0xff, 0x00, 0x10}}
-	raw, err := render(h, mimeBody{text: "see attached"}, []attachment{att})
+	txt := attachment{filename: "menu.txt", contentType: "text/plain; charset=utf-8", data: []byte("café")}
+	raw, err := render(h, mimeBody{text: "see attached"}, []attachment{att, txt})
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -182,7 +227,7 @@ func TestParseReadsWhatSendWrites(t *testing.T) {
 		t.Fatalf("parseMessage: %v", err)
 	}
 	parts := got[keyAttachments].([]any)
-	if len(parts) != 1 {
+	if len(parts) != 2 {
 		t.Fatalf("attachments = %v", parts)
 	}
 	back, err := toAttachment(parts[0])
@@ -193,6 +238,12 @@ func TestParseReadsWhatSendWrites(t *testing.T) {
 		t.Errorf("round trip = %+v, want %+v", back, att)
 	}
 	expectEq(t, strings.TrimSpace(got[keyText].(string)), "see attached")
+	text, err := toAttachment(parts[1])
+	if err != nil {
+		t.Fatalf("toAttachment: %v", err)
+	}
+	expectEq(t, string(text.data), "café")
+	expectEq(t, parts[1].(map[string]any)[partContentType], "text/plain")
 }
 
 func expectEq[T comparable](t *testing.T, got any, want T) {

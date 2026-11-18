@@ -26,6 +26,10 @@ const (
 	encodingText    = "text"
 	// defaultAttachmentType is used for an attachment that names no content type.
 	defaultAttachmentType = "application/octet-stream"
+	// charsetParam and charsetUTF8 spell the media-type parameter text parts
+	// carry, and the charset the email package writes text in.
+	charsetParam = "charset"
+	charsetUTF8  = "utf-8"
 )
 
 // compiler compiles a block's expressions, keeping the first error so a factory

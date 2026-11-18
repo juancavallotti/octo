@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime"
 	"reflect"
 	"slices"
 	"strings"
@@ -231,7 +232,7 @@ func render(h mail.Header, body mimeBody, attachments []attachment) ([]byte, err
 		if body.text == "" {
 			mediaType, content = textHTML, body.html
 		}
-		h.SetContentType(mediaType, map[string]string{"charset": "utf-8"})
+		h.SetContentType(mediaType, map[string]string{charsetParam: charsetUTF8})
 		w, err := mail.CreateSingleInlineWriter(&buf, h)
 		if err != nil {
 			return nil, fmt.Errorf("compose: %w", err)
@@ -273,7 +274,13 @@ func renderMixed(buf *bytes.Buffer, h mail.Header, body mimeBody, attachments []
 	}
 	for _, a := range attachments {
 		var ah mail.AttachmentHeader
-		ah.SetContentType(a.contentType, nil)
+		// A content type may carry parameters, such as the charset of a text
+		// file; keep them rather than folding them into the media type.
+		mediaType, params, err := mime.ParseMediaType(a.contentType)
+		if err != nil {
+			mediaType, params = defaultAttachmentType, nil
+		}
+		ah.SetContentType(mediaType, params)
 		ah.SetFilename(a.filename)
 		part, err := w.CreateAttachment(ah)
 		if err != nil {
@@ -297,7 +304,7 @@ func writeAlternatives(w *mail.InlineWriter, body mimeBody) error {
 			continue
 		}
 		var ph mail.InlineHeader
-		ph.SetContentType(alt.mediaType, map[string]string{"charset": "utf-8"})
+		ph.SetContentType(alt.mediaType, map[string]string{charsetParam: charsetUTF8})
 		part, err := w.CreatePart(ph)
 		if err != nil {
 			return fmt.Errorf("compose %s part: %w", alt.mediaType, err)

@@ -24,6 +24,7 @@ import (
 	"io"
 	"mime"
 	"net/textproto"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-message"
@@ -56,10 +57,18 @@ const (
 // MIME structure is broken still yields its headers and every part read before
 // the break; the error is returned only when not even the header can be read.
 func parseMessage(raw []byte) (map[string]any, error) {
-	r, err := mail.CreateReader(bytes.NewReader(raw))
-	if err != nil && r == nil {
+	entity, err := message.Read(bytes.NewReader(raw))
+	if entity == nil {
 		return nil, fmt.Errorf("parse message: %w", err)
 	}
+	// A body in a transfer encoding go-message cannot decode still has a
+	// readable header: keep the header, and skip the body it cannot read.
+	if message.IsUnknownEncoding(err) {
+		out := parseHeader(mail.Header{Header: entity.Header})
+		out[keyText], out[keyHTML], out[keyAttachments] = "", "", []any{}
+		return out, nil
+	}
+	r := mail.NewReader(entity)
 	defer func() { _ = r.Close() }()
 
 	out := parseHeader(r.Header)
@@ -150,6 +159,9 @@ func parseParts(r *mail.Reader) (text, html string, attachments []any) {
 		}
 		contentType, filename := partInfo(part.Header)
 		if filename != "" {
+			if step == partTranscoded {
+				contentType = mime.FormatMediaType(contentType, map[string]string{charsetParam: charsetUTF8})
+			}
 			attachments = append(attachments, attachmentPart(filename, contentType, body))
 			continue
 		}
@@ -168,6 +180,11 @@ type partStep int
 
 const (
 	partRead partStep = iota
+	// partTranscoded is a part go-message converted from its declared charset
+	// to UTF-8. Its bytes are no longer in that charset, so an attachment
+	// read this way is relabelled charset=utf-8 to keep label and bytes in
+	// agreement.
+	partTranscoded
 	partSkip
 	partStop
 )
@@ -184,11 +201,36 @@ func readPart(r *mail.Reader) (*mail.Part, []byte, partStep) {
 	case err != nil && !message.IsUnknownCharset(err):
 		return nil, nil, partStop
 	}
+	undecodedCharset := message.IsUnknownCharset(err)
 	body, err := io.ReadAll(part.Body)
 	if err != nil {
 		return nil, nil, partStop
 	}
+	if !undecodedCharset && transcodes(part.Header) {
+		return part, body, partTranscoded
+	}
 	return part, body, partRead
+}
+
+// transcodes reports whether go-message converts a part with this header to
+// UTF-8 as it reads it: a text part declaring a charset other than UTF-8 or
+// its ASCII subset.
+func transcodes(h mail.PartHeader) bool {
+	typed, ok := h.(interface {
+		ContentType() (string, map[string]string, error)
+	})
+	if !ok {
+		return false
+	}
+	mediaType, params, err := typed.ContentType()
+	if err != nil || !strings.HasPrefix(mediaType, "text/") {
+		return false
+	}
+	switch strings.ToLower(params[charsetParam]) {
+	case "", charsetUTF8, "us-ascii":
+		return false
+	}
+	return true
 }
 
 // partInfo returns a part's media type and the filename it carries, if any.
