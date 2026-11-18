@@ -75,10 +75,35 @@ func toServerTools(tools []core.LLMProviderTool) ([]*genai.Tool, error) {
 	return out, nil
 }
 
+// addServerTools appends the request's provider tools to the config's tools.
+//
+// Gemini refuses built-in tools beside function declarations unless the request
+// also asks for the server's tool invocations back. They arrive as toolCall and
+// toolResponse parts, which opaqueTurn keeps for the echo.
+func addServerTools(cfg *genai.GenerateContentConfig, tools []core.LLMProviderTool) error {
+	if len(tools) == 0 {
+		return nil
+	}
+	serverTools, err := toServerTools(tools)
+	if err != nil {
+		return fmt.Errorf("llm-gemini: %w", err)
+	}
+	if len(cfg.Tools) > 0 {
+		if cfg.ToolConfig == nil {
+			cfg.ToolConfig = &genai.ToolConfig{}
+		}
+		cfg.ToolConfig.IncludeServerSideToolInvocations = genai.Ptr(true)
+	}
+	cfg.Tools = append(cfg.Tools, serverTools...)
+	return nil
+}
+
 // serverToolPart reports whether a part records work the server ran on the
-// turn's behalf: code it wrote and executed, and what that code printed.
+// turn's behalf: code it wrote and executed, what that code printed, and the
+// tool invocations a request mixing built-in and function tools gets back.
 func serverToolPart(p *genai.Part) bool {
-	return p.ExecutableCode != nil || p.CodeExecutionResult != nil
+	return p.ExecutableCode != nil || p.CodeExecutionResult != nil ||
+		p.ToolCall != nil || p.ToolResponse != nil
 }
 
 // opaqueTurn returns the turn's parts verbatim when one of them is a server tool

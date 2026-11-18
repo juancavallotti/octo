@@ -96,6 +96,10 @@ func TestCodeExecutionTurnRoundTripsOpaque(t *testing.T) {
 	if _, ok := tools[2].(map[string]any)["googleSearch"]; !ok {
 		t.Errorf("third tool = %v, want googleSearch", tools[2])
 	}
+	toolConfig, _ := bodies[0]["toolConfig"].(map[string]any)
+	if toolConfig["includeServerSideToolInvocations"] != true {
+		t.Errorf("toolConfig = %v, want includeServerSideToolInvocations beside function tools", bodies[0]["toolConfig"])
+	}
 
 	req.Messages = append(req.Messages, resp.Raw, core.LLMMessage{Role: core.LLMRoleUser, Text: "and 3+3?"})
 	if _, err := c.Complete(context.Background(), req); err != nil {
@@ -142,4 +146,40 @@ func mustPart(t *testing.T, raw string) *genai.Part {
 		t.Fatalf("decode part: %v", err)
 	}
 	return &p
+}
+
+// A request mixing built-in and function tools gets the server's invocations
+// back as toolCall and toolResponse parts, which Gemini expects echoed.
+func TestServerToolInvocationsAreOpaque(t *testing.T) {
+	parts := []*genai.Part{
+		{ToolCall: &genai.ToolCall{ID: "t1", ToolType: "GOOGLE_SEARCH_WEB", Args: map[string]any{"q": "go"}}},
+		{ToolResponse: &genai.ToolResponse{ID: "t1", ToolType: "GOOGLE_SEARCH_WEB", Response: map[string]any{"ok": true}}},
+		{FunctionCall: &genai.FunctionCall{Name: "lookup"}},
+	}
+	turn := opaqueTurn(parts)
+	if turn == nil {
+		t.Fatal("a turn with server tool invocations should be kept opaque")
+	}
+	echoed, err := opaqueParts(turn.Content)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(echoed) != 3 || echoed[0].ToolCall == nil || echoed[1].ToolResponse == nil {
+		t.Fatalf("echoed parts = %+v, want the invocation pair and the call", echoed)
+	}
+}
+
+// Built-in tools alone need no tool config: the flag is only for the mix.
+func TestProviderToolsAloneLeaveToolConfigUnset(t *testing.T) {
+	c := &Connector{}
+	_, cfg, err := c.request(core.LLMRequest{
+		Messages:      []core.LLMMessage{{Role: core.LLMRoleUser, Text: "hi"}},
+		ProviderTools: []core.LLMProviderTool{{Type: toolGoogleSearch}},
+	})
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if cfg.ToolConfig != nil {
+		t.Errorf("toolConfig = %+v, want none without function tools", cfg.ToolConfig)
+	}
 }

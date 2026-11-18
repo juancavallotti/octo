@@ -372,12 +372,8 @@ func (c *Connector) request(req core.LLMRequest) ([]*genai.Content, *genai.Gener
 			cfg.ToolConfig = tc
 		}
 	}
-	if len(req.ProviderTools) > 0 {
-		serverTools, err := toServerTools(req.ProviderTools)
-		if err != nil {
-			return nil, nil, fmt.Errorf("llm-gemini: %w", err)
-		}
-		cfg.Tools = append(cfg.Tools, serverTools...)
+	if err := addServerTools(cfg, req.ProviderTools); err != nil {
+		return nil, nil, err
 	}
 	return contents, cfg, nil
 }
@@ -786,9 +782,9 @@ func responseMap(tr core.LLMToolResult) map[string]any {
 	return map[string]any{"result": tr.Content}
 }
 
-// emitServerToolPart reports the code the provider ran and what it printed,
-// each as its whole provider object. The caller runs neither, so both are custom
-// events rather than tool calls.
+// emitServerToolPart reports the code the provider ran, what it printed, and the
+// server tool invocations, each as its whole provider object. The caller runs
+// none of them, so they are custom events rather than tool calls.
 func emitServerToolPart(part *genai.Part, index int, on func(core.LLMStreamEvent) error) error {
 	var name string
 	var payload any
@@ -797,6 +793,10 @@ func emitServerToolPart(part *genai.Part, index int, on func(core.LLMStreamEvent
 		name, payload = "executable_code", part.ExecutableCode
 	case part.CodeExecutionResult != nil:
 		name, payload = "code_execution_result", part.CodeExecutionResult
+	case part.ToolCall != nil:
+		name, payload = "tool_call", part.ToolCall
+	case part.ToolResponse != nil:
+		name, payload = "tool_response", part.ToolResponse
 	default:
 		return nil
 	}
