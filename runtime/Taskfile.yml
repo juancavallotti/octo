@@ -101,8 +101,18 @@ tasks:
       - task: build:octo
       - task: build:dolphin
 
+  # Every dolphin suite depends on `build`, and the date stamp below makes each
+  # link differ, so without a fingerprint one run relinks both binaries once per
+  # suite. Sources are every file under runtime/ rather than `**/*.go` because the
+  # binaries embed schema files, and a narrower glob would miss the next embed.
   build:octo:
     desc: Build the octo CLI binary
+    sources: &build-sources
+      - '**/*'
+      - ../go.mod
+      - ../go.sum
+    generates:
+      - ../bin/octo
     cmds:
       - mkdir -p ../bin
       # Stamp the build date into the binary so `octo --version` can report it.
@@ -110,6 +120,9 @@ tasks:
 
   build:dolphin:
     desc: Build the dolphin test-runner binary
+    sources: *build-sources
+    generates:
+      - ../bin/dolphin
     cmds:
       - mkdir -p ../bin
       - '{{.GO}} build -ldflags "-X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ../bin/dolphin ./dolphin'

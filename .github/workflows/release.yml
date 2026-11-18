@@ -28,23 +28,16 @@ jobs:
         with:
           # The release tag for call/dispatch, else the triggering ref (a v* tag).
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      # `task build` builds the pnpm workspace (apps/platform + apps/standalone)
-      # alongside the Go runtime, so Node + pnpm must be on PATH here too.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: apps/platform/.nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # Readiness checks only, no build. Nothing here waits for validate on the
+      # tagged commit, so a tag that does not compile can publish some images
+      # before the job building the broken one fails; recovery is a fix and a
+      # new tag. Main runs validate in full on every merge, which makes that rare.
       - name: Install Task
         run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$(go env GOPATH)/bin"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/bin"
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$HOME/bin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
       - run: task release-check
-      - run: task build
 
   # Publish the self-contained standalone "try Octo" image to public Docker Hub,
   # multi-arch so it runs natively on Apple Silicon and x86. Runs only when a

@@ -15,34 +15,164 @@ on:
 
 # One live run per pull request. Pushing again while a run is in flight — a
 # fixup, or rebasing onto the branch below in a stack — otherwise leaves the
-# earlier run grinding five jobs through a commit nobody will merge. It also
-# collapses the duplicate `synchronize` GitHub emits when a stack's base branch
-# moves. Main is exempt: its commits are release candidates, and each keeps its
-# own result rather than being cancelled by the next merge.
+# earlier run grinding through a commit nobody will merge. It also collapses the
+# duplicate `synchronize` GitHub emits when a stack's base branch moves. Main is
+# exempt: its commits are release candidates, and each keeps its own result
+# rather than being cancelled by the next merge.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
-  validate:
+  # Decides which of the jobs below a pull request needs. Every area's filter
+  # names the files whose change could fail that area's checks — its own tree,
+  # and every file elsewhere that one of its tests reads. A test that reads
+  # another module's file and is not listed here stops running on the pull
+  # requests that could break it; main still runs everything, so it fails there
+  # instead, one merge late.
+  #
+  # On main every area runs: each merge keeps a full result to bisect against,
+  # and it is the run that refreshes the caches pull requests restore.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      runtime: ${{ github.event_name != 'pull_request' || steps.filter.outputs.runtime == 'true' }}
+      web: ${{ github.event_name != 'pull_request' || steps.filter.outputs.web == 'true' }}
+      docs: ${{ github.event_name != 'pull_request' || steps.filter.outputs.docs == 'true' }}
+      helm: ${{ github.event_name != 'pull_request' || steps.filter.outputs.helm == 'true' }}
+      terraform: ${{ github.event_name != 'pull_request' || steps.filter.outputs.terraform == 'true' }}
+      go-modules: ${{ steps.modules.outputs.list }}
+    steps:
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            # The workflow, its action and the root Taskfile can break any job.
+            ci: &ci
+              - '.github/workflows/validate.yml'
+              - '.github/actions/**'
+              - 'Taskfile.yml'
+            # The root go.mod's toolchain line is the Go every Go job installs.
+            go-toolchain: &go-toolchain
+              - *ci
+              - 'go.mod'
+            # The dolphin suites cover the samples and the three octo apps
+            # (the platform agent, the embedding server, the public API).
+            runtime: &runtime
+              - *go-toolchain
+              - 'go.sum'
+              - 'runtime/**'
+              - 'samples/**'
+              - 'orchestrator/agent/**'
+              - 'embeddings/**'
+              - 'api/**'
+              - 'orchestrator/internal/kv/redisrepo.go'
+              - '.goreleaser.yaml'
+              # runtime-lint runs policy-check, which requires these to exist.
+              - 'AGENTS.md'
+              - 'docs/*.md'
+            orchestrator:
+              - *go-toolchain
+              - 'orchestrator/**'
+            observability:
+              - *go-toolchain
+              - 'observability/**'
+              - 'runtime/services/k8s/topics.go'
+              - 'sidecars/stats/internal/**'
+            iam:
+              - *go-toolchain
+              - 'iam/**'
+            sidecars:
+              - *go-toolchain
+              - 'sidecars/**'
+            octopaas:
+              - *go-toolchain
+              - 'octopaas/**'
+              - 'api/static/openapi.yaml'
+              - 'apps/docs/content/docs/reference/octopaas/**'
+            # blockClasses.test.ts reads the runtime's Go tree and the editor's
+            # suite test parses samples/.
+            web:
+              - *ci
+              - 'apps/platform/**'
+              - 'apps/standalone/**'
+              - 'apps/desktop/**'
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'runtime/**/*.go'
+              - 'samples/**'
+            # The checks compare the docs, the MCP package and the editor against
+            # what the built octo reports.
+            docs:
+              - *runtime
+              - 'apps/docs/**'
+              - 'scripts/**'
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+            helm:
+              - *ci
+              - 'helm/**'
+            terraform:
+              - *ci
+              - 'deploy/terraform/**'
+      # The Go service modules, as the list the go-modules matrix runs. `all` is
+      # the registration: a module missing from it is a module nothing checks.
+      - id: modules
+        env:
+          EVENT: ${{ github.event_name }}
+          CHANGED: ${{ steps.filter.outputs.changes || '[]' }}
+        run: |
+          all='["orchestrator","observability","iam","sidecars","octopaas"]'
+          if [ "$EVENT" = pull_request ]; then
+            list="$(jq -c --argjson all "$all" '[.[] | select(IN($all[]))]' <<<"$CHANGED")"
+          else
+            list="$all"
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "go modules: $list"
+
+  # The runtime's lint runs apart from its tests because each is a couple of
+  # minutes and neither needs the other.
+  runtime-lint:
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
-      - name: Install Task
-        run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$(go env GOPATH)/bin"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          cache-key: runtime-lint
+          golangci-lint: 'true'
       - run: task policy-check
       - run: task runtime:tidy
       - run: task runtime:fmt
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.14.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - run: task runtime:lint
+      - if: github.event_name == 'push'
+        uses: ./.github/actions/setup-go
+        with:
+          cache-key: runtime-lint
+          save: 'true'
+
+  runtime-test:
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: runtime-test
       - run: task runtime:test
       - run: task runtime:build
       # The sample flows, run through dolphin against the octo just built. These are the
@@ -58,76 +188,6 @@ jobs:
       - run: task runtime:test:embeddings
       # And the public API, the third app at the repo root.
       - run: task runtime:test:api
-      # The service modules. Each gets its own steps rather than an entry in a
-      # list, because this job enumerates what it runs — and what it enumerates is
-      # the whole guarantee. `orchestrator` and `observability` were missing here until
-      # they were added below, which is why `orchestrator` had accumulated 18 lint
-      # findings nothing was failing on.
-      #
-      # They run golangci's default linter set, not runtime/.golangci.yml. That is
-      # deliberate and recorded in docs/linting-policy.md: adopting the strict set
-      # in the service modules is its own project, and pointing them at it here
-      # would trade one silent backlog for a louder one.
-      - run: task orchestrator:tidy
-      - run: task orchestrator:fmt
-      - run: task observability:tidy
-      - run: task observability:fmt
-      - run: task iam:tidy
-      - run: task iam:fmt
-      # The committed OpenAPI descriptions are generated from the handler annotations,
-      # so they can go stale the moment a route or a request type changes. Regenerating
-      # them here folds them into the same diff check below: an annotation edited
-      # without regenerating, or a route added without annotating, fails exactly as
-      # unformatted Go does. Two of the three services describe themselves, so those two
-      # regenerate — `iam` publishes no description by design and has no such task.
-      - run: task orchestrator:openapi
-      - run: task observability:openapi
-      # tidy, fmt and openapi repair go.*, Go sources and the spec and still exit 0,
-      # so a PR that needed any of them would otherwise merge with the drift unmade.
-      - name: Verify orchestrator, observability and iam are tidy, formatted and describe their API
-        run: git diff --exit-code -- orchestrator observability iam
-      - run: task orchestrator:lint
-      - run: task observability:lint
-      - run: task iam:lint
-      # -race for all three: the orchestrator serialises concurrent deployment writes,
-      # the observability service runs a worker pool behind a NATS subscription, and iam
-      # rotates its signing key from whichever request first notices it is due — so in
-      # each the bug worth catching is the one that passes without it.
-      #
-      # No database is stood up for any of these, and that is the policy rather
-      # than an omission: a test whose failure could only mean Postgres or pgx is
-      # broken does not earn its place in a run everyone waits on. See the testing
-      # section of docs/coding-standards.md. The handful of tests that pin a
-      # non-obvious Postgres behaviour we bet on — advisory locks, an upsert's
-      # `xmax` — skip here and are run deliberately against a real database when
-      # the code they cover is touched.
-      - run: task orchestrator:test -- -race
-      - run: task observability:test -- -race
-      - run: task iam:test -- -race
-      - run: task sidecars:tidy
-      - run: task sidecars:fmt
-      # tidy and fmt can repair sidecars/go.* and Go sources and still exit 0, so a
-      # PR that needed either would otherwise merge with the drift unmade. Fail if
-      # they changed anything tracked under sidecars/.
-      - name: Verify sidecars is tidy and formatted
-        run: git diff --exit-code -- sidecars
-      - run: task sidecars:lint
-      # -race because the reload coordinator's whole job is serialising concurrent
-      # requests, and a data race there is exactly the bug that passes without it.
-      - run: task sidecars:test -- -race
-      - run: task sidecars:build
-      # The octopaas CLI. Its tests include specdrift_test, which holds the
-      # client's route table to api/static/openapi.yaml, so a route added to the
-      # API without the CLI learning it fails here as well as in check-api-spec.
-      - run: task octopaas:tidy
-      - run: task octopaas:fmt
-      - name: Verify octopaas is tidy and formatted
-        run: git diff --exit-code -- octopaas
-      - run: task octopaas:lint
-      - run: task octopaas:test -- -race
-      # The command reference in apps/docs is generated from the command tree, so
-      # a flag or example changed without regenerating it fails here.
-      - run: task octopaas:docs:check
       # The release builds the CLI archives from .goreleaser.yaml. Validate it here so
       # a broken config surfaces on the PR that broke it, not on the release that
       # needed it.
@@ -136,13 +196,50 @@ jobs:
           distribution: goreleaser
           version: '~> v2'
           args: check
+      - if: github.event_name == 'push'
+        uses: ./.github/actions/setup-go
+        with:
+          cache-key: runtime-test
+          save: 'true'
 
-  # Both Next apps, plus the desktop shell. `standalone` had no job at all until
-  # now, so nothing was failing on its lint, its tests or its build — the same gap
-  # the Go service modules had in the job above, and the same one `desktop` would
-  # have had if it were merely added to the root `task test` aggregator: this job
-  # enumerates what it runs, and what it enumerates is the whole guarantee.
+  # The service modules, one matrix job each. What a module checks is its own
+  # `ci` task, so `task <module>:ci` reproduces a failure locally.
+  #
+  # They run golangci's default linter set, not runtime/.golangci.yml. That is
+  # deliberate and recorded in docs/linting-policy.md: adopting the strict set
+  # in the service modules is its own project.
+  #
+  # No database is stood up for any of these, and that is the policy rather
+  # than an omission: a test whose failure could only mean Postgres or pgx is
+  # broken does not earn its place in a run everyone waits on. See the testing
+  # section of docs/coding-standards.md.
+  go-modules:
+    needs: changes
+    if: needs.changes.outputs.go-modules != '[]'
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.go-modules) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-go
+        with:
+          cache-key: go-${{ matrix.module }}
+          golangci-lint: 'true'
+      - run: task ${{ matrix.module }}:ci
+      - if: github.event_name == 'push'
+        uses: ./.github/actions/setup-go
+        with:
+          cache-key: go-${{ matrix.module }}
+          save: 'true'
+
+  # Both Next apps, plus the desktop shell. This job enumerates what it runs,
+  # and what it enumerates is the whole guarantee.
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     env:
       # apps/desktop devDepends on electron, whose postinstall downloads a ~150MB
@@ -159,6 +256,17 @@ jobs:
         with:
           node-version-file: apps/platform/.nvmrc
           cache: pnpm
+      # Next's incremental build cache. Keyed by commit so each run saves its
+      # own, and restored by prefix so a build starts from the newest one.
+      - uses: actions/cache@v5
+        with:
+          path: |
+            apps/platform/.next/cache
+            apps/standalone/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            next-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter platform lint
       - run: pnpm --filter platform test
@@ -181,10 +289,9 @@ jobs:
   # change to the octo-common library that renders fine under the defaults could
   # only be caught by deploying to the cluster it broke.
   helm:
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
-    # Renders and validates locally; writes nothing anywhere.
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -210,13 +317,13 @@ jobs:
       - run: task helm:test
 
   terraform:
+    needs: changes
+    if: needs.changes.outputs.terraform == 'true'
     runs-on: ubuntu-latest
-    # Read-only, and the checkout token is not left in .git/config afterwards:
-    # this job runs `terraform init`, which downloads and executes provider
-    # binaries, so it should hold nothing worth stealing.
-    permissions:
-      contents: read
     steps:
+      # The checkout token is not left in .git/config: this job runs
+      # `terraform init`, which downloads and executes provider binaries, so it
+      # should hold nothing worth stealing.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -240,19 +347,21 @@ jobs:
       - run: task tf:check
 
   docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     env:
       # Nothing here needs the Electron binary; see the web job above.
       ELECTRON_SKIP_BINARY_DOWNLOAD: 1
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      # runtime-test's cache, restored and never saved: it compiled every package
+      # octo is built from, so the two builds below are a link rather than a
+      # compile. Sharing the cache rather than runtime-test's binary keeps this
+      # job from waiting on that one.
+      - uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
-      - name: Install Task
-        run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b "$(go env GOPATH)/bin"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          cache-key: runtime-test
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -286,3 +395,20 @@ jobs:
       - run: git diff --exit-code -- apps/docs/public/octo-platform-api.yaml
       # Static-export build doubles as an MDX/broken-link check.
       - run: pnpm --filter docs build
+
+  # The one check that answers "did validate pass". Jobs a pull request did not
+  # need are skipped, and a skipped job is not a failure; a failed or cancelled
+  # one is. Require this job, not the ones above, so a skipped area never blocks
+  # a merge.
+  validate:
+    needs: [changes, runtime-lint, runtime-test, go-modules, web, helm, terraform, docs]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if jq -e 'any(.[]; . == "failure" or . == "cancelled")' <<<"$RESULTS" >/dev/null; then
+            exit 1
+          fi

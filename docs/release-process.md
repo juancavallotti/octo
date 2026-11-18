@@ -18,7 +18,10 @@ using Conventional Commits.
   derived from commit messages since the last release.
 - Merging the release PR creates the GitHub release, the `CHANGELOG.md` entry, and the
   `vX.Y.Z` tag. The tag push then triggers `.github/workflows/release.yml`
-  (`release-check` + `build`).
+  (`release-check`, a readiness check that builds nothing). Publishing does not
+  wait for `validate` on the tagged commit, so check main is green before merging
+  the release PR: a tag that does not compile can publish some images before the
+  broken build fails, and the recovery is a fix and a new tag.
 - Version bumps follow commit types: `feat` → minor, `fix`/`perf`/`refactor` → patch,
   and `!` / `BREAKING CHANGE` → major (pre-1.0, breaking and feature changes bump the
   minor/patch per the config).
