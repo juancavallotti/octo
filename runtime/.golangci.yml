@@ -173,6 +173,8 @@ linters:
         linters: [gochecknoinits]
       - path: ^connectors/database/database\.go$
         linters: [gochecknoinits]
+      - path: ^connectors/email/email\.go$
+        linters: [gochecknoinits]
       - path: ^connectors/events/events\.go$
         linters: [gochecknoinits]
       - path: ^connectors/file/file\.go$

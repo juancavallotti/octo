@@ -20,6 +20,9 @@ does not exist.
 | `tavily` | Tavily | no | `tavily-*` |
 | `parallel` | Parallel | no | `parallel-*` |
 | `slack` | Slack | yes — events | `slack-*` |
+| `imap` | IMAP | yes — mailbox poll | `imap-fetch` |
+| `pop3` | POP3 | yes — mail drop poll | `pop3-fetch` |
+| `smtp` | SMTP | no | `smtp-send` |
 | `llm-anthropic` | Anthropic | no | AI blocks, by category |
 | `llm-openai` | OpenAI | no | AI blocks, by category |
 | `llm-gemini` | Gemini | no | AI blocks, by category |
@@ -176,6 +179,38 @@ connector is a claim that the directory is there.
 #   type: cron
 #   settings: { schedule: "@every 30s" }
 ```
+
+## email (imap, pop3, smtp)
+
+All three take `host`, `port`, `security` (`none|starttls|tls`), `tlsSkipVerify`,
+`username`, `password` and `timeout`. The port follows `security` when it is
+unset. `imap` and `pop3` default to `tls` and need a `username`; `smtp`
+defaults to `starttls`.
+
+```yaml
+- name: inbox
+  type: imap
+  settings:
+    host: ${MAIL_HOST}
+    username: ${MAIL_USER}
+    password: ${MAIL_PASSWORD}
+# source:
+#   connector: inbox
+#   type: imap
+#   settings: { interval: 1m, onSuccess: move, moveTo: Answered }   # seen|move|delete|none
+```
+
+A source runs one message at a time and acts on it (`onSuccess`) only after its
+flow completes. A failed flow leaves the message for the next poll. `pop3`'s
+`onSuccess` is `keep|delete`. The body is the received message: `messageId`,
+`subject`, `from` (`{name, address}`, null for some bounces), `to`, `cc`,
+`text`, `html`, `headers` (name → list), and `attachments` (base64 parts).
+`imap` adds `uid` and `mailbox`; `pop3` adds `uidl`. A connector takes one source
+per mailbox (one per `pop3` connector); to run a message through several flows,
+read it in one and `flow-ref` the rest. `onSuccess: none` / `keep` keep progress
+in the `system` KV namespace under `email_imap_<connector>/<mailbox>` or
+`email_pop3_<connector>/handled`; deleting that key resets the source to the
+mailbox's current end.
 
 ## LLM connectors
 

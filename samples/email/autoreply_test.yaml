@@ -1,0 +1,74 @@
+# Tests the autoreply flow: a person gets one threaded reply, and an
+# auto-generated message gets none.
+#
+# Sources do not run under invoke, so each case seeds the body the imap source
+# would have produced from a received message. `reply` is mocked: it is the one
+# block that reaches the mail server.
+flow: autoreply
+
+mocks:
+  autoreply.from-a-person[then].reply:
+    default:
+      body: {}
+
+inputs:
+  from-ann:
+    data:
+      uid: 7
+      mailbox: INBOX
+      messageId: m1@example.com
+      subject: Order 42
+      from: { name: Ann, address: ann@example.com }
+      to: [{ name: "", address: support@example.com }]
+      headers: { Subject: [Order 42] }
+      text: Where is my order?
+      html: ""
+      attachments: []
+
+cases:
+  - name: a person gets a threaded reply addressed to them
+    input: from-ann
+    spies:
+      autoreply.from-a-person[then].reply:
+        count: 1
+        records:
+          - input:
+              # what the reply's to, subject and inReplyTo render from
+              that: ['body.from.address == "ann@example.com"', 'body.subject == "Order 42"', 'body.messageId == "m1@example.com"']
+
+  - name: an auto-reply is never answered
+    input:
+      data:
+        uid: 8
+        messageId: m2@example.com
+        subject: Out of office
+        from: { name: Bob, address: bob@example.com }
+        headers: { Auto-Submitted: [auto-replied] }
+        attachments: []
+    spies:
+      autoreply.from-a-person[then].reply: { count: 0 }
+
+  # RFC 3834: "no" marks a message a person sent, so it is answered.
+  - name: a message marked Auto-Submitted no is from a person and is answered
+    input:
+      data:
+        uid: 10
+        messageId: m4@example.com
+        subject: Hello
+        from: { name: Cy, address: cy@example.com }
+        headers: { Auto-Submitted: ["No"] }
+        attachments: []
+    spies:
+      autoreply.from-a-person[then].reply: { count: 1 }
+
+  - name: a bounce with no sender is never answered
+    input:
+      data:
+        uid: 9
+        messageId: m3@example.com
+        subject: Undeliverable
+        from: null
+        headers: {}
+        attachments: []
+    spies:
+      autoreply.from-a-person[then].reply: { count: 0 }

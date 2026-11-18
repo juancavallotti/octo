@@ -3,6 +3,11 @@
 A report leaves the platform and lands in someone's inbox, where it cannot be
 edited, recalled or explained. Everything below follows from that.
 
+This page is about you sending a report through the platform. A flow that sends
+mail is a different thing: it uses an `smtp` connector and the `smtp-send` block
+(see the connectors and blocks skills), and the mail goes from the user's own
+server.
+
 ## The call
 
 `send_email_report` posts to the orchestrator's `POST /email/send`:

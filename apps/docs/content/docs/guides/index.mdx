@@ -4,7 +4,7 @@ description: "Task-oriented guides built from runnable samples."
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
-import { Briefcase, Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, Lock, MessageSquare, Puzzle, Radar, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, UserCheck, Wand, Waypoints } from 'lucide-react';
+import { Briefcase, Bug, Clock, Database, FileCode, FileText, FlaskConical, FolderOpen, Globe, HardDrive, KeyRound, Leaf, Lock, Mail, MessageSquare, Puzzle, Radar, Radio, Send, ShieldCheck, Shuffle, Sparkles, Terminal, UserCheck, Wand, Waypoints } from 'lucide-react';
 
 Every guide in this section is built from a runnable sample in the repository's
 [`samples/`](https://github.com/juancavallotti/octo/tree/main/samples) directory.
@@ -97,6 +97,9 @@ zero setup beyond the `octo` binary.
 ## Integrations
 
 <Cards>
+  <Card icon={<Mail />} href="/guides/email" title="Receive and Send Email">
+    Answer mail that reaches an IMAP mailbox, and read a mailbox on a schedule.
+  </Card>
   <Card icon={<MessageSquare />} href="/guides/slack-bot" title="Build a Slack Bot">
     Receive Slack events, verify signatures, and reply to mentions.
   </Card>

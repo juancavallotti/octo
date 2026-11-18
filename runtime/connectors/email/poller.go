@@ -1,0 +1,302 @@
+// This file holds what the imap and pop3 sources share: a leader-gated poll
+// loop, and handing one received message to the flow and waiting for its
+// outcome. A message is only acted on once its flow completes, so the outcome
+// is the whole point: a source that did not wait could only mark mail handled
+// before anything had handled it.
+package email
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/juancavallotti/octo/runtime/core"
+	"github.com/juancavallotti/octo/runtime/types"
+)
+
+// Source defaults.
+const (
+	defaultInterval    = time.Minute
+	defaultMaxPerPoll  = 10
+	defaultFlowTimeout = 5 * time.Minute
+)
+
+// leaderKey names a source's leader-election key: the connector kind and the
+// configured instance name, so every replica agrees on it and distinct mail
+// connectors elect independently.
+func leaderKey(kind string, cfg types.SourceConfig) string {
+	name := cfg.Connector
+	if name == "" {
+		name = cfg.Type
+	}
+	return "email_" + kind + "_" + name
+}
+
+// sourceClaims records what a connector's sources read, so a connector can
+// refuse a second source on the same mailbox: two consumers of one mailbox race
+// over its messages and share its leadership and progress keys, and neither can
+// be right. A connector is built fresh for every runtime generation, hot reloads
+// included, so a claim lives exactly as long as the source that made it.
+type sourceClaims struct {
+	mu   sync.Mutex
+	held map[string]bool
+}
+
+// claim takes what for a source, reporting false when another source holds it.
+func (c *sourceClaims) claim(what string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.held == nil {
+		c.held = map[string]bool{}
+	}
+	if c.held[what] {
+		return false
+	}
+	c.held[what] = true
+	return true
+}
+
+// pendingFlows correlates terminal flow events back to the source waiting on
+// them, by EventID. Each mail connector owns one, subscribed to the flow-event
+// bus for as long as the connector runs.
+type pendingFlows struct {
+	mu          sync.Mutex
+	waiting     map[string]chan types.FlowEvent
+	done        chan struct{}
+	unsubscribe func()
+	closeOnce   sync.Once
+}
+
+func newPendingFlows() *pendingFlows {
+	p := &pendingFlows{waiting: map[string]chan types.FlowEvent{}, done: make(chan struct{})}
+	p.unsubscribe = core.DefaultEventBus().Subscribe(p.onFlowEvent)
+	return p
+}
+
+// track registers interest in eventID's outcome. The channel's buffer of one
+// lets onFlowEvent deliver without ever blocking the flow worker.
+func (p *pendingFlows) track(eventID string) chan types.FlowEvent {
+	ch := make(chan types.FlowEvent, 1)
+	p.mu.Lock()
+	p.waiting[eventID] = ch
+	p.mu.Unlock()
+	return ch
+}
+
+func (p *pendingFlows) forget(eventID string) {
+	p.mu.Lock()
+	delete(p.waiting, eventID)
+	p.mu.Unlock()
+}
+
+// onFlowEvent runs on the flow worker, so it never blocks.
+func (p *pendingFlows) onFlowEvent(ev types.FlowEvent) {
+	if ev.Kind == types.FlowEventStarted {
+		return
+	}
+	p.mu.Lock()
+	ch, ok := p.waiting[ev.EventID]
+	p.mu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- ev:
+	default:
+	}
+}
+
+func (p *pendingFlows) close() {
+	p.closeOnce.Do(func() {
+		p.unsubscribe()
+		close(p.done)
+	})
+}
+
+// errStopped reports that the source stopped before the flow finished.
+var errStopped = errors.New("source stopped")
+
+// errLostLeadership reports that a poll stopped admitting messages because this
+// replica lost the source's leadership partway through its batch: the new
+// leader polls the rest, and two replicas must not both run them.
+var errLostLeadership = errors.New("lost leadership mid-poll")
+
+// leaseRecheck is how often a send blocked on a full flow channel re-checks
+// that this replica still leads.
+const leaseRecheck = 250 * time.Millisecond
+
+// emitter hands messages to a flow and waits for each outcome.
+type emitter struct {
+	out         chan<- *types.Message
+	pending     *pendingFlows
+	flowTimeout time.Duration
+	// leading reports whether this replica still holds the source's
+	// leadership; nil means always.
+	leading func() bool
+}
+
+// emit sends body to the flow and reports whether the flow handled it: true for
+// a completed flow, and for a dropped one, since a flow that filters a message
+// out has decided about it as surely as one that processed it. A failed flow or
+// one that outlives flowTimeout is not handled — the message stays on the
+// server and is read again on the next poll.
+func (e emitter) emit(ctx context.Context, body map[string]any, attrs map[string]any) (bool, error) {
+	msg, err := types.NewMessage("")
+	if err != nil {
+		return false, fmt.Errorf("build message: %w", err)
+	}
+	msg.SetBody(body)
+	e.trace(msg, attrs)
+
+	ch := e.pending.track(msg.EventID)
+	defer e.pending.forget(msg.EventID)
+
+	if err := e.admit(ctx, msg); err != nil {
+		return false, err
+	}
+
+	timer := time.NewTimer(e.flowTimeout)
+	defer timer.Stop()
+	select {
+	case ev := <-ch:
+		switch ev.Kind {
+		case types.FlowEventCompleted, types.FlowEventDropped:
+			return true, nil
+		default:
+			return false, nil
+		}
+	case <-timer.C:
+		slog.Warn("email source: flow outlived its timeout; the message will be read again",
+			"timeout", e.flowTimeout, "eventId", msg.EventID)
+		return false, nil
+	case <-ctx.Done():
+		return false, errStopped
+	case <-e.pending.done:
+		return false, errStopped
+	}
+}
+
+// admit sends msg to the flow. A send can wait on a full flow channel for as
+// long as the flows ahead of it take, so while it waits it keeps checking
+// leadership and gives up once another replica leads — the leadership check
+// before the send is only as good as it is recent. This narrows the window to
+// one recheck interval; it is not a fence, and a send that lands in that
+// window can still run on a replica that has just lost the lease.
+func (e emitter) admit(ctx context.Context, msg *types.Message) error {
+	ticker := time.NewTicker(leaseRecheck)
+	defer ticker.Stop()
+	for {
+		select {
+		case e.out <- msg:
+			return nil
+		case <-ctx.Done():
+			return errStopped
+		case <-ticker.C:
+			if e.leading != nil && !e.leading() {
+				return errLostLeadership
+			}
+		}
+	}
+}
+
+// trace records where the message came from, minting the trace id so whatever
+// the flow fans out to stays one trace.
+func (e emitter) trace(msg *types.Message, attrs map[string]any) {
+	tracer := core.Tracer()
+	if !tracer.Enabled() {
+		return
+	}
+	if _, err := msg.EnsureTraceID(); err != nil {
+		slog.Warn("email source: could not generate a trace id", "error", err)
+		return
+	}
+	tracer.Publish(types.TraceEvent{
+		Kind:          types.TraceSourceEmit,
+		TraceID:       msg.TraceID(),
+		EventID:       msg.EventID,
+		CorrelationID: msg.CorrelationID,
+		OccurredAt:    time.Now(),
+		Attrs:         attrs,
+	})
+}
+
+// poller runs poll once at start and then every interval, while this replica
+// holds the source's leadership. Polls run on the loop goroutine, so a poll that
+// outlasts the interval delays the next one instead of overlapping it.
+type poller struct {
+	label     string
+	leaderKey string
+	interval  time.Duration
+	poll      func(ctx context.Context) error
+
+	lease  core.Leadership
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// start acquires leadership and starts the loop without blocking.
+func (p *poller) start(ctx context.Context) error {
+	lease, err := core.RuntimeServicesFromContext(ctx).LeaderElection().Acquire(ctx, p.leaderKey)
+	if err != nil {
+		return fmt.Errorf("%s source: acquire leadership for %q: %w", p.label, p.leaderKey, err)
+	}
+	p.lease = lease
+	loopCtx, cancel := context.WithCancel(ctx)
+	p.cancel = cancel
+	p.wg.Add(1)
+	go p.loop(loopCtx)
+	return nil
+}
+
+func (p *poller) loop(ctx context.Context) {
+	defer p.wg.Done()
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+	for {
+		p.tick(ctx)
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// tick polls once if this replica leads. A failed poll is logged and retried at
+// the next interval: a mail server that is down for a minute is routine.
+func (p *poller) tick(ctx context.Context) {
+	if !p.lease.IsLeader() {
+		slog.Debug("email poll skipped: not leader", "key", p.leaderKey)
+		return
+	}
+	err := p.poll(ctx)
+	switch {
+	case err == nil, errors.Is(err, errStopped), ctx.Err() != nil:
+	case errors.Is(err, errLostLeadership):
+		slog.Info("email poll stopped: leadership moved to another replica", "source", p.label, "key", p.leaderKey)
+	default:
+		slog.Error("email poll failed", "source", p.label, "key", p.leaderKey, "error", err)
+	}
+}
+
+// leading reports whether this replica still holds the source's leadership.
+// Polls check it before each message, not only at the start, because a flow can
+// run longer than a lease survives without renewal.
+func (p *poller) leading() bool {
+	return p.lease == nil || p.lease.IsLeader()
+}
+
+// stop ends the loop, waits for an in-flight poll, and releases leadership, so
+// nothing is sent after it returns.
+func (p *poller) stop() {
+	if p.cancel != nil {
+		p.cancel()
+	}
+	p.wg.Wait()
+	if p.lease != nil {
+		_ = p.lease.Close()
+	}
+}

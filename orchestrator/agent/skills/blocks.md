@@ -132,6 +132,20 @@ In Socket Mode the flow's source is the slack connector's own `slack` source
 `slack-verify-request`, the same `body` shapes, and the envelope kind in
 `vars.slackEnvelopeType` (`events_api`, `slash_commands`, `interactive`).
 
+**Email:** `smtp-send`, `imap-fetch`, `pop3-fetch`. `smtp-send` builds a message
+from CEL (`from`, `to`, `cc`, `bcc`, `replyTo`, `subject`, `inReplyTo`, `text`,
+`html`, `headers`, `attachments`). It leaves the body alone and puts the Message-ID in
+`vars.emailMessageId`. To reply in the same thread, set `inReplyTo:
+body.messageId`. A received `body.attachments` can be passed to `attachments`
+unchanged. The fetch blocks read a mailbox on command and **replace the body
+with a list** of received messages. `imap-fetch` takes `search: unseen|all`,
+`since`, `limit` and `onFetch: none|seen|move|delete`; `pop3-fetch` takes
+`limit` and `onFetch: keep|delete`. Before an automatic reply, skip messages
+whose `Auto-Submitted` header is present and not `no`, and set
+`headers: '{"Auto-Submitted": "auto-replied"}'` on the reply so another robot
+does not answer it. A message can be processed twice (a flow outliving
+`flowTimeout`); make reply flows safe to repeat.
+
 **MongoDB:** `mongodb-find`, `mongodb-insert`, `mongodb-update`, `mongodb-delete`,
 `mongodb-aggregate`.
 
