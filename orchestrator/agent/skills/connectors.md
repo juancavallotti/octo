@@ -190,7 +190,10 @@ defaults to `starttls`.
 ```yaml
 - name: inbox
   type: imap
-  settings: { host: ${MAIL_HOST}, username: ${MAIL_USER}, password: ${MAIL_PASSWORD} }
+  settings:
+    host: ${MAIL_HOST}
+    username: ${MAIL_USER}
+    password: ${MAIL_PASSWORD}
 # source:
 #   connector: inbox
 #   type: imap

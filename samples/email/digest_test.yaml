@@ -2,11 +2,11 @@
 # counts what it returned.
 #
 # The cron source does not run under invoke, so the tick its payload would have
-# produced is seeded. `last-day` is mocked with the list imap-fetch returns.
+# produced is seeded. `answered` is mocked with the list imap-fetch returns.
 flow: digest
 
 mocks:
-  digest.last-day:
+  digest.answered:
     default:
       body:
         - { uid: 1, subject: a, attachments: [] }
@@ -19,7 +19,7 @@ cases:
     expect:
       that: ['size(body) == 2']
     spies:
-      digest.last-day:
+      digest.answered:
         count: 1
         records:
           - input:

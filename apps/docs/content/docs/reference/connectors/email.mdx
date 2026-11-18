@@ -182,6 +182,14 @@ It provides a source: no. Blocks that bind to it: `smtp-send`.
 Adapted from `samples/email/config.yaml`: answer every message from a person and move it to an Answered folder. The reply is threaded under the original.
 
 ```yaml
+env:
+  - name: MAIL_HOST
+    required: true
+  - name: MAIL_USER
+    required: true
+  - name: MAIL_PASSWORD
+    required: true
+
 connectors:
   - name: inbox
     type: imap

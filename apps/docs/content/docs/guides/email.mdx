@@ -6,7 +6,7 @@ description: "Answer mail that reaches a mailbox, and read a mailbox on a schedu
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Steps, Step } from 'fumadocs-ui/components/steps';
 
-This guide builds a support mailbox that answers every message from a person and files it away. It also adds an hourly digest that reads the mailbox without changing it. It follows
+This guide builds a support mailbox that answers every message from a person and files it away. It also adds an hourly digest that reads the answered mail without changing anything. It follows
 [`samples/email/`](https://github.com/juancavallotti/octo/tree/main/samples/email).
 For every setting, see the [Email reference](/reference/connectors/email).
 
@@ -103,7 +103,7 @@ Before replying, skip anything a robot sent. Out-of-office replies and bounces c
 
 ## Read the mailbox on a schedule
 
-To read mail at a time the flow chooses, use `imap-fetch` instead of a source. The digest flow runs hourly from a cron schedule and reads the last day's mail:
+To read mail at a time the flow chooses, use `imap-fetch` instead of a source. The digest flow runs hourly from a cron schedule and reads what the autoreply flow filed in Answered since yesterday:
 
 ```yaml title="samples/email/config.yaml (excerpt)"
 - name: digest
@@ -115,19 +115,20 @@ To read mail at a time the flow chooses, use `imap-fetch` instead of a source. T
       payload: '{"since": string(now - duration("24h"))}'
   process:
     - type: imap-fetch
-      name: last-day
+      name: answered
       settings:
         connector: inbox
+        mailbox: Answered
         search: all
         since: body.since
         limit: 50
     - type: log
       name: report
       settings:
-        message: '"mail in the last day: " + string(size(body)) + " messages, " + string(size(body.filter(m, m.attachments.size() > 0))) + " with attachments"'
+        message: '"answered since yesterday: " + string(size(body)) + " messages, " + string(size(body.filter(m, m.attachments.size() > 0))) + " with attachments"'
 ```
 
-`imap-fetch` replaces the body with a list of messages. Its `onFetch` defaults to `none`, so the digest never marks, moves or deletes anything. A POP3 mailbox works the same way with the `pop3` source and `pop3-fetch`. POP3 has no folders, though, so it can only keep or delete messages.
+`imap-fetch` replaces the body with a list of messages. `since` matches on the date only, because IMAP searches by day, so this reads everything received on or after yesterday's date rather than exactly the last 24 hours. Its `onFetch` defaults to `none`, so the digest never marks, moves or deletes anything. A POP3 mailbox works the same way with the `pop3` source and `pop3-fetch`. POP3 has no folders, though, so it can only keep or delete messages.
 
 ## Test it
 

@@ -2,15 +2,15 @@ service:
   name: email
 
 # Email in and out: answer every message that reaches a support mailbox, and
-# once an hour log how much mail the last day brought.
+# once an hour log how much of it was answered since yesterday.
 #
 # The autoreply flow is driven by the imap source. It polls the mailbox every
 # minute, runs each new message through the flow, and only once the flow
 # completes moves the message to the Answered folder — a reply that fails to
 # send leaves the message in the inbox for the next poll.
 #
-# The digest flow is driven by a cron schedule and reads the mailbox on command
-# with the imap-fetch block, without changing anything on the server.
+# The digest flow is driven by a cron schedule and reads the Answered folder on
+# command with the imap-fetch block, without changing anything on the server.
 #
 # Setup:
 #   1. Create an Answered folder in the mailbox.
@@ -87,16 +87,19 @@ flows:
         schedule: "@every 1h"
         payload: '{"since": string(now - duration("24h"))}'
     process:
-      # Reads at most 50 messages from the last day; onFetch stays at its
+      # Reads at most 50 answered messages. IMAP's SINCE compares dates, not
+      # times, so this is everything received on or after yesterday's date —
+      # up to 48 hours of mail, not a rolling 24. onFetch stays at its
       # default, none, so the digest never changes the mailbox.
       - type: imap-fetch
-        name: last-day
+        name: answered
         settings:
           connector: inbox
+          mailbox: Answered
           search: all
           since: body.since
           limit: 50
       - type: log
         name: report
         settings:
-          message: '"mail in the last day: " + string(size(body)) + " messages, " + string(size(body.filter(m, m.attachments.size() > 0))) + " with attachments"'
+          message: '"answered since yesterday: " + string(size(body)) + " messages, " + string(size(body.filter(m, m.attachments.size() > 0))) + " with attachments"'
