@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"net/smtp"
+	"os"
 	"reflect"
+	"strings"
 
 	"github.com/juancavallotti/octo/runtime/core"
 	"github.com/juancavallotti/octo/runtime/types"
@@ -64,12 +66,17 @@ type smtpSettings struct {
 	Password string `json:"password" octo:"label=Password"`
 	// Bounds one send, from dial to goodbye.
 	Timeout duration `json:"timeout" octo:"label=Timeout,type=string,default=60s"`
+	// Host name the connector introduces itself with (EHLO); defaults to this
+	// machine's host name. Servers receiving on port 25 usually reject a name
+	// that is not fully qualified.
+	HeloName string `json:"heloName" octo:"label=HELO name"`
 }
 
 // SMTPConnector submits mail to an SMTP server. It is safe for concurrent use:
 // each send dials its own session and the endpoint is read-only after Start.
 type SMTPConnector struct {
-	ep endpoint
+	ep   endpoint
+	helo string
 }
 
 // Start decodes and validates the settings.
@@ -91,6 +98,7 @@ func (c *SMTPConnector) Start(_ context.Context, config types.ConnectorConfig) e
 		return err
 	}
 	c.ep = ep
+	c.helo = heloName(set.HeloName)
 	return nil
 }
 
@@ -119,6 +127,11 @@ func (c *SMTPConnector) Send(ctx context.Context, from string, recipients []stri
 	}
 	defer func() { _ = client.Close() }()
 
+	// net/smtp introduces itself as "localhost" unless told otherwise, which a
+	// server checking HELO names refuses.
+	if err := client.Hello(c.helo); err != nil {
+		return fmt.Errorf("smtp: EHLO %s: %w", c.helo, err)
+	}
 	if err := c.prepare(client); err != nil {
 		return err
 	}
@@ -129,6 +142,18 @@ func (c *SMTPConnector) Send(ctx context.Context, from string, recipients []stri
 		return fmt.Errorf("smtp: quit: %w", err)
 	}
 	return nil
+}
+
+// heloName resolves the EHLO name: the setting, else this machine's host name,
+// else localhost as net/smtp would have used.
+func heloName(setting string) string {
+	if name := strings.TrimSpace(setting); name != "" {
+		return name
+	}
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return host
+	}
+	return "localhost"
 }
 
 // prepare upgrades the session and authenticates, as the endpoint asks.

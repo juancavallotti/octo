@@ -129,7 +129,13 @@ With `delete`, the mailbox is the record of what has been handled: each message 
 
 ## `smtp` connector
 
-The connector (label: **SMTP**) takes the [connection settings](#connection-settings). It authenticates with PLAIN when `username` is set.
+The connector (label: **SMTP**) takes the [connection settings](#connection-settings), plus one setting of its own. It authenticates with PLAIN when `username` is set.
+
+| Setting | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `heloName` | string | No | this machine's host name | The name the connector gives the server in EHLO. Servers that accept mail on port 25 usually reject a name that isn't fully qualified, so set it to the host's public name when sending there. |
+
+A sent message's Message-ID ends in the From address's domain, never the host name.
 
 It provides a source: no. Blocks that bind to it: `smtp-send`.
 

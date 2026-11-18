@@ -23,6 +23,7 @@ type fakeSMTP struct {
 	rcpts  []string
 	data   string
 	sawTLS bool
+	helo   string
 }
 
 func (f *fakeSMTP) serve(ln net.Listener) {
@@ -48,6 +49,7 @@ func (f *fakeSMTP) session(conn net.Conn) {
 		verb := strings.ToUpper(strings.SplitN(line, " ", 2)[0])
 		switch verb {
 		case "EHLO", "HELO":
+			f.record(func() { f.helo = strings.TrimSpace(strings.TrimPrefix(line, verb)) })
 			if f.startTLS && !isTLS {
 				_ = tp.PrintfLine("250-fake\r\n250-STARTTLS\r\n250 AUTH PLAIN")
 			} else {
@@ -96,7 +98,7 @@ func (f *fakeSMTP) record(fn func()) {
 func (f *fakeSMTP) snapshot() fakeSMTP {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return fakeSMTP{auth: f.auth, from: f.from, rcpts: append([]string(nil), f.rcpts...), data: f.data, sawTLS: f.sawTLS}
+	return fakeSMTP{helo: f.helo, auth: f.auth, from: f.from, rcpts: append([]string(nil), f.rcpts...), data: f.data, sawTLS: f.sawTLS}
 }
 
 // startFakeSMTP serves a fake SMTP server in the given security mode and returns
@@ -115,6 +117,7 @@ func startFakeSMTP(t *testing.T, security string) (*fakeSMTP, map[string]any) {
 		"tlsSkipVerify": true,
 		"username":      "bot",
 		"password":      "s3cret",
+		"heloName":      "runner.example.net",
 	}
 }
 
@@ -148,6 +151,9 @@ func TestSMTPSendSecurityModes(t *testing.T) {
 			if got.sawTLS != wantTLS {
 				t.Errorf("session encrypted = %v, want %v", got.sawTLS, wantTLS)
 			}
+			if got.helo != "runner.example.net" {
+				t.Errorf("EHLO name = %q, want the configured heloName", got.helo)
+			}
 			wantAuth := base64.StdEncoding.EncodeToString([]byte("\x00bot\x00s3cret"))
 			if got.auth != wantAuth {
 				t.Errorf("auth = %q, want %q", got.auth, wantAuth)
@@ -167,8 +173,8 @@ func TestSMTPSendSecurityModes(t *testing.T) {
 			if !strings.Contains(got.data, "Subject: Hello Ann") || !strings.Contains(got.data, "Hi Ann") {
 				t.Errorf("message missing subject or body:\n%s", got.data)
 			}
-			if id, _ := out.Variables.String(messageIDVar); id == "" {
-				t.Error("message id variable not set")
+			if id, _ := out.Variables.String(messageIDVar); !strings.HasSuffix(id, "@example.com") {
+				t.Errorf("message id %q should name the sender's domain", id)
 			}
 		})
 	}

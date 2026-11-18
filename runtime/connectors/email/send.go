@@ -182,7 +182,9 @@ func (p *sendProcessor) compose(act map[string]any) (outgoing, error) {
 		h.SetMsgIDList("In-Reply-To", []string{inReplyTo})
 		h.SetMsgIDList("References", []string{inReplyTo})
 	}
-	if err := h.GenerateMessageID(); err != nil {
+	// The Message-ID names the sender's domain, not the host the runtime happens
+	// to run on: that would leak a machine name into every message.
+	if err := h.GenerateMessageIDWithHostname(addressDomain(from[0].Address)); err != nil {
 		return outgoing{}, fmt.Errorf("smtp-send: message id: %w", err)
 	}
 	messageID, _ := h.MessageID()
@@ -307,4 +309,12 @@ func writeAndClose(w io.WriteCloser, data []byte) error {
 		return fmt.Errorf("compose: %w", err)
 	}
 	return nil
+}
+
+// addressDomain returns the part of an address after its last "@".
+func addressDomain(address string) string {
+	if at := strings.LastIndex(address, "@"); at >= 0 && at < len(address)-1 {
+		return address[at+1:]
+	}
+	return address
 }
