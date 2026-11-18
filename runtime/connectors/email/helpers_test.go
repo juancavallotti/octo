@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"net"
 	"strconv"
@@ -155,6 +156,8 @@ func (fakeLeadership) Close() error     { return nil }
 type memKV struct {
 	mu      sync.Mutex
 	entries map[string]core.Entry
+	// failSets fails that many upcoming writes, to exercise a store outage.
+	failSets int
 }
 
 func newMemKV() *memKV { return &memKV{entries: map[string]core.Entry{}} }
@@ -169,6 +172,10 @@ func (m *memKV) Get(_ context.Context, ns, key string) (core.Entry, bool, error)
 func (m *memKV) Set(_ context.Context, ns, key string, value []byte, expected int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failSets > 0 {
+		m.failSets--
+		return 0, errors.New("kv unavailable")
+	}
 	cur := m.entries[ns+"/"+key]
 	if cur.Version != expected {
 		return 0, core.ErrVersionConflict
@@ -184,6 +191,21 @@ func (m *memKV) Delete(_ context.Context, ns, key string, _ int64) error {
 	delete(m.entries, ns+"/"+key)
 	return nil
 }
+
+// flipLeadership is a Leadership that holds for the first n checks only.
+type flipLeadership struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (f *flipLeadership) IsLeader() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n--
+	return f.n >= 0
+}
+
+func (*flipLeadership) Close() error { return nil }
 
 // servicesCtx returns a context carrying fake services.
 func servicesCtx(t *testing.T, leader bool, kv *memKV) context.Context {

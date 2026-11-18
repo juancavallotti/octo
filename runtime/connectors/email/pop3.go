@@ -133,6 +133,8 @@ func (c *POP3Connector) Stop(context.Context) error {
 // deletions fn made. When fn fails the connection is dropped without QUIT, so
 // the server discards them.
 func (c *POP3Connector) session(ctx context.Context, fn func(*pop3Client) error) error {
+	ctx, cancel := c.ep.bound(ctx)
+	defer cancel()
 	client, err := c.login(ctx)
 	if err != nil {
 		return err

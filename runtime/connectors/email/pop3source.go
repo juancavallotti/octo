@@ -38,8 +38,12 @@ type pop3Source struct {
 	onSuccess  string
 	maxPerPoll int
 	handledKey string
-	emitter    emitter
-	poller     poller
+	// account names the server and user, recorded with the handled set.
+	account string
+	// pendingBaseline is a first-run baseline not yet saved; see pollKeeping.
+	pendingBaseline map[string]bool
+	emitter         emitter
+	poller          poller
 }
 
 // NewSource builds the pop3 source, validating its settings up front so a bad
@@ -67,6 +71,7 @@ func (c *POP3Connector) NewSource(
 		onSuccess:  onSuccess,
 		maxPerPoll: positiveOr(set.MaxPerPoll, defaultMaxPerPoll),
 		handledKey: key + "/handled",
+		account:    c.ep.account(),
 		emitter: emitter{
 			out:         out,
 			pending:     c.pending,
@@ -99,13 +104,13 @@ func (s *pop3Source) poll(ctx context.Context) error {
 }
 
 // handle parses one message and runs it through the flow. An unreadable
-// message never reaches a flow and counts as handled, so it is deleted or
-// recorded rather than retried forever.
+// message never reaches a flow: delete mode leaves it on the server, since
+// nothing handled it, and keep mode records it so it is not read every poll.
 func (s *pop3Source) handle(ctx context.Context, m pop3Message) (bool, error) {
 	body, err := pop3Body(m)
 	if err != nil {
 		slog.Error("pop3 source: unreadable message", "error", err)
-		return true, nil
+		return false, errUnreadable
 	}
 	return s.emitter.emit(ctx, body, map[string]any{keyUIDL: m.uidl})
 }
@@ -127,7 +132,14 @@ func (s *pop3Source) pollDeleting(ctx context.Context) error {
 	var handled []string
 	var cause error
 	for _, m := range messages {
+		if !s.poller.leading() {
+			cause = errLostLeadership
+			break
+		}
 		ok, err := s.handle(ctx, m)
+		if errors.Is(err, errUnreadable) {
+			continue
+		}
 		if err != nil {
 			cause = err
 			break
@@ -151,56 +163,51 @@ func (s *pop3Source) pollDeleting(ctx context.Context) error {
 	return err
 }
 
-// pop3Handled is the keep-mode record: the UIDLs already handled. It is pruned
-// to the drop's current listing every poll, so it never outgrows the drop.
+// pop3Handled is the keep-mode record: the UIDLs already handled in the
+// account's drop. It is pruned to the drop's current listing every poll, so it
+// never outgrows the drop. Account names the server and user it was taken on;
+// a connector repointed at another account starts a fresh record.
 type pop3Handled struct {
-	UIDLs []string `json:"uidls"`
+	Account string   `json:"account"`
+	UIDLs   []string `json:"uidls"`
 }
 
 // pollKeeping reads messages not yet handled and records each one as its flow
-// completes. With no record yet, it records everything already in the drop and
-// handles nothing: there is no telling which of those messages are new.
+// completes. With no record for this account yet, it records everything
+// already in the drop and handles nothing: there is no telling which of those
+// messages are new. That baseline is held until it is saved, so a failed save
+// does not sweep mail that arrived since into it.
 func (s *pop3Source) pollKeeping(ctx context.Context) error {
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 	record, version, err := s.loadHandled(ctx, kv)
 	if err != nil {
 		return err
 	}
+	fresh := version == 0 || record.Account != s.account
 	handled := map[string]bool{}
-	for _, u := range record.UIDLs {
-		handled[u] = true
+	if !fresh {
+		for _, u := range record.UIDLs {
+			handled[u] = true
+		}
 	}
 
-	var entries []pop3Entry
-	var messages []pop3Message
-	err = s.conn.session(ctx, func(client *pop3Client) error {
-		q := pop3Query{skip: func(u string) bool { return handled[u] }, limit: s.maxPerPoll}
-		if version == 0 {
-			q.limit, q.skip = 0, func(string) bool { return true }
-		}
-		var rerr error
-		entries, messages, rerr = readDrop(client, q)
-		return rerr
-	})
+	entries, messages, err := s.readUnhandled(ctx, handled, fresh)
 	if err != nil {
 		return err
 	}
-
-	if version == 0 {
-		for _, e := range entries {
-			handled[e.uidl] = true
-		}
-		slog.Info("pop3 source: recorded the drop's existing mail as handled", "messages", len(entries))
-		_, err := s.saveHandled(ctx, kv, entries, handled, version)
-		return err
+	if fresh {
+		return s.saveBaseline(ctx, kv, entries, version)
 	}
 
 	for _, m := range messages {
-		ok, err := s.handle(ctx, m)
+		if !s.poller.leading() {
+			return errLostLeadership
+		}
+		record, err := s.handledOrUnreadable(ctx, m)
 		if err != nil {
 			return err
 		}
-		if !ok {
+		if !record {
 			continue
 		}
 		handled[m.uidl] = true
@@ -210,6 +217,53 @@ func (s *pop3Source) pollKeeping(ctx context.Context) error {
 	}
 	_, err = s.saveHandled(ctx, kv, entries, handled, version)
 	return err
+}
+
+// readUnhandled lists the drop and downloads the oldest messages not yet
+// handled; on a fresh record it only lists.
+func (s *pop3Source) readUnhandled(
+	ctx context.Context, handled map[string]bool, fresh bool,
+) ([]pop3Entry, []pop3Message, error) {
+	q := pop3Query{skip: func(u string) bool { return handled[u] }, limit: s.maxPerPoll}
+	if fresh {
+		q.limit, q.skip = 0, func(string) bool { return true }
+	}
+	var entries []pop3Entry
+	var messages []pop3Message
+	err := s.conn.session(ctx, func(client *pop3Client) error {
+		var rerr error
+		entries, messages, rerr = readDrop(client, q)
+		return rerr
+	})
+	return entries, messages, err
+}
+
+// handledOrUnreadable runs m through the flow and reports whether keep mode
+// should record it: its flow completed, or it can never reach one. An error is
+// the source stopping.
+func (s *pop3Source) handledOrUnreadable(ctx context.Context, m pop3Message) (bool, error) {
+	ok, err := s.handle(ctx, m)
+	if errors.Is(err, errUnreadable) {
+		return true, nil
+	}
+	return ok, err
+}
+
+// saveBaseline records the drop's existing mail as handled, reusing a baseline
+// an earlier poll could not save.
+func (s *pop3Source) saveBaseline(ctx context.Context, kv core.KV, entries []pop3Entry, version int64) error {
+	if s.pendingBaseline == nil {
+		s.pendingBaseline = map[string]bool{}
+		for _, e := range entries {
+			s.pendingBaseline[e.uidl] = true
+		}
+		slog.Info("pop3 source: recording the drop's existing mail as handled", "messages", len(entries))
+	}
+	if _, err := s.saveHandled(ctx, kv, entries, s.pendingBaseline, version); err != nil {
+		return err
+	}
+	s.pendingBaseline = nil
+	return nil
 }
 
 func (s *pop3Source) loadHandled(ctx context.Context, kv core.KV) (pop3Handled, int64, error) {
@@ -233,7 +287,7 @@ func (s *pop3Source) loadHandled(ctx context.Context, kv core.KV) (pop3Handled, 
 func (s *pop3Source) saveHandled(
 	ctx context.Context, kv core.KV, entries []pop3Entry, handled map[string]bool, version int64,
 ) (int64, error) {
-	record := pop3Handled{UIDLs: []string{}}
+	record := pop3Handled{Account: s.account, UIDLs: []string{}}
 	for _, e := range entries {
 		if handled[e.uidl] {
 			record.UIDLs = append(record.UIDLs, e.uidl)

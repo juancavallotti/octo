@@ -121,9 +121,23 @@ func orDefaultPort(port, fallback int) int {
 	return fallback
 }
 
+// account names the user on the server, for recording whose mailbox persisted
+// progress belongs to.
+func (e endpoint) account() string {
+	return e.username + "@" + e.addr()
+}
+
 // addr is the host:port the endpoint dials.
 func (e endpoint) addr() string {
 	return net.JoinHostPort(e.host, strconv.Itoa(e.port))
+}
+
+// bound limits one session to the endpoint's timeout. The connection's own
+// deadlines cannot be trusted to: protocol clients set and clear them as they
+// read (go-imap clears its read deadline between responses), so the bound is a
+// context deadline, which closes the connection when it passes.
+func (e endpoint) bound(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, e.timeout)
 }
 
 // dial opens a connection to the server, wrapped in TLS when the security mode

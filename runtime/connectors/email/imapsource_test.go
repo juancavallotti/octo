@@ -1,6 +1,7 @@
 package email
 
 import (
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -254,4 +255,81 @@ func TestIMAPSourceOneSourcePerMailbox(t *testing.T) {
 	if first.cursorKey != "email_imap_inbox/INBOX" || other.cursorKey != "email_imap_inbox/Done" {
 		t.Errorf("cursor keys = %q, %q", first.cursorKey, other.cursorKey)
 	}
+}
+
+func TestIMAPSourceCursorBelongsToItsAccount(t *testing.T) {
+	f := startIMAP(t, securityTLS)
+	out := make(chan *types.Message)
+	flow := runFakeFlow(t, out, completeAll)
+	src := newIMAPSource(t, f, out, map[string]any{"onSuccess": "none"})
+	kv := newMemKV()
+	ctx := servicesCtx(t, true, kv)
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+
+	// A cursor taken on another account must not suppress this account's mail.
+	cursor, version, err := src.loadCursor(ctx, kv)
+	if err != nil {
+		t.Fatalf("loadCursor: %v", err)
+	}
+	cursor.Account = "someone@elsewhere:993"
+	cursor.LastUID = 1000
+	if _, err := src.saveCursor(ctx, kv, cursor, version); err != nil {
+		t.Fatalf("saveCursor: %v", err)
+	}
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("reset poll: %v", err)
+	}
+	f.deliver(t, "new")
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if got := flow.seen(); !slices.Equal(got, []string{"new"}) {
+		t.Errorf("flow saw %v, want the new message despite the foreign cursor", got)
+	}
+}
+
+func TestIMAPSourceStartingCursorSurvivesAFailedSave(t *testing.T) {
+	f := startIMAP(t, securityTLS)
+	f.deliver(t, "old")
+	out := make(chan *types.Message)
+	flow := runFakeFlow(t, out, completeAll)
+	src := newIMAPSource(t, f, out, map[string]any{"onSuccess": "none"})
+	kv := newMemKV()
+	kv.failSets = 1
+	ctx := servicesCtx(t, true, kv)
+
+	if err := src.poll(ctx); err == nil {
+		t.Fatal("expected the first save to fail")
+	}
+	f.deliver(t, "arrived-meanwhile")
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("retry poll: %v", err)
+	}
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if got := flow.seen(); !slices.Equal(got, []string{"arrived-meanwhile"}) {
+		t.Errorf("flow saw %v, want the message that arrived after the first attempt", got)
+	}
+}
+
+func TestIMAPSourceStopsWhenLeadershipIsLost(t *testing.T) {
+	f := startIMAP(t, securityTLS)
+	for _, s := range []string{"1", "2", "3"} {
+		f.deliver(t, s)
+	}
+	out := make(chan *types.Message)
+	flow := runFakeFlow(t, out, completeAll)
+	src := newIMAPSource(t, f, out, map[string]any{})
+	src.poller.lease = &flipLeadership{n: 1}
+
+	if err := src.poll(servicesCtx(t, true, newMemKV())); !errors.Is(err, errLostLeadership) {
+		t.Fatalf("poll = %v, want errLostLeadership", err)
+	}
+	if got := flow.seen(); !slices.Equal(got, []string{"1"}) {
+		t.Errorf("flow saw %v, want only the message admitted while leading", got)
+	}
+	assertState(t, "INBOX", f.state(t, defaultMailbox), map[string]bool{"1": true, "2": false, "3": false})
 }

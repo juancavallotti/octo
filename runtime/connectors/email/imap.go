@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime"
 	"reflect"
 	"slices"
@@ -141,6 +142,8 @@ func (c *IMAPConnector) Stop(context.Context) error {
 
 // session runs fn on a logged-in client and logs out after it.
 func (c *IMAPConnector) session(ctx context.Context, fn func(*imapclient.Client) error) error {
+	ctx, cancel := c.ep.bound(ctx)
+	defer cancel()
 	conn, err := c.ep.dial(ctx)
 	if err != nil {
 		return err
@@ -167,8 +170,11 @@ func (c *IMAPConnector) session(ctx context.Context, fn func(*imapclient.Client)
 	if err := fn(client); err != nil {
 		return err
 	}
+	// The work is done once fn returns — an EXPUNGE is final — so a goodbye the
+	// server never answers is no reason to report the session as failed and
+	// make the caller drop what it read.
 	if err := client.Logout().Wait(); err != nil {
-		return fmt.Errorf("imap: logout: %w", err)
+		slog.Debug("imap: logout after a successful session failed", "server", c.ep.addr(), "error", err)
 	}
 	return nil
 }
@@ -196,10 +202,11 @@ type imapMessage struct {
 }
 
 // imapBatch is the result of reading a mailbox: its UIDVALIDITY, which says
-// whether UIDs from an earlier session still name the same messages, and the
-// messages in ascending UID order.
+// whether UIDs from an earlier session still name the same messages, its
+// UIDNEXT, and the messages in ascending UID order.
 type imapBatch struct {
 	uidValidity uint32
+	uidNext     imap.UID
 	messages    []imapMessage
 }
 
@@ -211,7 +218,13 @@ func read(client *imapclient.Client, q imapQuery) (imapBatch, error) {
 	if err != nil {
 		return imapBatch{}, fmt.Errorf("imap: select %q: %w", q.mailbox, err)
 	}
-	batch := imapBatch{uidValidity: selected.UIDValidity}
+	return readSelected(client, q, selected)
+}
+
+// readSelected is read on a mailbox the caller already selected, so metadata it
+// took from that SELECT and the messages read here describe the same mailbox.
+func readSelected(client *imapclient.Client, q imapQuery, selected *imap.SelectData) (imapBatch, error) {
+	batch := imapBatch{uidValidity: selected.UIDValidity, uidNext: selected.UIDNext}
 	if selected.NumMessages == 0 {
 		return batch, nil
 	}

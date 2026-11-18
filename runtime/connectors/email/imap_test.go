@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -327,4 +328,35 @@ func TestIMAPActionsTouchOnlyHandledMessages(t *testing.T) {
 		}
 		assertState(t, "INBOX", f.state(t, defaultMailbox), map[string]bool{"c": false})
 	})
+}
+
+func TestIMAPSessionIsBoundedByTheTimeout(t *testing.T) {
+	// A server that greets and then never answers.
+	ln := listen(t, nil, false)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte("* OK IMAP4rev1 ready\r\n"))
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	host, port := hostPort(t, ln)
+	conn := &IMAPConnector{}
+	startConnector(t, conn, map[string]any{
+		"host": host, "port": port, "security": securityNone, "username": "bot", "timeout": "300ms",
+	})
+	proc, err := newIMAPFetch(map[string]any{"connector": "inbox"}, depsWith("inbox", conn))
+	if err != nil {
+		t.Fatalf("newIMAPFetch: %v", err)
+	}
+	start := time.Now()
+	if _, err := proc.Process(t.Context(), newMessage(t, nil)); err == nil {
+		t.Fatal("expected the stalled session to fail")
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("session ran %v, want it cut off near the 300ms timeout", took)
+	}
 }

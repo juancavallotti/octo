@@ -49,8 +49,12 @@ type imapSource struct {
 	moveTo     string
 	maxPerPoll int
 	cursorKey  string
-	emitter    emitter
-	poller     poller
+	// account names the server and user, recorded in the cursor.
+	account string
+	// pendingStart is a starting cursor not yet saved; see pollWithCursor.
+	pendingStart *imapCursor
+	emitter      emitter
+	poller       poller
 }
 
 // NewSource builds the imap source, validating its settings up front so a bad
@@ -90,6 +94,7 @@ func (c *IMAPConnector) NewSource(
 	// elect and progress independently.
 	key := leaderKey(imapType, cfg) + "/" + mailbox
 	s.cursorKey = key
+	s.account = c.ep.account()
 	s.poller = poller{
 		label:     "imap",
 		leaderKey: key,
@@ -131,6 +136,9 @@ func (s *imapSource) poll(ctx context.Context) error {
 
 	var handled []imap.UID
 	for _, m := range batch.messages {
+		if !s.poller.leading() {
+			return s.ack(ctx, batch.uidValidity, handled, errLostLeadership)
+		}
 		ok, err := s.handle(ctx, m)
 		if errors.Is(err, errUnreadable) {
 			continue
@@ -192,40 +200,73 @@ func (s *imapSource) ack(ctx context.Context, uidValidity uint32, uids []imap.UI
 	return err
 }
 
-// imapCursor is the none-mode progress record: the highest UID handled, valid
-// while the mailbox keeps its UIDVALIDITY.
+// imapCursor is the none-mode progress record: the highest UID handled in the
+// account's mailbox, valid while the mailbox keeps its UIDVALIDITY. Account
+// names the server and user the cursor was taken on: UIDVALIDITY identifies a
+// mailbox's numbering, not whose mailbox it is, so a connector repointed at
+// another account must not inherit the old one's progress.
 type imapCursor struct {
+	Account     string   `json:"account"`
 	UIDValidity uint32   `json:"uidValidity"`
 	LastUID     imap.UID `json:"lastUid"`
+}
+
+// fits reports whether a stored cursor (version > 0) applies to the mailbox as
+// selected now.
+func (c imapCursor) fits(version int64, account string, uidValidity uint32) bool {
+	return version > 0 && c.Account == account && c.UIDValidity == uidValidity
 }
 
 // pollWithCursor handles messages above the cursor in UID order, advancing the
 // cursor after each one. It stops at the first message whose flow does not
 // complete, so the cursor never passes a message that was not handled.
 //
-// With no cursor yet, or one from before the mailbox's UIDVALIDITY changed, it
+// With no cursor yet, or one that does not fit this account's mailbox, it
 // starts the cursor at the mailbox's current end: there is no telling which of
-// the messages already there are new.
+// the messages already there are new. That starting cursor is held until it is
+// saved, so a failed save does not move the start past mail that arrived since.
 func (s *imapSource) pollWithCursor(ctx context.Context) error {
 	kv := core.RuntimeServicesFromContext(ctx).KV()
 	cursor, version, err := s.loadCursor(ctx, kv)
 	if err != nil {
 		return err
 	}
-	batch, uidNext, err := s.readAfter(ctx, cursor, version)
+	batch, err := s.readAfter(ctx, cursor, version)
 	if err != nil {
 		return err
 	}
+	if !cursor.fits(version, s.account, batch.uidValidity) {
+		return s.startCursor(ctx, kv, batch, version)
+	}
+	return s.handleAfterCursor(ctx, kv, batch, cursor, version)
+}
 
-	if version == 0 || cursor.UIDValidity != batch.uidValidity {
-		start := imapCursor{UIDValidity: batch.uidValidity, LastUID: max(uidNext, 1) - 1}
+// startCursor saves a cursor at the mailbox's end, reusing one an earlier poll
+// could not save.
+func (s *imapSource) startCursor(ctx context.Context, kv core.KV, batch imapBatch, version int64) error {
+	start := s.pendingStart
+	if start == nil || start.UIDValidity != batch.uidValidity {
+		start = &imapCursor{Account: s.account, UIDValidity: batch.uidValidity, LastUID: max(batch.uidNext, 1) - 1}
 		slog.Info("imap source: starting cursor at the mailbox's end",
 			"mailbox", s.mailbox, "uidValidity", start.UIDValidity, "lastUid", start.LastUID)
-		_, err := s.saveCursor(ctx, kv, start, version)
+	}
+	s.pendingStart = start
+	if _, err := s.saveCursor(ctx, kv, *start, version); err != nil {
 		return err
 	}
+	s.pendingStart = nil
+	return nil
+}
 
+// handleAfterCursor runs the batch read above the cursor through the flow,
+// saving the cursor after each handled message.
+func (s *imapSource) handleAfterCursor(
+	ctx context.Context, kv core.KV, batch imapBatch, cursor imapCursor, version int64,
+) error {
 	for _, m := range batch.messages {
+		if !s.poller.leading() {
+			return errLostLeadership
+		}
 		ok, err := s.handle(ctx, m)
 		if errors.Is(err, errUnreadable) {
 			ok, err = true, nil
@@ -241,26 +282,25 @@ func (s *imapSource) pollWithCursor(ctx context.Context) error {
 	return nil
 }
 
-// readAfter reads the messages above the cursor, and the mailbox's UIDNEXT for
-// placing a new cursor. It reads no messages when the cursor is missing
-// (version 0) or belongs to another UIDVALIDITY.
-func (s *imapSource) readAfter(ctx context.Context, cursor imapCursor, version int64) (imapBatch, imap.UID, error) {
+// readAfter selects the mailbox once and, when the cursor fits it, reads the
+// messages above the cursor; either way the batch carries that one SELECT's
+// UIDVALIDITY and UIDNEXT.
+func (s *imapSource) readAfter(ctx context.Context, cursor imapCursor, version int64) (imapBatch, error) {
 	var batch imapBatch
-	var uidNext imap.UID
 	err := s.conn.session(ctx, func(client *imapclient.Client) error {
 		selected, err := client.Select(s.mailbox, nil).Wait()
 		if err != nil {
 			return fmt.Errorf("imap: select %q: %w", s.mailbox, err)
 		}
-		uidNext = selected.UIDNext
-		if version == 0 || cursor.UIDValidity != selected.UIDValidity {
-			batch = imapBatch{uidValidity: selected.UIDValidity}
+		if !cursor.fits(version, s.account, selected.UIDValidity) {
+			batch = imapBatch{uidValidity: selected.UIDValidity, uidNext: selected.UIDNext}
 			return nil
 		}
-		batch, err = read(client, imapQuery{mailbox: s.mailbox, afterUID: cursor.LastUID, limit: s.maxPerPoll})
+		q := imapQuery{mailbox: s.mailbox, afterUID: cursor.LastUID, limit: s.maxPerPoll}
+		batch, err = readSelected(client, q, selected)
 		return err
 	})
-	return batch, uidNext, err
+	return batch, err
 }
 
 func (s *imapSource) loadCursor(ctx context.Context, kv core.KV) (imapCursor, int64, error) {

@@ -119,6 +119,11 @@ func (p *pendingFlows) close() {
 // errStopped reports that the source stopped before the flow finished.
 var errStopped = errors.New("source stopped")
 
+// errLostLeadership reports that a poll stopped admitting messages because this
+// replica lost the source's leadership partway through its batch: the new
+// leader polls the rest, and two replicas must not both run them.
+var errLostLeadership = errors.New("lost leadership mid-poll")
+
 // emitter hands messages to a flow and waits for each outcome.
 type emitter struct {
 	out         chan<- *types.Message
@@ -239,9 +244,21 @@ func (p *poller) tick(ctx context.Context) {
 		slog.Debug("email poll skipped: not leader", "key", p.leaderKey)
 		return
 	}
-	if err := p.poll(ctx); err != nil && !errors.Is(err, errStopped) && ctx.Err() == nil {
+	err := p.poll(ctx)
+	switch {
+	case err == nil, errors.Is(err, errStopped), ctx.Err() != nil:
+	case errors.Is(err, errLostLeadership):
+		slog.Info("email poll stopped: leadership moved to another replica", "source", p.label, "key", p.leaderKey)
+	default:
 		slog.Error("email poll failed", "source", p.label, "key", p.leaderKey, "error", err)
 	}
+}
+
+// leading reports whether this replica still holds the source's leadership.
+// Polls check it before each message, not only at the start, because a flow can
+// run longer than a lease survives without renewal.
+func (p *poller) leading() bool {
+	return p.lease == nil || p.lease.IsLeader()
 }
 
 // stop ends the loop, waits for an in-flight poll, and releases leadership, so

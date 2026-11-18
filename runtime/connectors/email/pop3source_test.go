@@ -117,3 +117,46 @@ func TestPOP3SourceOneSourcePerConnector(t *testing.T) {
 		t.Fatal("a second source on one pop3 connector should be refused")
 	}
 }
+
+func TestPOP3SourceNeverDeletesWhatNoFlowSaw(t *testing.T) {
+	f := startPOP3(t, securityTLS)
+	f.srv.addRaw("broken", crlf("this is not a header line\n\nbody\n"))
+	f.srv.add("good")
+	out := make(chan *types.Message)
+	flow := runFakeFlow(t, out, completeAll)
+	src := newPOP3Source(t, f, out, map[string]any{"onSuccess": "delete"})
+	if err := src.poll(servicesCtx(t, true, newMemKV())); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if got := flow.seen(); !slices.Equal(got, []string{"good"}) {
+		t.Errorf("flow saw %v", got)
+	}
+	if got := f.srv.subjects(); !slices.Equal(got, []string{"broken"}) {
+		t.Errorf("left on server %v, want the unreadable message kept", got)
+	}
+}
+
+func TestPOP3SourceBaselineSurvivesAFailedSave(t *testing.T) {
+	f := startPOP3(t, securityTLS)
+	f.srv.add("old")
+	out := make(chan *types.Message)
+	flow := runFakeFlow(t, out, completeAll)
+	src := newPOP3Source(t, f, out, map[string]any{})
+	kv := newMemKV()
+	kv.failSets = 1
+	ctx := servicesCtx(t, true, kv)
+
+	if err := src.poll(ctx); err == nil {
+		t.Fatal("expected the first save to fail")
+	}
+	f.srv.add("arrived-meanwhile")
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("retry poll: %v", err)
+	}
+	if err := src.poll(ctx); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if got := flow.seen(); !slices.Equal(got, []string{"arrived-meanwhile"}) {
+		t.Errorf("flow saw %v, want the message that arrived after the first attempt", got)
+	}
+}

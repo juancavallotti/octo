@@ -117,6 +117,8 @@ func (c *SMTPConnector) Send(ctx context.Context, from string, recipients []stri
 	if len(recipients) == 0 {
 		return errors.New("smtp: no recipients")
 	}
+	ctx, cancel := c.ep.bound(ctx)
+	defer cancel()
 	conn, err := c.ep.dial(ctx)
 	if err != nil {
 		return err
