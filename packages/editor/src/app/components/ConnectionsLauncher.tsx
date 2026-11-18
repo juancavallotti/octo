@@ -168,6 +168,8 @@ export default function ConnectionsLauncher() {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => {
+                      // Enter that confirms an IME composition is not a pick.
+                      if (e.nativeEvent.isComposing) return;
                       if (e.key === "Enter" && matches.length > 0) {
                         e.preventDefault();
                         addConnection(matches[0].type);

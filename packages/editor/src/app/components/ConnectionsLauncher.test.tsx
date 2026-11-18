@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EditorStateProvider } from "../state/editorState";
 import ConnectionsLauncher from "./ConnectionsLauncher";
@@ -57,6 +57,14 @@ describe("ConnectionsLauncher", () => {
     await userEvent.click(screen.getByRole("button", { name: "Connections" }));
     expect(screen.queryByText("No connections yet.")).not.toBeInTheDocument();
     expect(screen.getByText("Cron")).toBeInTheDocument();
+  });
+
+  it("ignores the Enter that confirms an IME composition", async () => {
+    renderLauncher();
+    const filter = await openAddMenu();
+    await userEvent.type(filter, "cron");
+    fireEvent.keyDown(filter, { key: "Enter", isComposing: true });
+    expect(screen.getByLabelText("Filter connector types")).toBeInTheDocument();
   });
 
   it("reopens with the filter cleared", async () => {
