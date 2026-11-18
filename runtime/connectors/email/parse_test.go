@@ -113,6 +113,45 @@ ma=F1ana
 				expectEq(t, len(got[keyTo].([]any)), 0)
 			},
 		},
+		{
+			name: "undecodable parts are skipped or kept raw, and a truncated part keeps what came before",
+			raw: crlf(`
+From: a@example.com
+Subject: messy
+Content-Type: multipart/mixed; boundary=b
+
+--b
+Content-Type: text/plain; charset=x-made-up
+
+kept as written
+--b
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: x-uuencode-ish
+Content-Disposition: attachment; filename="odd.bin"
+
+????
+--b
+Content-Type: text/html; charset=utf-8
+
+<p>still here</p>
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="cut.pdf"
+Content-Transfer-Encoding: base64
+
+AAEC`),
+			check: func(t *testing.T, got map[string]any) {
+				t.Helper()
+				expectEq(t, got[keySubject], "messy")
+				expectEq(t, strings.TrimSpace(got[keyText].(string)), "kept as written")
+				expectEq(t, strings.TrimSpace(got[keyHTML].(string)), "<p>still here</p>")
+				for _, a := range got[keyAttachments].([]any) {
+					if a.(map[string]any)[partFilename] == "odd.bin" {
+						t.Error("a part in an unknown transfer encoding should be skipped")
+					}
+				}
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

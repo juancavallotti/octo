@@ -27,6 +27,8 @@ type fakePOP3 struct {
 type fakeDropMessage struct {
 	uidl    string
 	subject string
+	// raw replaces the generated message when set.
+	raw []byte
 }
 
 func (f *fakePOP3) add(subject string) {
@@ -34,6 +36,14 @@ func (f *fakePOP3) add(subject string) {
 	defer f.mu.Unlock()
 	f.nextID++
 	f.messages = append(f.messages, fakeDropMessage{uidl: "uid-" + strconv.Itoa(f.nextID), subject: subject})
+}
+
+// addRaw drops a message whose bytes are exactly raw, named subject in subjects().
+func (f *fakePOP3) addRaw(subject string, raw []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	f.messages = append(f.messages, fakeDropMessage{uidl: "uid-" + strconv.Itoa(f.nextID), subject: subject, raw: raw})
 }
 
 func (f *fakePOP3) subjects() []string {
@@ -111,7 +121,11 @@ func (f *fakePOP3) session(conn net.Conn) {
 			}
 			_ = tp.PrintfLine("+OK")
 			w := tp.DotWriter()
-			_, _ = w.Write(crlf(fmt.Sprintf("From: a@example.com\nSubject: %s\n\nbody\n", view[n-1].subject)))
+			if view[n-1].raw != nil {
+				_, _ = w.Write(view[n-1].raw)
+			} else {
+				_, _ = w.Write(crlf(fmt.Sprintf("From: a@example.com\nSubject: %s\n\nbody\n", view[n-1].subject)))
+			}
 			_ = w.Close()
 		case "DELE":
 			n, _ := strconv.Atoi(arg)
@@ -257,5 +271,21 @@ func TestPOP3Validation(t *testing.T) {
 	})
 	if err := bad.session(t.Context(), func(*pop3Client) error { return nil }); err == nil {
 		t.Error("expected a login error")
+	}
+}
+
+func TestPOP3FetchDeletesNothingWhenAMessageCannotBeParsed(t *testing.T) {
+	f := startPOP3(t, securityTLS)
+	f.srv.add("good")
+	f.srv.addRaw("broken", crlf("this is not a header line\n\nbody\n"))
+	proc, err := newPOP3Fetch(map[string]any{"connector": "drop", "onFetch": "delete"}, depsWith("drop", f.conn))
+	if err != nil {
+		t.Fatalf("newPOP3Fetch: %v", err)
+	}
+	if _, err := proc.Process(t.Context(), newMessage(t, nil)); err == nil {
+		t.Fatal("expected the unparseable message to fail the fetch")
+	}
+	if got := f.srv.subjects(); !slices.Equal(got, []string{"good", "broken"}) {
+		t.Errorf("left on server %v, want both messages", got)
 	}
 }

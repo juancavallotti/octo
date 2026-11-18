@@ -53,8 +53,8 @@ const (
 )
 
 // parseMessage parses raw message bytes into the body shape. A message whose
-// MIME structure is broken still yields its headers; the error is returned only
-// when not even the header can be read.
+// MIME structure is broken still yields its headers and every part read before
+// the break; the error is returned only when not even the header can be read.
 func parseMessage(raw []byte) (map[string]any, error) {
 	r, err := mail.CreateReader(bytes.NewReader(raw))
 	if err != nil && r == nil {
@@ -63,10 +63,7 @@ func parseMessage(raw []byte) (map[string]any, error) {
 	defer func() { _ = r.Close() }()
 
 	out := parseHeader(r.Header)
-	text, html, attachments, err := parseParts(r)
-	if err != nil {
-		return nil, err
-	}
+	text, html, attachments := parseParts(r)
 	out[keyText] = text
 	out[keyHTML] = html
 	out[keyAttachments] = attachments
@@ -128,28 +125,29 @@ func addressList(h mail.Header, key string) []any {
 	return out
 }
 
+// maxParts bounds the parts one message contributes, so a pathological message
+// cannot keep the walk going indefinitely.
+const maxParts = 256
+
 // parseParts walks the body: the first text/plain and text/html inline parts
 // become the bodies, and every part with a filename becomes an attachment —
 // including an inline image that names one, since a flow wanting the file
 // should not have to know how the sender's client chose to display it.
-func parseParts(r *mail.Reader) (text, html string, attachments []any, err error) {
+//
+// The walk keeps what it can. A part in a charset go-message cannot decode
+// keeps its undecoded bytes; a part in a transfer encoding it cannot decode is
+// skipped, the walk carrying on past it; any other break — a truncated part, a
+// malformed boundary — ends the walk with what was read before it.
+func parseParts(r *mail.Reader) (text, html string, attachments []any) {
 	attachments = []any{}
-	for {
-		part, perr := r.NextPart()
-		if errors.Is(perr, io.EOF) {
-			return text, html, attachments, nil
+	for range maxParts {
+		part, body, step := readPart(r)
+		if step == partStop {
+			break
 		}
-		// A part in a charset or transfer encoding go-message cannot decode is
-		// still returned, carrying its undecoded bytes; keeping those beats
-		// losing the part.
-		if perr != nil && !message.IsUnknownCharset(perr) {
-			return "", "", nil, fmt.Errorf("parse message part: %w", perr)
+		if step == partSkip {
+			continue
 		}
-		body, rerr := io.ReadAll(part.Body)
-		if rerr != nil {
-			return "", "", nil, fmt.Errorf("read message part: %w", rerr)
-		}
-
 		contentType, filename := partInfo(part.Header)
 		if filename != "" {
 			attachments = append(attachments, attachmentPart(filename, contentType, body))
@@ -162,6 +160,35 @@ func parseParts(r *mail.Reader) (text, html string, attachments []any, err error
 			html = string(body)
 		}
 	}
+	return text, html, attachments
+}
+
+// partStep says what the walk does after readPart.
+type partStep int
+
+const (
+	partRead partStep = iota
+	partSkip
+	partStop
+)
+
+// readPart reads the next part and its bytes, deciding per the rules on
+// parseParts whether the walk uses it, skips it, or ends.
+func readPart(r *mail.Reader) (*mail.Part, []byte, partStep) {
+	part, err := r.NextPart()
+	switch {
+	case errors.Is(err, io.EOF):
+		return nil, nil, partStop
+	case part == nil && message.IsUnknownEncoding(err):
+		return nil, nil, partSkip
+	case err != nil && !message.IsUnknownCharset(err):
+		return nil, nil, partStop
+	}
+	body, err := io.ReadAll(part.Body)
+	if err != nil {
+		return nil, nil, partStop
+	}
+	return part, body, partRead
 }
 
 // partInfo returns a part's media type and the filename it carries, if any.

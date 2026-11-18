@@ -68,33 +68,32 @@ func newPOP3Fetch(raw types.Settings, deps core.BlockDeps) (core.MessageProcesso
 // Process reads the drop, deletes what was read when asked, and sets the body
 // to the messages in arrival order.
 func (p *pop3FetchProcessor) Process(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	var messages []pop3Message
+	// Every message is parsed before anything is deleted, inside the session: a
+	// message that cannot be parsed fails the fetch and the session ends without
+	// QUIT, so the server deletes nothing.
+	var out []any
 	err := p.conn.session(ctx, func(client *pop3Client) error {
 		_, read, err := readDrop(client, pop3Query{limit: p.limit, newest: true})
 		if err != nil {
 			return err
 		}
-		messages = read
-		if p.onFetch != actionDelete {
-			return nil
-		}
+		out = make([]any, 0, len(read))
 		uidls := make([]string, 0, len(read))
 		for _, m := range read {
+			body, err := pop3Body(m)
+			if err != nil {
+				return err
+			}
+			out = append(out, body)
 			uidls = append(uidls, m.uidl)
+		}
+		if p.onFetch != actionDelete {
+			return nil
 		}
 		return removeByUIDL(client, uidls)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pop3-fetch: %w", err)
-	}
-
-	out := make([]any, 0, len(messages))
-	for _, m := range messages {
-		body, err := pop3Body(m)
-		if err != nil {
-			return nil, fmt.Errorf("pop3-fetch: %w", err)
-		}
-		out = append(out, body)
 	}
 	msg.SetBody(out)
 	return msg, nil

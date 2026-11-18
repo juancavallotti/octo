@@ -126,33 +126,32 @@ func (p *imapFetchProcessor) Process(ctx context.Context, msg *types.Message) (*
 	}
 	q := imapQuery{mailbox: p.mailbox, unseen: p.unseen, since: since, limit: p.limit, newest: true}
 
-	var batch imapBatch
+	// Every message is parsed before onFetch runs, inside the session: a message
+	// that cannot be parsed fails the fetch with the mailbox still untouched,
+	// rather than after its batch was already moved or deleted.
+	var out []any
 	err := p.conn.session(ctx, func(client *imapclient.Client) error {
 		if err := checkAction(client, p.onFetch); err != nil {
 			return err
 		}
-		var rerr error
-		batch, rerr = read(client, q)
-		if rerr != nil {
-			return rerr
+		batch, err := read(client, q)
+		if err != nil {
+			return err
 		}
+		out = make([]any, 0, len(batch.messages))
 		uids := make([]imap.UID, 0, len(batch.messages))
 		for _, m := range batch.messages {
+			body, err := imapBody(m, p.mailbox)
+			if err != nil {
+				return err
+			}
+			out = append(out, body)
 			uids = append(uids, m.uid)
 		}
 		return apply(client, uids, p.onFetch, p.moveTo)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("imap-fetch: %w", err)
-	}
-
-	out := make([]any, 0, len(batch.messages))
-	for _, m := range batch.messages {
-		body, err := imapBody(m, p.mailbox)
-		if err != nil {
-			return nil, fmt.Errorf("imap-fetch: %w", err)
-		}
-		out = append(out, body)
 	}
 	msg.SetBody(out)
 	return msg, nil
