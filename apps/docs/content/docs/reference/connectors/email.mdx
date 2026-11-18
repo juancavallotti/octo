@@ -63,7 +63,7 @@ It provides a source: yes, the **IMAP Mailbox** source (below). Blocks that bind
 
 ## `imap` source
 
-The source polls a mailbox and runs each new message through the flow, one at a time. It acts on a message only after its flow completes or drops it. If the flow fails, or runs longer than `flowTimeout`, the message stays in place and the next poll reads it again. Only the replica that holds the source's leadership polls, so replicas never poll the same mailbox at once. That doesn't make processing exactly-once: a flow that outlives `flowTimeout`, or a replica that stops between the flow completing and the action, leaves the message to be read again. Design flows to tolerate running twice.
+The source polls a mailbox and runs each new message through the flow, one at a time. It acts on a message only after its flow completes or drops it. If the flow fails, or runs longer than `flowTimeout`, the message stays in place and the next poll reads it again. Only the replica that holds the source's leadership starts a poll, and a poll stops taking new messages once that replica loses leadership. During a leadership change, the old leader's last message can still be running when the new leader polls. That doesn't make processing exactly-once: a flow that outlives `flowTimeout`, a replica that stops between the flow completing and the action, or a leadership change mid-message leaves the message to be read again. Design flows to tolerate running twice.
 
 | Setting | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |

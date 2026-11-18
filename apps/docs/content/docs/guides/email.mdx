@@ -139,5 +139,5 @@ dolphin test samples/email/autoreply_test.yaml samples/email/digest_test.yaml --
 ```
 
 <Callout type="info">
-Only one replica polls a mailbox at a time, because each source acquires leadership before it polls, so scaling the service doesn't make replicas compete for the same mail. A message can still run twice: if its flow outlives `flowTimeout`, or the service stops between a reply and the move to Answered, the next poll reads it again. Keep `flowTimeout` above the time your flow takes.
+Only the replica that holds the source's leadership starts a poll, so scaling the service doesn't make replicas compete for the same mail. A message can still run twice: if its flow outlives `flowTimeout`, if the service stops between a reply and the move to Answered, or if leadership moves while a message is being handled, the next poll reads it again. Keep `flowTimeout` above the time your flow takes.
 </Callout>
