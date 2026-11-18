@@ -201,6 +201,7 @@ func (a *App) deploymentsCreateCommand() *cobra.Command {
 	var replicaCount int
 	var slug, expose, subdomain, runner string
 	var access []string
+	var internalTLS bool
 	cmd := &cobra.Command{
 		Use:   "create <integration>",
 		Short: "Deploy a version of an integration",
@@ -265,6 +266,7 @@ what a deploy of it needs.`,
 				settings := client.DeploymentSettings{
 					SnapshotID: versionID, Replicas: replicaCount, Slug: slug, Expose: expose,
 					Subdomain: subdomain, Env: env, Access: access, Runner: runner, RuntimeVersion: f.runtime,
+					InternalTLS: internalTLS,
 				}
 				if cmd.Flags().Changed("tracing") {
 					settings.Tracing = &f.tracing
@@ -286,6 +288,7 @@ what a deploy of it needs.`,
 	cmd.Flags().StringVar(&slug, "slug", "", "its internal address label (default: a free one)")
 	cmd.Flags().StringVar(&expose, "expose", "", "external to publish it outside the cluster")
 	cmd.Flags().StringVar(&subdomain, "subdomain", "", "the subdomain to publish it on, with --expose external")
+	cmd.Flags().BoolVar(&internalTLS, "internal-tls", false, "also serve HTTPS inside the cluster (needs an internal CA)")
 	cmd.Flags().StringSliceVar(&access, "access", nil, "what the deployment's own token may do besides its stores: developer, operator")
 	cmd.Flags().StringVar(&runner, "runner", "", "standard or agentic (default: picked from the integration)")
 	return cmd

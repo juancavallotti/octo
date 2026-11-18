@@ -292,6 +292,26 @@ postgres:
 One wildcard certificate covers every subdomain, so deploying an integration
 issues nothing and waits for nothing.
 
+### Internal HTTPS
+
+Set `internalTLS.enabled` to let deployments serve HTTPS inside the cluster (see
+[Internal HTTPS](/platform/deployments#internal-https)). The chart creates a
+self-signed root, a CA ClusterIssuer from it (`internalTLS.issuerName`), and a
+trust-manager Bundle that publishes the CA certificate as the ConfigMap
+`internalTLS.caConfigMap` in every namespace. Every runtime pod mounts that
+ConfigMap as a trust root.
+
+```yaml
+internalTLS:
+  enabled: true
+  trustNamespace: cert-manager   # cert-manager's cluster resource namespace
+  issuerName: octo-internal-ca
+  caConfigMap: octo-internal-ca
+```
+
+Both cert-manager and trust-manager must be installed first. Locally,
+`task cluster:addons` installs them, and `task cluster:deploy` runs it for you.
+
 ### What answers an address nothing is deployed at
 
 With a `baseDomain` set, every subdomain under it resolves whether or not
@@ -1013,6 +1033,7 @@ you choose, the cluster must already provide:
 - an **ingress controller** matching `ingress.className`; none is installed here
 - **cert-manager** and a ClusterIssuer, for `tls.mode: cert-manager` (and for
   `wildcardTLS`, which needs a DNS-01 issuer)
+- **cert-manager** and **trust-manager**, for `internalTLS`
 - a **StorageClass** for the Postgres PVC, unless `postgres.storage.hostPath` is
   set or `postgres.enabled` is `false`
 
