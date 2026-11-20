@@ -14,7 +14,7 @@ require (
 	github.com/google/cel-go v0.31.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/nats-io/nats-server/v2 v2.14.2
+	github.com/nats-io/nats-server/v2 v2.14.3
 	github.com/nats-io/nats.go v1.53.1
 	github.com/openai/openai-go/v2 v2.7.1
 	github.com/pinecone-io/go-pinecone/v5 v5.4.1
