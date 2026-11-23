@@ -8,7 +8,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nats.go v1.56.0
 	github.com/redis/go-redis/v9 v9.22.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.37.2

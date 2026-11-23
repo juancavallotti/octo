@@ -9,7 +9,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nats-io/nats-server/v2 v2.14.2
-	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nats.go v1.56.0
 	github.com/redis/go-redis/v9 v9.22.0
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2
