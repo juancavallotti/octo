@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	cloud.google.com/go/compute/metadata v0.10.0
 	github.com/anthropics/anthropic-sdk-go v1.66.0
-	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.9
 	github.com/emersion/go-message v0.18.2
 	github.com/fsnotify/fsnotify v1.10.1
