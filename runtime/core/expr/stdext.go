@@ -1,8 +1,8 @@
 package expr
 
 import (
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/ext"
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/ext"
 )
 
 // The pinned version of each cel-go library registered below. Every one of them
