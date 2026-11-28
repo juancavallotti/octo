@@ -12,6 +12,7 @@ import MCPResourceListEditor from "./fields/MCPResourceListEditor";
 import MCPPromptListEditor from "./fields/MCPPromptListEditor";
 import ProviderToolListEditor from "./fields/ProviderToolListEditor";
 import ReferenceField from "./fields/ReferenceField";
+import TlsServerEditor from "./fields/TlsServerEditor";
 import EnvValueField, { isEnvRef } from "./fields/EnvValueField";
 import CelEditor from "../cel/CelEditor";
 
@@ -36,17 +37,22 @@ const canUseEnv = (field: FieldSpec) =>
  * changes via `onChange`. Slot fields (flow/flow-list/case-list) are never passed here —
  * they're edited on the canvas. `siblings` is the record the field sits in, for the
  * few inputs whose options depend on another setting of the same block.
+ * `connectionId` names the connection the field belongs to, for the inputs whose
+ * asynchronous edits must land on that connection rather than whatever is open when
+ * they finish.
  */
 export default function SettingsField({
   field,
   value,
   onChange,
   siblings,
+  connectionId,
 }: {
   field: FieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
   siblings?: Record<string, unknown>;
+  connectionId?: string;
 }) {
   // The control's DOM id. Generated rather than taken from field.name, which two
   // fields rendered side by side (the same setting on two list entries) can share.
@@ -92,7 +98,7 @@ export default function SettingsField({
       {envMode ? (
         <EnvValueField value={value} onChange={onChange} />
       ) : (
-        renderInput(id, field, value, onChange, siblings)
+        renderInput(id, field, value, onChange, siblings, connectionId)
       )}
       {field.description && (
         <p className="text-xs text-zinc-400 dark:text-zinc-500">
@@ -109,6 +115,7 @@ function renderInput(
   value: unknown,
   onChange: (value: unknown) => void,
   siblings?: Record<string, unknown>,
+  connectionId?: string,
 ) {
   // A reference field (to a connection/flow) renders as a dropdown of valid
   // targets regardless of its underlying scalar type.
@@ -213,6 +220,13 @@ function renderInput(
 
     case "object":
       return <ObjectGroup field={field} value={value} onChange={onChange} />;
+
+    case "tls-server":
+      return (
+        <TlsServerEditor connectionId={connectionId} field={field.name}>
+          <ObjectGroup field={field} value={value} onChange={onChange} />
+        </TlsServerEditor>
+      );
 
     default:
       // string and any unknown scalar.

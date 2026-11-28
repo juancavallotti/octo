@@ -30,6 +30,7 @@ version and roll out.
 | `slug` | The internal address label; empty asks for one to be allocated. |
 | `expose` | `external` publishes a public endpoint; empty is internal only. |
 | `subdomain` | The external host label. |
+| `internalTls` | Serve HTTPS inside the cluster instead of HTTP; `internalUrl` becomes the `https://` address. Networked deployments only: a bare workload has no Service, gets no `internalUrl`, and the setting is stored off. Needs runtime 0.11.18+, and deploy options reporting `internalTlsAvailable`. |
 | `env` | Binds declared variables: `{"value": "..."}` or `{"secret": "name"}`. |
 | `tracing` | Off by default. |
 

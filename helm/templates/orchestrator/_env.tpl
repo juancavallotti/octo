@@ -61,6 +61,18 @@
        same service. */}}
 - name: IAM_URL
   value: {{ include "octo.iam.url" . | quote }}
+{{- if .Values.internalTLS.enabled }}
+{{- /* The same three over HTTPS, handed to runtime pods new enough to verify
+       the internal CA. Older runtimes keep the plain URLs above. */}}
+{{- $ns := .Release.Namespace }}
+{{- $port := include "octo.platformTLS.httpsPort" . }}
+- name: ORCHESTRATOR_HTTPS_URL
+  value: {{ printf "https://%s.%s.svc:%s" (include "octo-common.componentName" (dict "root" . "component" "orchestrator")) $ns $port | quote }}
+- name: OBSERVABILITY_HTTPS_URL
+  value: {{ printf "https://%s.%s.svc:%s" (include "octo-common.componentName" (dict "root" . "component" "observability")) $ns $port | quote }}
+- name: IAM_HTTPS_URL
+  value: {{ printf "https://%s.%s.svc:%s" (include "octo-common.componentName" (dict "root" . "component" "iam")) $ns $port | quote }}
+{{- end }}
 {{- if .Values.embeddings.enabled }}
 {{- /* The embedding server. The orchestrator uses it directly — the backfill
        sweep and the query side of a semantic search both run next to the vectors
@@ -144,6 +156,12 @@
 {{- if .Values.orchestrator.baseDomain }}
 - name: BASE_DOMAIN
   value: {{ .Values.orchestrator.baseDomain | quote }}
+{{- end }}
+{{- if .Values.internalTLS.enabled }}
+- name: INTERNAL_TLS_ISSUER
+  value: {{ include "octo.internalTLS.issuerName" . | quote }}
+- name: INTERNAL_CA_CONFIGMAP
+  value: {{ include "octo.internalTLS.caConfigMap" . | quote }}
 {{- end }}
 {{- if .Values.orchestrator.devRuns.enabled }}
 {{- /* Dev runs: the editor's Run as a pod of its own. The orchestrator reads the two

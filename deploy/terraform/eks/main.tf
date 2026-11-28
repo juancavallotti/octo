@@ -397,6 +397,10 @@ module "octo" {
 
   values_files = [local.values_profile]
 
+  # No cert-manager on this path (TLS ends at the ALB), so nothing can issue
+  # deployments' internal certificates.
+  internal_tls = false
+
   domain      = var.domain
   apps_domain = local.apps_domain_eff
 

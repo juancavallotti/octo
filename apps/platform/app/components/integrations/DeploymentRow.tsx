@@ -155,8 +155,7 @@ export default function DeploymentRow({
           )}
           {d.internalUrl && (
             <AddressLine label="Internal" value={d.internalUrl} />
-          )}
-        </div>
+          )}        </div>
       )}
 
       {onOpenLogs && pods.length > 0 && (

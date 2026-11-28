@@ -102,6 +102,10 @@ type connectorSettings struct {
 	IdleTimeout duration `json:"idleTimeout" octo:"label=Idle timeout,type=string"`
 	// Cross-origin resource sharing. Inert unless allowedOrigins is set.
 	CORS corsSettings `json:"cors" octo:"label=CORS,type=object"`
+	// HTTPS. Inert unless enabled, a port or certificate source is set, or
+	// $HTTPS_PORT is set, a certificate is found and the connector is on the
+	// injected port (port unset or equal to $HTTP_PORT).
+	TLS tlsSettings `json:"tls" octo:"label=TLS,type=tls-server"`
 }
 
 // corsSettings is the global CORS policy applied to every route. It is off
@@ -129,9 +133,13 @@ type corsSettings struct {
 // sources it builds register routes on its mux and rendezvous with completed
 // flows through its pending map.
 type Connector struct {
-	mux        *http.ServeMux
-	server     *http.Server
+	mux    *http.ServeMux
+	server *http.Server
+	// ln is the main listener, speaking TLS when lnTLS is set. secureLn is the
+	// optional second, HTTPS-only listener that serves the same routes.
 	ln         net.Listener
+	lnTLS      bool
+	secureLn   net.Listener
 	basePath   string
 	reqTimeout time.Duration
 	cors       *corsConfig
@@ -173,14 +181,13 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		c.reqTimeout = defaultRequestTimeout
 	}
 	c.cors = newCORSConfig(set.CORS)
-	host := resolveHost(set.Host)
-	port := resolvePort(set.Port)
-
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", addr)
+	plan, err := resolveTLS(ctx, set.TLS, onInjectedPort(set.Port))
 	if err != nil {
-		return fmt.Errorf("http connector listen on %s: %w", addr, err)
+		return fmt.Errorf("http connector: %w", err)
+	}
+	host := resolveHost(set.Host)
+	if err := c.bind(ctx, host, resolvePort(set.Port), plan); err != nil {
+		return err
 	}
 
 	readTimeout := time.Duration(set.ReadTimeout)
@@ -196,10 +203,12 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		WriteTimeout:      time.Duration(set.WriteTimeout),
 		IdleTimeout:       time.Duration(set.IdleTimeout),
 	}
+	if plan != nil {
+		c.server.TLSConfig = plan.config
+	}
 	if set.KeepAlive != nil {
 		c.server.SetKeepAlivesEnabled(*set.KeepAlive)
 	}
-	c.ln = ln
 	c.done = make(chan struct{})
 	c.serving = make(chan struct{})
 	c.pending = make(map[string]chan result)
@@ -208,6 +217,45 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 
 	c.unsubscribe = core.DefaultEventBus().Subscribe(c.onFlowEvent)
 	return nil
+}
+
+// bind opens the main listener — on $HTTPS_PORT instead of port when plan moved
+// it there — and, when plan asks for a second port, the HTTPS one. Both bind
+// eagerly so a port conflict fails Start; a failure on the second releases the
+// first.
+func (c *Connector) bind(ctx context.Context, host string, port int, plan *tlsPlan) error {
+	if plan != nil && plan.mainPort != nil {
+		port = *plan.mainPort
+	}
+	ln, err := listen(ctx, host, port)
+	if err != nil {
+		return err
+	}
+	c.ln = ln
+	if plan == nil {
+		return nil
+	}
+	if plan.port == nil {
+		c.lnTLS = true
+		return nil
+	}
+	secure, err := listen(ctx, host, *plan.port)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	c.secureLn = secure
+	return nil
+}
+
+func listen(ctx context.Context, host string, port int) (net.Listener, error) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("http connector listen on %s: %w", addr, err)
+	}
+	return ln, nil
 }
 
 // resolveHost picks the listen host. An explicit setting wins; otherwise the
@@ -261,8 +309,8 @@ func (c *Connector) Stop(ctx context.Context) error {
 	// Whichever path runs closes c.serving, so the wait below is the same wait
 	// either way and a second Stop finds it already closed.
 	c.serveOnce.Do(func() {
-		if c.ln != nil {
-			_ = c.ln.Close()
+		for _, ln := range c.listeners() {
+			_ = ln.Close()
 		}
 		close(c.serving)
 	})
@@ -293,13 +341,40 @@ func (c *Connector) ensureServing() {
 	c.serveOnce.Do(func() { go c.serve() })
 }
 
-// serve runs the accept loop until the server is shut down, then signals Stop
-// that the listener has been released.
+// serve runs one accept loop per listener until the server is shut down, then
+// signals Stop that every listener has been released.
 func (c *Connector) serve() {
 	defer close(c.serving)
-	if err := c.server.Serve(c.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("http connector serve failed", "error", err)
+	var wg sync.WaitGroup
+	wg.Go(func() { c.serveOn(c.ln, c.lnTLS) })
+	if c.secureLn != nil {
+		wg.Go(func() { c.serveOn(c.secureLn, true) })
 	}
+	wg.Wait()
+}
+
+func (c *Connector) serveOn(ln net.Listener, secure bool) {
+	var err error
+	if secure {
+		// The certificate comes from TLSConfig.GetCertificate, so no files are named.
+		err = c.server.ServeTLS(ln, "", "")
+	} else {
+		err = c.server.Serve(ln)
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("http connector serve failed", "addr", ln.Addr().String(), "error", err)
+	}
+}
+
+// listeners returns every bound listener.
+func (c *Connector) listeners() []net.Listener {
+	var out []net.Listener
+	for _, ln := range []net.Listener{c.ln, c.secureLn} {
+		if ln != nil {
+			out = append(out, ln)
+		}
+	}
+	return out
 }
 
 // registerRoute installs handler at pattern, failing on a duplicate rather than
@@ -353,12 +428,20 @@ func (c *Connector) onFlowEvent(ev types.FlowEvent) {
 }
 
 // endpointURL builds a best-effort browsable URL for a registered route pattern,
-// using the bound listener address. It is for logging only.
+// using the bound listener addresses. It is for logging only.
 func (c *Connector) endpointURL(pattern string) string {
 	if c.ln == nil {
 		return pattern
 	}
-	return "http://" + c.ln.Addr().String() + pattern
+	scheme := "http://"
+	if c.lnTLS {
+		scheme = "https://"
+	}
+	url := scheme + c.ln.Addr().String() + pattern
+	if c.secureLn != nil {
+		url += " https://" + c.secureLn.Addr().String() + pattern
+	}
+	return url
 }
 
 // normalizeBasePath trims a trailing slash and ensures a leading slash, so it

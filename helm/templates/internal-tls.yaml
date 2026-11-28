@@ -1,0 +1,68 @@
+{{- if .Values.internalTLS.enabled }}
+{{- $tls := .Values.internalTLS }}
+{{- $issuer := include "octo.internalTLS.issuerName" . }}
+{{- $caConfigMap := include "octo.internalTLS.caConfigMap" . }}
+{{- include "octo.platformTLS.checkPorts" . }}
+{{- $labels := include "octo-common.componentLabels" (dict "root" $ "component" "internal-tls") }}
+# The root of trust for in-cluster HTTPS: a self-signed issuer mints the CA
+# certificate, and a CA issuer signs every deployment's certificate with it.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ printf "%s-selfsigned" $issuer | quote }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $issuer | quote }}
+  namespace: {{ $tls.trustNamespace | quote }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ $issuer | quote }}
+  secretName: {{ $issuer | quote }}
+  duration: {{ $tls.caDuration | quote }}
+  # Renewal keeps the key, so leaf certificates signed before a renewal still
+  # chain to the CA trust-manager publishes after it.
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never
+  issuerRef:
+    name: {{ printf "%s-selfsigned" $issuer | quote }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ $issuer | quote }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ $issuer | quote }}
+---
+# Publishes the CA certificate (never its key) as a ConfigMap in every
+# namespace, which runtime pods mount as a trust root and Gateway
+# BackendTLSPolicies reference.
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: {{ $caConfigMap | quote }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  sources:
+    - secret:
+        name: {{ $issuer | quote }}
+        key: ca.crt
+  target:
+    configMap:
+      key: ca.crt
+{{- end }}

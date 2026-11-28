@@ -44,6 +44,23 @@ export async function writeResource(name: string, content: string): Promise<void
   await writeFile(full, content, "utf8");
 }
 
+/**
+ * Create a resource that does not exist yet, refusing to overwrite: returns false when
+ * the name is already taken, including by a writer that got there between a caller's
+ * check and this call.
+ */
+export async function createResource(name: string, content: string): Promise<boolean> {
+  const full = resolveResource(name);
+  await mkdir(path.dirname(full), { recursive: true });
+  try {
+    await writeFile(full, content, { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw err;
+  }
+}
+
 /** Delete a resource file; a missing file is a no-op. */
 export async function deleteResource(name: string): Promise<void> {
   await rm(resolveResource(name), { force: true });

@@ -62,6 +62,13 @@ variable "cert_manager_version" {
   default = "v1.21.3"
 }
 
+variable "trust_manager_version" {
+  type        = string
+  description = "trust-manager chart version. Pinned for the same reason as ingress-nginx."
+  # renovate: datasource=helm depName=trust-manager registryUrl=https://charts.jetstack.io
+  default = "v0.26.0"
+}
+
 variable "ingress_nginx_extra_set" {
   type        = map(string)
   description = "Extra Helm --set values for ingress-nginx, e.g. cloud-specific Service annotations."

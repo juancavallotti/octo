@@ -193,14 +193,28 @@ func run() error {
 		// connection for as long as it likes.
 		ReadTimeout: readTimeout,
 	}
+	// HTTPS beside plain HTTP, when the installation provisions a certificate.
+	// Plain HTTP stays for runtimes that predate it.
+	httpsServer, err := httpsFromEnv(httpServer)
+	if err != nil {
+		return err
+	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		slog.Info("observability service listening", "addr", httpServer.Addr, "db", database != nil)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
+	if httpsServer != nil {
+		go func() {
+			slog.Info("observability service listening for HTTPS", "addr", httpsServer.Addr)
+			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -209,7 +223,7 @@ func run() error {
 		slog.Info("shutdown signal received, draining")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		return shutdown(shutdownCtx, httpServer, httpsServer)
 	}
 }
 

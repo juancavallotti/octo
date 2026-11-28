@@ -27,6 +27,8 @@ Without --version it deploys the integration as it stands: its newest version wh
 
 Every env var the integration declares needs a value: give it one with --env, or point it at a cluster secret with --secret. `deployments options` lists what a deploy of it needs.
 
+--internal-tls makes a networked deployment serve HTTPS inside the cluster instead of plain HTTP. It needs an installation with an internal CA and runtime 0.11.18 or newer; see Internal HTTPS in the platform's Deployments guide.
+
 ```bash
 octopaas deployments create <integration> [flags]
 ```
@@ -47,6 +49,7 @@ octopaas deployments create billing --version v1.3.0 --replicas 2 \
 | `--access` | what the deployment's own token may do besides its stores: developer, operator |  |
 | `--env` | bind a declared env var to a value, as NAME=value (repeatable) |  |
 | `--expose` | external to publish it outside the cluster |  |
+| `--internal-tls` | serve HTTPS inside the cluster instead of plain HTTP (needs an internal CA and runtime 0.11.18+) |  |
 | `--no-wait` | return once the platform accepts the change |  |
 | `--replicas` | how many replicas to run (default: the platform's) |  |
 | `--runner` | standard or agentic (default: picked from the integration) |  |

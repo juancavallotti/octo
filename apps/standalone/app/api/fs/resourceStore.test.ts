@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { listResources, readResource, writeResource } from "./resourceStore";
+import { createResource, listResources, readResource, writeResource } from "./resourceStore";
 
 // A real temp directory backs the store (OCTO_FS_DIR); each test starts clean.
 let dir: string;
@@ -36,6 +36,12 @@ describe("standalone resource store", () => {
     await writeResource(".env.dev", "A=1");
     await writeResource(".env.dev", "A=2");
     expect(await readResource(".env.dev")).toBe("A=2");
+  });
+
+  it("creates a new resource but never replaces one that exists", async () => {
+    expect(await createResource("tls/localhost.crt", "A")).toBe(true);
+    expect(await createResource("tls/localhost.crt", "B")).toBe(false);
+    expect(await readResource("tls/localhost.crt")).toBe("A");
   });
 
   it("clamps a traversal name under the root instead of escaping it", async () => {

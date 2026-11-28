@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  declareAllInProject,
   declareInProject,
+  declaredNames,
   declareResource,
   renameInProject,
   undeclareInProject,
@@ -75,6 +77,27 @@ describe("project-wide declarations", () => {
 
   it("declares nothing when some file already does", () => {
     expect(declareInProject(files, "t.tmpl", "template")).toEqual([]);
+  });
+
+  it("declares a template whose name is only declared as an env file", () => {
+    const [change] = declareAllInProject(files, [".env.staging"], "template");
+    expect(change.path).toBe("octo.yaml");
+    expect(change.resources.templates).toContainEqual({ resource: ".env.staging" });
+  });
+
+  it("skips names already declared as the same kind", () => {
+    expect(declareAllInProject(files, ["t.tmpl"], "template")).toEqual([]);
+  });
+
+  it("lists every declared name, template aliases included", () => {
+    const aliased = parseProject([
+      {
+        path: "octo.yaml",
+        content:
+          "service:\n  name: shop\nresources:\n  env: [.env.staging]\n  templates:\n    - resource: t.tmpl\n      as: tls/localhost.crt\n",
+      },
+    ]);
+    expect([...declaredNames(aliased)].sort()).toEqual([".env.staging", "t.tmpl", "tls/localhost.crt"]);
   });
 
   it("undeclares from every file that declares it", () => {

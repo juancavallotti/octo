@@ -35,6 +35,41 @@ Every networked deployment gets a **slug**, unique among the deployments of its 
 http://octo-int-{slug}.{namespace}:{port}
 ```
 
+### Internal HTTPS
+
+Check **Serve HTTPS inside the cluster** in the deploy dialog (`internalTls: true` in the API, `--internal-tls` in `octopaas deployments create`) to have a networked deployment serve HTTPS instead of plain HTTP. A deployment speaks one protocol or the other, never both. The option applies only to networked deployments: a bare workload ignores it, stores it as off, and gets no `internalUrl`. The orchestrator:
+
+- requests a certificate from the installation's internal CA for the deployment's Service names,
+- mounts it into the pods and sets `HTTPS_PORT`, which makes the [`http` connector](/reference/connectors/http#tls-settings-tls) serve HTTPS there instead of plain HTTP,
+- gives both Services a single `https` port (8443).
+
+The deployment's `internalUrl` is then the HTTPS address:
+
+```
+https://octo-int-{slug}.{namespace}:8443
+```
+
+A flow whose `http` connector listens on the injected port (`port` unset, or `${HTTP_PORT}`) needs no change. Two `tls` settings conflict with the cluster-issued certificate:
+
+- **A certificate source** (`cert`/`key`, `certFile`/`keyFile` or `certResource`/`keyResource`) wins over the cluster-issued certificate, so port 8443 serves the flow's own certificate instead. Callers that verify the `https://` address against the Service name can then fail. Leave the certificate source unset for internal HTTPS.
+- **`tls.port`** keeps plain HTTP on the main port, so the Services' `https` port would reach no HTTPS listener. The API rejects `internalTls` for a deployment whose endpoint connector sets `tls.port`, on deploy and on rollout.
+
+Without internal HTTPS, the Services speak plain HTTP to the injected port. The API therefore rejects a deployment whose connector on that port serves TLS on its main listener (its `tls` sets `enabled: true` or a certificate source, and no `tls.port`). Enable internal HTTPS, or set `tls.port` to serve the flow's own HTTPS on a second port.
+
+Every runtime pod trusts the internal CA, so a flow calls another deployment's `https://` address with no extra configuration.
+
+When the deployment is also exposed externally, the ingress re-encrypts to the pod. For an Ingress, the orchestrator picks how by the controller of the IngressClass the endpoint uses: the chart's `orchestrator.ingressClass`, or the class the cluster marks default when that is empty. Re-encryption works on:
+
+- **Traefik 3.4 or newer.** Older Traefik releases do not read the CA from the `ServersTransport` the orchestrator writes, so the re-encrypted hop fails verification.
+- **ingress-nginx.**
+- **Gateway API v1.4 or newer**, with a Gateway controller that implements `BackendTLSPolicy`. A TLS endpoint creates a v1 `BackendTLSPolicy`, which earlier Gateway API releases do not serve. Endpoints without internal HTTPS keep working on Gateway API v1.0 and newer.
+
+Other ingress controllers cannot reach a deployment serving internal HTTPS through an external endpoint.
+
+Internal HTTPS needs runtime **0.11.18** or newer. A deployment pinned to an older runtime ignores `HTTPS_PORT`, so the API refuses `internalTls` for it, on deploy and on rollout. A deployment that pins no runtime is checked against the installation's runtime release; when that release cannot be determined, the API refuses `internalTls`.
+
+The option is available when the chart's `internalTLS.enabled` gives the orchestrator an internal CA issuer. Without one, the option is disabled in the deploy dialog, and the API rejects it on deploy and on rollout. The chart needs cert-manager and trust-manager in the cluster: cert-manager issues the certificates, and trust-manager publishes the CA that other pods trust. Every integration pod mounts that CA bundle, so a pod stays pending until trust-manager has published it in the pod's namespace. See [Deploying with Helm](/deploy/helm).
+
 ### External exposure
 
 Toggling external exposure additionally creates an Ingress at `https://{subdomain}.{baseDomain}`; the subdomain defaults to the slug and must be unique across integrations. Which controller serves it is the chart's `orchestrator.ingressClass`; empty (the default) leaves it to whichever IngressClass the cluster marks default. TLS is whatever that domain is set up for: a per-host certificate issued by the configured ClusterIssuer over HTTP-01, a shared pre-issued wildcard when the chart's `wildcardTLS` is enabled, or none of the chart's doing when something upstream terminates. The public address is reported as `externalUrl`.

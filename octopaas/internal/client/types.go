@@ -87,6 +87,9 @@ type DeploymentSettings struct {
 	// RuntimeVersion pins the deployment to a runtime release; "latest" or empty
 	// follows the install.
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
+	// InternalTLS serves a networked deployment's HTTPS inside the cluster
+	// instead of plain HTTP.
+	InternalTLS bool `json:"internalTls,omitempty"`
 }
 
 // Rollout is what a rolling update changes. A nil field keeps what the

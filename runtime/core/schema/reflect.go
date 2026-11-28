@@ -77,7 +77,7 @@ func fieldOf(sf reflect.StructField) (Field, bool, error) {
 		}
 		field.Default = def
 	}
-	if ftype == TypeObject {
+	if ftype.nests() {
 		nested, nerr := fieldsOf(sf.Type)
 		if nerr != nil {
 			return Field{}, false, fmt.Errorf("field %s: %w", sf.Name, nerr)

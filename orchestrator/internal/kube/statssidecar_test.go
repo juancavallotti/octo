@@ -267,6 +267,24 @@ func TestStatsSidecarPort(t *testing.T) {
 	})
 }
 
+// TestStatsSidecarPortAgainstTLS pins that the port compared is the one the
+// runtime holds: a deployment serving internal TLS opens HTTPS_PORT and not its
+// plain HTTP port.
+func TestStatsSidecarPortAgainstTLS(t *testing.T) {
+	cfg := statsConfig()
+	cfg.InternalTLSIssuer = "octo-internal-ca"
+	spec := Spec{ID: "1", Port: 9100, InternalTLS: true}
+
+	cfg.StatsSidecar.Port = 9100
+	statsContainer(t, testClientFor(cfg), spec)
+
+	cfg.StatsSidecar.Port = httpsPort
+	pod := testClientFor(cfg).deployment("octo-dep-1", nil, spec).Spec.Template.Spec
+	if len(pod.InitContainers) != 0 {
+		t.Error("stats sidecar injected onto the runtime's HTTPS port")
+	}
+}
+
 // The sidecar carries no credential and the pod gains no cluster access, which
 // is the same invariant a dev run keeps.
 func TestStatsSidecarCarriesNoCredential(t *testing.T) {

@@ -1,4 +1,5 @@
 import { newConnector } from "../model/connectors";
+import type { ConnectorInstance } from "../model/document";
 import type { EditorState } from "./reducer";
 import type {
   AddConnectionPayload,
@@ -56,16 +57,33 @@ export function renameConnection(
   return { ...state, document: { ...state.document, connectors } };
 }
 
+/**
+ * Set one setting of the connection with id `p.id`, in whichever file holds it. A
+ * connection outside the open file is changed in that file's entry, which is its
+ * present (only the open file's entry is stale).
+ */
 export function updateConnectionSetting(
   state: EditorState,
   p: UpdateConnectionSettingPayload,
 ): EditorState {
-  const connectors = state.document.connectors.map((c) =>
-    c.id === p.id
-      ? { ...c, settings: { ...c.settings, [p.field]: p.value } }
-      : c,
-  );
-  return { ...state, document: { ...state.document, connectors } };
+  const set = (connectors: ConnectorInstance[]) =>
+    connectors.map((c) =>
+      c.id === p.id
+        ? { ...c, settings: { ...c.settings, [p.field]: p.value } }
+        : c,
+    );
+  const holds = (connectors: ConnectorInstance[]) => connectors.some((c) => c.id === p.id);
+  if (holds(state.document.connectors)) {
+    return { ...state, document: { ...state.document, connectors: set(state.document.connectors) } };
+  }
+  return {
+    ...state,
+    files: state.files.map((f) =>
+      f.path !== state.activePath && holds(f.document.connectors)
+        ? { ...f, document: { ...f.document, connectors: set(f.document.connectors) } }
+        : f,
+    ),
+  };
 }
 
 export function removeConnection(

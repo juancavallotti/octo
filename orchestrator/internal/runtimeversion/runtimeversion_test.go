@@ -123,3 +123,19 @@ func TestPinnable(t *testing.T) {
 		t.Error("0.11.12 predates the supported releases and must not be pinnable")
 	}
 }
+
+func TestSupportsInternalTLS(t *testing.T) {
+	cases := map[string]bool{
+		"":        false,
+		"dev":     true,
+		"0.11.18": true,
+		"0.12.0":  true,
+		"0.11.17": false,
+		"0.11.13": false,
+	}
+	for version, want := range cases {
+		if got := SupportsInternalTLS(version); got != want {
+			t.Errorf("SupportsInternalTLS(%q) = %v, want %v", version, got, want)
+		}
+	}
+}

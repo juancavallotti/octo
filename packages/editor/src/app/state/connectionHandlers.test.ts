@@ -51,6 +51,23 @@ describe("connectionHandlers", () => {
     expect(state.document.connectors[0].settings.dsn).toBe("x");
   });
 
+  it("updates a connection that lives in a file other than the open one", () => {
+    const other = addConnection(baseState(), { type: "http" }).document;
+    const id = other.connectors[0].id;
+    let state: EditorState = {
+      ...baseState(),
+      files: [
+        { path: "octo.yaml", document: blankDocument(), declaresService: true },
+        { path: "http.yaml", document: other, declaresService: false },
+      ],
+    };
+
+    state = updateConnectionSetting(state, { id, field: "port", value: 8080 });
+    const file = state.files.find((f) => f.path === "http.yaml");
+    expect(file?.document.connectors[0].settings.port).toBe(8080);
+    expect(state.document.connectors).toHaveLength(0);
+  });
+
   it("clears selection when the selected connection is removed", () => {
     let state = addConnection(baseState(), { type: "database" });
     const id = state.document.connectors[0].id;

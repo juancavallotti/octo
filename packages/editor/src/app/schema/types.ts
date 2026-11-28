@@ -44,6 +44,9 @@ export type FieldType =
   // the http-client connector's `auth`. Its sub-fields are declared in `fields`,
   // and each may use `showIf` to appear only for a given sibling value.
   | "object"
+  // A connector's server-TLS settings — the http connector's `tls`. Serialized and
+  // nested exactly like "object"; the editor adds certificate minting to it.
+  | "tls-server"
   // An ordered list of additive edits — multi-transform's `transforms`. Each entry
   // serializes as {setBody} or {setVar, value}; order is the apply order.
   | "transform-list"

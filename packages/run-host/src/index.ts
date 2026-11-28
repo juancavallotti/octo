@@ -29,6 +29,12 @@ export {
 } from "./staging";
 export { octoBin, terminate } from "./child";
 export {
+  mintSelfSigned,
+  opensslAvailable,
+  type SelfSignedPair,
+  type SelfSignedRequest,
+} from "./certs";
+export {
   DEV_ENV_RESOURCE,
   effectiveResourceNames,
   injectDevEnvResource,

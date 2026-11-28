@@ -201,6 +201,7 @@ func (a *App) deploymentsCreateCommand() *cobra.Command {
 	var replicaCount int
 	var slug, expose, subdomain, runner string
 	var access []string
+	var internalTLS bool
 	cmd := &cobra.Command{
 		Use:   "create <integration>",
 		Short: "Deploy a version of an integration",
@@ -213,7 +214,11 @@ versions starts at v0.1.0).
 
 Every env var the integration declares needs a value: give it one with --env,
 or point it at a cluster secret with --secret. ` + "`deployments options`" + ` lists
-what a deploy of it needs.`,
+what a deploy of it needs.
+
+--internal-tls makes a networked deployment serve HTTPS inside the cluster
+instead of plain HTTP. It needs an installation with an internal CA and runtime
+0.11.18 or newer; see Internal HTTPS in the platform's Deployments guide.`,
 		Example: `  octopaas deployments create billing
   octopaas deployments create billing --version v1.3.0
   octopaas deployments create billing --version v1.3.0 --replicas 2 \
@@ -265,6 +270,7 @@ what a deploy of it needs.`,
 				settings := client.DeploymentSettings{
 					SnapshotID: versionID, Replicas: replicaCount, Slug: slug, Expose: expose,
 					Subdomain: subdomain, Env: env, Access: access, Runner: runner, RuntimeVersion: f.runtime,
+					InternalTLS: internalTLS,
 				}
 				if cmd.Flags().Changed("tracing") {
 					settings.Tracing = &f.tracing
@@ -286,6 +292,7 @@ what a deploy of it needs.`,
 	cmd.Flags().StringVar(&slug, "slug", "", "its internal address label (default: a free one)")
 	cmd.Flags().StringVar(&expose, "expose", "", "external to publish it outside the cluster")
 	cmd.Flags().StringVar(&subdomain, "subdomain", "", "the subdomain to publish it on, with --expose external")
+	cmd.Flags().BoolVar(&internalTLS, "internal-tls", false, "serve HTTPS inside the cluster instead of plain HTTP (needs an internal CA and runtime 0.11.18+)")
 	cmd.Flags().StringSliceVar(&access, "access", nil, "what the deployment's own token may do besides its stores: developer, operator")
 	cmd.Flags().StringVar(&runner, "runner", "", "standard or agentic (default: picked from the integration)")
 	return cmd

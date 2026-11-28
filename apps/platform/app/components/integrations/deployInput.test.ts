@@ -8,6 +8,7 @@ describe("toDeploymentInput", () => {
         {
           replicas: 2,
           tracing: true,
+          internalTls: true,
           runner: "agentic",
           runtimeVersion: "0.11.13",
         },
@@ -17,6 +18,7 @@ describe("toDeploymentInput", () => {
       snapshotId: "snap-1",
       replicas: 2,
       tracing: true,
+      internalTls: true,
       runner: "agentic",
       runtimeVersion: "0.11.13",
     });

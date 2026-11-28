@@ -3,4 +3,5 @@
       "root" $
       "component" "observability"
       "type" "ClusterIP"
-      "ports" (list (dict "name" "http" "port" .Values.observability.service.port "targetPort" .Values.observability.service.port))) }}
+      "ports" (concat (list (dict "name" "http" "port" .Values.observability.service.port "targetPort" .Values.observability.service.port))
+                 (include "octo.platformTLS.servicePorts" . | fromYamlArray))) }}

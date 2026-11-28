@@ -66,10 +66,38 @@ export interface ResourcesChange {
 }
 
 function declares(resources: Resources | undefined, name: string): boolean {
-  return (
-    !!resources &&
-    (resources.env.includes(name) || resources.templates.some((t) => t.resource === name))
-  );
+  return declaresAs(resources, name, "env") || declaresAs(resources, name, "template");
+}
+
+/** Whether `resources` declares `name` as a resource of `kind`. */
+function declaresAs(
+  resources: Resources | undefined,
+  name: string,
+  kind: "env" | "template",
+): boolean {
+  if (!resources) return false;
+  return kind === "env"
+    ? resources.env.includes(name)
+    : resources.templates.some((t) => t.resource === name);
+}
+
+/**
+ * Every name the project's declarations already use: env files, template resources
+ * and template aliases. A new resource named after one of them would be shadowed by
+ * the earlier declaration, which the runtime keeps first-wins.
+ */
+export function declaredNames(files: readonly ProjectFile[]): Set<string> {
+  const ret = new Set<string>();
+  for (const f of files) {
+    const r = f.document.resources;
+    if (!r) continue;
+    r.env.forEach((e) => ret.add(e));
+    for (const t of r.templates) {
+      ret.add(t.resource);
+      if (t.as) ret.add(t.as);
+    }
+  }
+  return ret;
 }
 
 /**
@@ -81,16 +109,35 @@ export function declaringHome(files: readonly ProjectFile[]): string | undefined
   return serviceFile(files);
 }
 
-/** Declare `name` in the project's home file, unless some file already does. */
+/** Declare `name` in the project's home file, unless some file already declares it as `kind`. */
 export function declareInProject(
   files: readonly ProjectFile[],
   name: string,
   kind: "env" | "template",
 ): ResourcesChange[] {
-  if (files.some((f) => declares(f.document.resources, name))) return [];
+  if (files.some((f) => declaresAs(f.document.resources, name, kind))) return [];
   const home = files.find((f) => f.path === declaringHome(files));
   if (!home) return [];
   return [{ path: home.path, resources: declareResource(home.document.resources, name, kind) }];
+}
+
+/** Declare each of `names` in the project's home file, skipping any already declared as `kind`. */
+export function declareAllInProject(
+  files: readonly ProjectFile[],
+  names: readonly string[],
+  kind: "env" | "template",
+): ResourcesChange[] {
+  const home = files.find((f) => f.path === declaringHome(files));
+  if (!home) return [];
+  const pending = names.filter(
+    (n) => !files.some((f) => declaresAs(f.document.resources, n, kind)),
+  );
+  if (pending.length === 0) return [];
+  const resources = pending.reduce(
+    (r, name) => declareResource(r, name, kind),
+    home.document.resources,
+  );
+  return [{ path: home.path, resources: resources ?? EMPTY }];
 }
 
 /**

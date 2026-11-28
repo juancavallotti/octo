@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import { ReducerAction, bootstrapProvider } from "@eetr/react-reducer-utils";
 import { EditorActionType } from "./actions";
 import { EditorState, initialState, reducer } from "./reducer";
@@ -38,6 +39,37 @@ function useEditorState(): {
   };
 }
 
-export { Provider as EditorStateProvider, useEditorState };
+/**
+ * The present state as of the last commit, held in a ref so that work which outlives
+ * the component that started it (a request still in flight when its form unmounts)
+ * can read the project as it is when the work finishes rather than as it was.
+ */
+const LatestStateContext = createContext<{ current: EditorState } | null>(null);
+
+function LatestState({ children }: { children: ReactNode }) {
+  const { state } = useContextAccessors();
+  const ref = useRef(state.present);
+  useEffect(() => {
+    ref.current = state.present;
+  });
+  return <LatestStateContext.Provider value={ref}>{children}</LatestStateContext.Provider>;
+}
+
+function EditorStateProvider({ children }: { children: ReactNode }) {
+  return (
+    <Provider>
+      <LatestState>{children}</LatestState>
+    </Provider>
+  );
+}
+
+/** Reads the present state when called, not when the calling component rendered. */
+function useLatestEditorState(): () => EditorState {
+  const ref = useContext(LatestStateContext);
+  if (!ref) throw new Error("useLatestEditorState must be used inside EditorStateProvider");
+  return () => ref.current;
+}
+
+export { EditorStateProvider, useEditorState, useLatestEditorState };
 export { EditorActionType } from "./actions";
 export type { EditorState } from "./reducer";

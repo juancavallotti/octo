@@ -15,6 +15,7 @@ import { CAPABILITY_REASONS } from "@/app/auth/capabilities";
 import { orchestratorFileSystem } from "@/app/providers/orchestratorFileSystem";
 import { bffRunTransport } from "@/app/run/transport";
 import { bffDevEnvStore } from "@/app/run/devEnvStore";
+import { bffCertificateMinter } from "@/app/run/certificates";
 import { bffEditorMetaStore } from "@/app/run/editorMetaStore";
 import { bffTestSuiteStore } from "@/app/run/testSuiteStore";
 import { makeResourceStore } from "@/app/run/resourceStore";
@@ -109,6 +110,7 @@ export default function PlatformEditor({
       run={bffRunTransport}
       devEnv={available ? bffDevEnvStore : null}
       resources={available ? resourceStore : null}
+      certificates={available ? bffCertificateMinter : null}
       meta={available ? bffEditorMetaStore : null}
       metaToken={metaToken}
       tests={available ? bffTestSuiteStore : null}

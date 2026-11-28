@@ -2,6 +2,7 @@
       "root" $
       "component" "observability"
       "replicas" .Values.observability.replicas
+      "volumes" (include "octo.platformTLS.volumes" (dict "root" $ "component" "observability") | fromYamlArray)
       "serviceAccountName" (include "octo-common.serviceAccountName" (dict "root" $ "component" "observability"))
       "containers" (include "octo-common.container" (dict
         "root" $
@@ -9,8 +10,10 @@
         "name" "observability"
         "image" (include "octo-common.image" (dict "root" $ "component" "observability"))
         "pullPolicy" (include "octo-common.imagePullPolicy" (dict "root" $ "component" "observability"))
-        "ports" (list (dict "containerPort" .Values.observability.service.port))
-        "env" (include "octo.observability.env" .)
+        "ports" (concat (list (dict "containerPort" .Values.observability.service.port))
+                   (include "octo.platformTLS.containerPorts" . | fromYamlArray))
+        "env" (print (include "octo.observability.env" .) (include "octo.platformTLS.env" .))
+        "volumeMounts" (include "octo.platformTLS.volumeMounts" . | fromYamlArray)
         "readinessProbe" (dict
           "httpGet" (dict "path" "/healthz" "port" .Values.observability.service.port)
           "initialDelaySeconds" 3

@@ -127,6 +127,13 @@ resource "helm_release" "cert_manager" {
     value = "true"
   }
 
+  # A Certificate's Secret is owned by the Certificate, so deleting the
+  # Certificate (or anything that owns it) deletes the private key too.
+  set {
+    name  = "enableCertificateOwnerRef"
+    value = "true"
+  }
+
   # GKE Autopilot denies writes to kube-system, where cert-manager takes its
   # leader-election Lease by default — the controller then crash-loops with a bare
   # "forbidden" that points nowhere near the actual cause. Harmless on Standard,
@@ -155,6 +162,36 @@ resource "helm_release" "cert_manager" {
     helm_release.ingress_nginx,
     google_service_account_iam_member.cert_manager_wi,
   ]
+}
+
+# --- trust-manager ---
+#
+# Publishes the octo chart's internal CA to every namespace, so deployments that
+# serve in-cluster HTTPS are trusted by the pods calling them. Its trust namespace
+# defaults to cert-manager's, which is where the chart puts the CA Secret.
+resource "helm_release" "trust_manager" {
+  name       = "trust-manager"
+  repository = "https://charts.jetstack.io"
+  chart      = "trust-manager"
+  version    = var.trust_manager_version
+  namespace  = local.cert_manager_namespace
+
+  wait    = true
+  timeout = var.timeout
+
+  set {
+    name  = "crds.enabled"
+    value = "true"
+  }
+
+  # A private cluster's control plane reaches nodes on 443 and 10250 only, and
+  # the webhook's default (6443) would leave every Bundle admission timing out.
+  set {
+    name  = "app.webhook.port"
+    value = "10250"
+  }
+
+  depends_on = [helm_release.cert_manager]
 }
 
 # --- ClusterIssuers ---

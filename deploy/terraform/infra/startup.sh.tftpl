@@ -116,13 +116,25 @@ fi
 # --- cert-manager (CRDs + controllers) ---
 # --cluster-issuer-ambient-credentials lets the DNS-01 ClusterIssuer below solve
 # Cloud DNS challenges with the VM's service account (via the metadata server)
-# instead of a mounted key Secret.
+# instead of a mounted key Secret. enableCertificateOwnerRef makes each
+# certificate's Secret owned by its Certificate, so the key goes with it. Chart
+# versions match modules/cluster-addons, the tested pair.
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager --create-namespace \
+  --version v1.21.3 \
   --set crds.enabled=true \
+  --set enableCertificateOwnerRef=true \
   --set "extraArgs={--cluster-issuer-ambient-credentials=true}" \
+  --wait --timeout 5m
+
+# --- trust-manager: publishes the chart's internal CA to every namespace, so
+# deployments serving in-cluster HTTPS are trusted by the pods calling them. ---
+helm upgrade --install trust-manager jetstack/trust-manager \
+  --namespace cert-manager \
+  --version v0.26.0 \
+  --set crds.enabled=true \
   --wait --timeout 5m
 
 # --- Let's Encrypt ClusterIssuers ---

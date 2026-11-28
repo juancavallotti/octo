@@ -18,6 +18,9 @@ const (
 	TypeBoolean FieldType = "boolean"
 	TypeFlow    FieldType = "flow"
 	TypeObject  FieldType = "object"
+	// TypeTLSServer is an object of server-TLS settings. It nests fields like
+	// TypeObject, under a kind of its own that marks them as server TLS.
+	TypeTLSServer FieldType = "tls-server"
 )
 
 // validFieldTypes is the closed set of FieldType values an octo `type=` clause
@@ -29,7 +32,12 @@ var validFieldTypes = map[FieldType]bool{
 	"case-list": true, "route-list": true, "tool-list": true, "skill-list": true,
 	"mcp-resource-list": true, "mcp-prompt-list": true, "block-list": true,
 	TypeObject: true, "transform-list": true, "rule-list": true, "provider-tool-list": true,
+	TypeTLSServer: true,
 }
+
+// nests reports whether a field of this type carries its struct's fields as
+// nested Fields.
+func (t FieldType) nests() bool { return t == TypeObject || t == TypeTLSServer }
 
 // Reference mirrors types.ts ReferenceSpec: a field that points at another named
 // entity (a connector by type or category, a flow, or a template resource).
