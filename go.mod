@@ -6,16 +6,16 @@ toolchain go1.27.4
 
 require (
 	cloud.google.com/go/compute/metadata v0.10.0
-	github.com/anthropics/anthropic-sdk-go v1.66.0
-	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.9
 	github.com/emersion/go-message v0.18.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/cel-go v0.31.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/jackc/pgx/v5 v5.10.0
-	github.com/nats-io/nats-server/v2 v2.14.2
-	github.com/nats-io/nats.go v1.53.1
+	github.com/jackc/pgx/v5 v5.13.0
+	github.com/nats-io/nats-server/v2 v2.14.3
+	github.com/nats-io/nats.go v1.56.0
 	github.com/openai/openai-go/v2 v2.7.1
 	github.com/pinecone-io/go-pinecone/v5 v5.4.1
 	github.com/prometheus/client_golang v1.24.1
@@ -77,7 +77,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
