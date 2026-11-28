@@ -5,13 +5,13 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
+	cel.dev/cel-go v0.32.0
 	cloud.google.com/go/compute/metadata v0.10.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.9
 	github.com/emersion/go-message v0.18.2
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/google/cel-go v0.31.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/nats-io/nats-server/v2 v2.14.3

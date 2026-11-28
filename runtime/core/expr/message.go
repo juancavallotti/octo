@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/cel-go/cel"
+	"cel.dev/cel-go/cel"
 
 	"github.com/juancavallotti/octo/runtime/core"
 )

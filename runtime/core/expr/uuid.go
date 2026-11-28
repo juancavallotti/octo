@@ -3,9 +3,9 @@ package expr
 import (
 	"uuid"
 
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
 )
 
 // A random identifier, for the places a message needs one and nothing upstream
