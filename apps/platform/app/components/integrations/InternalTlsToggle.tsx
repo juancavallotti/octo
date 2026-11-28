@@ -3,8 +3,8 @@
 import { Lock } from "lucide-react";
 
 /**
- * The deploy dialog's switch for serving HTTPS inside the cluster beside plain
- * HTTP. Disabled, and said so, when the installation has no internal certificate
+ * The deploy dialog's switch for serving HTTPS inside the cluster instead of
+ * plain HTTP. Disabled, and said so, when the installation has no internal certificate
  * authority to issue the certificate from.
  */
 export default function InternalTlsToggle({

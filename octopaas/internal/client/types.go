@@ -87,7 +87,8 @@ type DeploymentSettings struct {
 	// RuntimeVersion pins the deployment to a runtime release; "latest" or empty
 	// follows the install.
 	RuntimeVersion string `json:"runtimeVersion,omitempty"`
-	// InternalTLS serves HTTPS inside the cluster beside plain HTTP.
+	// InternalTLS serves a networked deployment's HTTPS inside the cluster
+	// instead of plain HTTP.
 	InternalTLS bool `json:"internalTls,omitempty"`
 }
 

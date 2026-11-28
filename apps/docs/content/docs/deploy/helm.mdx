@@ -305,12 +305,28 @@ ConfigMap as a trust root.
 internalTLS:
   enabled: true
   trustNamespace: cert-manager   # cert-manager's cluster resource namespace
-  issuerName: octo-internal-ca
-  caConfigMap: octo-internal-ca
+  issuerName: ""                 # empty: {fullname}-{namespace}-internal-ca
+  caConfigMap: ""                # empty: {fullname}-{namespace}-internal-ca
 ```
+
+The ClusterIssuer and the Bundle are cluster-scoped. Leave `issuerName` and
+`caConfigMap` empty to derive both from the release and its namespace
+(`octo-octo-internal-ca` for release `octo` in namespace `octo`), so two releases
+in different namespaces do not claim the same objects. Set them only to use names
+of your own.
 
 Both cert-manager and trust-manager must be installed first. Locally,
 `task cluster:addons` installs them, and `task cluster:deploy` runs it for you.
+When you install them yourself:
+
+- **Set trust-manager's `app.trust.namespace` to `internalTLS.trustNamespace`.**
+  The chart writes the CA Secret to `internalTLS.trustNamespace`, and
+  trust-manager reads Secret sources only from its own trust namespace. Both
+  default to `cert-manager`. If they differ, trust-manager does not publish the
+  CA ConfigMap.
+- **Install cert-manager with `enableCertificateOwnerRef=true`.** cert-manager then
+  makes each certificate's Secret owned by its Certificate, so removing a
+  deployment also removes its private key. Without it, the Secret stays behind.
 
 The same setting puts the platform APIs — the orchestrator, iam and the
 observability service — on HTTPS beside plain HTTP. Each gets a certificate from
