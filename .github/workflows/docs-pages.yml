@@ -39,11 +39,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Separate jobs so deploy-pages finds exactly one artifact: in the uploading job
+  # it can look before the upload is listed, and re-running that job uploads a
+  # second one with the same name.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,5 +61,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/docs/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
