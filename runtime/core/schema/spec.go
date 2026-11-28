@@ -19,7 +19,7 @@ const (
 	TypeFlow    FieldType = "flow"
 	TypeObject  FieldType = "object"
 	// TypeTLSServer is an object of server-TLS settings. It nests fields like
-	// TypeObject; the distinct name lets the editor offer certificate tooling.
+	// TypeObject, under a kind of its own that marks them as server TLS.
 	TypeTLSServer FieldType = "tls-server"
 )
 

@@ -103,7 +103,8 @@ type connectorSettings struct {
 	// Cross-origin resource sharing. Inert unless allowedOrigins is set.
 	CORS corsSettings `json:"cors" octo:"label=CORS,type=object"`
 	// HTTPS. Inert unless enabled, a port or certificate source is set, or
-	// $HTTPS_PORT is set and a certificate is found.
+	// $HTTPS_PORT is set, a certificate is found and the connector is on the
+	// injected port (port unset or equal to $HTTP_PORT).
 	TLS tlsSettings `json:"tls" octo:"label=TLS,type=tls-server"`
 }
 
@@ -180,7 +181,7 @@ func (c *Connector) Start(ctx context.Context, config types.ConnectorConfig) err
 		c.reqTimeout = defaultRequestTimeout
 	}
 	c.cors = newCORSConfig(set.CORS)
-	plan, err := resolveTLS(ctx, set.TLS)
+	plan, err := resolveTLS(ctx, set.TLS, onInjectedPort(set.Port))
 	if err != nil {
 		return fmt.Errorf("http connector: %w", err)
 	}

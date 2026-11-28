@@ -55,6 +55,28 @@ func TestFromFilesKeepsLastGoodPairOnBrokenRotation(t *testing.T) {
 	if got := leaf(t, f); !bytes.Equal(got, first) {
 		t.Fatal("a broken rotation replaced the serving pair")
 	}
+
+	writePair(t, certFile, keyFile, "fixed.test", time.Now())
+	*clock = clock.Add(reloadCheckInterval)
+	if got := leaf(t, f); bytes.Equal(got, first) {
+		t.Fatal("did not recover once the rotation completed")
+	}
+}
+
+// TestFromFilesPicksUpRotationWithUnchangedModTimes covers a sync that replaces
+// the pair but preserves both files' modification times.
+func TestFromFilesPicksUpRotationWithUnchangedModTimes(t *testing.T) {
+	certFile, keyFile := pairPaths(t)
+	mod := time.Now().Add(-time.Hour)
+	writePair(t, certFile, keyFile, "old.test", mod)
+	f, clock := fileSource(t, certFile, keyFile)
+	first := leaf(t, f)
+
+	writePair(t, certFile, keyFile, "new.test", mod)
+	*clock = clock.Add(reloadCheckInterval)
+	if got := leaf(t, f); bytes.Equal(got, first) {
+		t.Fatal("did not reload a rotated pair whose modification times were preserved")
+	}
 }
 
 func TestFromEnv(t *testing.T) {

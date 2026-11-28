@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	// envHTTPSPort is the unprefixed env var naming the HTTPS port. When it is set
-	// and a certificate is found, the connector serves HTTPS on it instead of plain
-	// HTTP on its port, even without a tls block.
+	// envHTTPSPort is the unprefixed env var naming the HTTPS port. When it is set,
+	// a certificate is found and the connector listens on the injected port (its
+	// port unset, or equal to $HTTP_PORT), the connector serves HTTPS on it instead
+	// of plain HTTP on that port, even without a tls block.
 	envHTTPSPort = "HTTPS_PORT"
 
 	tlsVersion12 = "1.2"
@@ -54,7 +55,8 @@ type tlsPlan struct {
 	// port is the second, HTTPS-only port; nil means the main port speaks TLS.
 	port *int
 	// mainPort, from $HTTPS_PORT, moves the main listener there: the connector then
-	// serves HTTPS on it and opens no plain HTTP port at all.
+	// serves HTTPS on it and opens no plain HTTP port at all. It is only set for a
+	// connector on the injected port.
 	mainPort *int
 }
 
@@ -62,10 +64,13 @@ type tlsPlan struct {
 // plain HTTP only. A tls block that asks for TLS (enabled, a port, or a source) and
 // cannot find a certificate is an error; $HTTPS_PORT without a provisioned
 // certificate is not, since the variable alone says nothing about the flow's intent.
-func resolveTLS(ctx context.Context, set tlsSettings) (*tlsPlan, error) {
+// injected reports whether the connector's main port is the injected one: only
+// such a connector is moved by $HTTPS_PORT, so a connector bound to a port of its
+// own keeps it.
+func resolveTLS(ctx context.Context, set tlsSettings, injected bool) (*tlsPlan, error) {
 	explicit := set.Enabled || set.Port != nil || set.hasSource()
 	var mainPort *int
-	if set.Port == nil {
+	if set.Port == nil && injected {
 		mainPort = envHTTPSPortValue()
 	}
 	if !explicit && mainPort == nil {
@@ -87,7 +92,15 @@ func resolveTLS(ctx context.Context, set tlsSettings) (*tlsPlan, error) {
 		return nil, err
 	}
 	return &tlsPlan{
-		config:   &tls.Config{MinVersion: minVersion, GetCertificate: src.GetCertificate},
+		// Naming h2 up front makes net/http set HTTP/2 up whichever accept loop
+		// starts first: a plain Serve that runs before ServeTLS only configures it
+		// when the TLS config already lists h2, and otherwise leaves ServeTLS
+		// advertising a protocol it has no handler for.
+		config: &tls.Config{
+			MinVersion:     minVersion,
+			GetCertificate: src.GetCertificate,
+			NextProtos:     []string{"h2", "http/1.1"},
+		},
 		port:     set.Port,
 		mainPort: mainPort,
 	}, nil
@@ -162,6 +175,21 @@ func tlsMinVersion(v string) (uint16, error) {
 		return tls.VersionTLS13, nil
 	}
 	return 0, fmt.Errorf("tls minVersion %q is not one of %s or %s", v, tlsVersion12, tlsVersion13)
+}
+
+// onInjectedPort reports whether a connector with this port setting listens on the
+// port the runtime injects: the setting is unset, or names the same port as
+// $HTTP_PORT (as `port: ${HTTP_PORT}` does once substituted).
+func onInjectedPort(setPort *int) bool {
+	if setPort == nil {
+		return true
+	}
+	env, ok := os.LookupEnv(envHTTPPort)
+	if !ok || env == "" {
+		return false
+	}
+	p, err := strconv.Atoi(env)
+	return err == nil && p == *setPort
 }
 
 // envHTTPSPortValue reads $HTTPS_PORT, or nil when it is unset. An unparseable

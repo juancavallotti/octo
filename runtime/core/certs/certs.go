@@ -4,6 +4,7 @@
 package certs
 
 import (
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -13,9 +14,9 @@ import (
 )
 
 const (
-	// reloadCheckInterval bounds how often a file source stats its files.
+	// reloadCheckInterval bounds how often a file source rereads its files.
 	// Handshakes inside the interval reuse the loaded pair, so a busy listener
-	// does not stat on every connection.
+	// does not read the disk on every connection.
 	reloadCheckInterval = 10 * time.Second
 
 	// EnvCertFile names the certificate file a runtime serves TLS with, as read
@@ -59,15 +60,17 @@ func FromEnv() (*Source, error) {
 }
 
 // files holds a certificate and key loaded from disk. It loads the pair up front
-// and reloads it when either file's modification time changes.
+// and, at each check, rereads both files and adopts them when their bytes differ
+// from the pair in service. Comparing contents rather than modification times
+// catches a renewal written by a sync that preserves timestamps.
 type files struct {
 	certFile, keyFile string
 	now               func() time.Time
 
 	mu        sync.Mutex
 	cert      *tls.Certificate
-	certMod   time.Time
-	keyMod    time.Time
+	certPEM   []byte
+	keyPEM    []byte
 	checkedAt time.Time
 }
 
@@ -95,11 +98,9 @@ func (f *files) current() *tls.Certificate {
 	defer f.mu.Unlock()
 	if f.now().Sub(f.checkedAt) >= reloadCheckInterval {
 		f.checkedAt = f.now()
-		if f.changed() {
-			// A pair caught mid-rotation (new cert, old key) fails to parse; the
-			// previous pair stays in service and the next check tries again.
-			_ = f.loadLocked()
-		}
+		// A pair caught mid-rotation (new cert, old key) fails to parse; the
+		// previous pair stays in service and the next check tries again.
+		_ = f.loadLocked()
 	}
 	return f.cert
 }
@@ -111,32 +112,23 @@ func (f *files) load() error {
 	return f.loadLocked()
 }
 
+// loadLocked reads both files and, when either differs from the pair in service,
+// parses exactly the bytes it read and swaps them in. Parsing the bytes already
+// in hand, rather than reopening the files, means the pair adopted is the pair
+// that was validated.
 func (f *files) loadLocked() error {
-	certMod, keyMod, err := f.modTimes()
-	if err != nil {
-		return err
+	certPEM, certErr := os.ReadFile(f.certFile)
+	keyPEM, keyErr := os.ReadFile(f.keyFile)
+	if err := errors.Join(certErr, keyErr); err != nil {
+		return fmt.Errorf("read certificate files: %w", err)
 	}
-	pair, err := tls.LoadX509KeyPair(f.certFile, f.keyFile)
+	if f.cert != nil && bytes.Equal(certPEM, f.certPEM) && bytes.Equal(keyPEM, f.keyPEM) {
+		return nil
+	}
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		return fmt.Errorf("load certificate %s and key %s: %w", f.certFile, f.keyFile, err)
 	}
-	f.cert, f.certMod, f.keyMod = &pair, certMod, keyMod
+	f.cert, f.certPEM, f.keyPEM = &pair, certPEM, keyPEM
 	return nil
-}
-
-func (f *files) changed() bool {
-	certMod, keyMod, err := f.modTimes()
-	if err != nil {
-		return false
-	}
-	return !certMod.Equal(f.certMod) || !keyMod.Equal(f.keyMod)
-}
-
-func (f *files) modTimes() (time.Time, time.Time, error) {
-	certInfo, certErr := os.Stat(f.certFile)
-	keyInfo, keyErr := os.Stat(f.keyFile)
-	if err := errors.Join(certErr, keyErr); err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("stat certificate files: %w", err)
-	}
-	return certInfo.ModTime(), keyInfo.ModTime(), nil
 }
