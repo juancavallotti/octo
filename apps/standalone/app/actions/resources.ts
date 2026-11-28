@@ -9,6 +9,7 @@
 
 import type { ActionResult } from "@octo/http";
 import {
+  createResource,
   deleteResource,
   listResources,
   readResource,
@@ -51,10 +52,9 @@ export async function createResourceAction(
 ): Promise<ActionResult<DiskResource>> {
   try {
     if (!name.trim()) return { ok: false, error: "name is required" };
-    if ((await readResource(name)) !== null) {
+    if (!(await createResource(name, content))) {
       return { ok: false, error: "a resource with that name already exists" };
     }
-    await writeResource(name, content);
     return { ok: true, data: toDisk(name, content) };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

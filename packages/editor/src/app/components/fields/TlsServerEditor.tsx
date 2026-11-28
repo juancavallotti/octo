@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { KeyRound } from "lucide-react";
+import { fileOfNode } from "../../model/project";
 import { useCertificates } from "../../providers/CertificateProvider";
 import { useResourceStore } from "../../providers/ResourceStoreProvider";
-import { useEditorState, EditorActionType } from "../../state/editorState";
-import { useProjectFiles } from "../../state/useProject";
-import { declareAllInProject } from "../resources/declarations";
-import { mintedNames, parseHosts, withMintedPair } from "./tlsServer";
+import {
+  useEditorState,
+  useLatestEditorState,
+  EditorActionType,
+} from "../../state/editorState";
+import { projectFiles } from "../../state/projectHandlers";
+import { declareAllInProject, declaredNames } from "../resources/declarations";
+import { parseDays, parseHosts, storeMintedPair, withMintedPair } from "./tlsServer";
 
 const INPUT =
   "w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:focus:border-white/30";
@@ -17,15 +22,17 @@ const DEFAULT_DAYS = 365;
  * Editor for a connector's server-TLS settings (the `tls-server` field type): the
  * nested settings themselves, passed in as `children`, plus "Generate self-signed
  * certificate" when the host can mint one. Minting stores the pair as two template
- * resources, declares them, and points `certResource`/`keyResource` at them.
+ * resources, declares them, and points `certResource`/`keyResource` at them on the
+ * setting `field` of the connection `connectionId`; without a connection there is
+ * nothing to bind the pair to, so minting is not offered.
  */
 export default function TlsServerEditor({
-  value,
-  onChange,
+  connectionId,
+  field,
   children,
 }: {
-  value: unknown;
-  onChange: (value: unknown) => void;
+  connectionId?: string;
+  field: string;
   children: ReactNode;
 }) {
   const minter = useCertificates();
@@ -49,10 +56,11 @@ export default function TlsServerEditor({
     <div className="flex flex-col gap-2">
       {children}
       {available &&
+        connectionId &&
         (open ? (
           <MintForm
-            value={value}
-            onChange={onChange}
+            connectionId={connectionId}
+            field={field}
             onDone={() => setOpen(false)}
           />
         ) : (
@@ -70,50 +78,72 @@ export default function TlsServerEditor({
 }
 
 function MintForm({
-  value,
-  onChange,
+  connectionId,
+  field,
   onDone,
 }: {
-  value: unknown;
-  onChange: (value: unknown) => void;
+  connectionId: string;
+  field: string;
   onDone: () => void;
 }) {
   const minter = useCertificates();
   const store = useResourceStore();
-  const { dispatch } = useEditorState();
-  const files = useProjectFiles();
+  const { state, dispatch } = useEditorState();
+  const latest = useLatestEditorState();
   const [commonName, setCommonName] = useState("localhost");
   const [hosts, setHosts] = useState("localhost, 127.0.0.1");
-  const [days, setDays] = useState(DEFAULT_DAYS);
+  const [days, setDays] = useState(String(DEFAULT_DAYS));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Minting awaits the host and the store, so the group and the project are read
-  // when it finishes rather than when it started: an edit made meanwhile survives.
-  const latest = useRef({ value, files });
-  useEffect(() => {
-    latest.current = { value, files };
-  });
 
+  // Minting awaits the host and the store, and the user can open another file or
+  // connection meanwhile. The pair is therefore bound to where it started — this
+  // project, the file holding the connection, the connection itself — and committed
+  // against the project as it is when minting finishes, never a snapshot from before.
   const mint = async () => {
     if (!minter || !store) return;
+    const validDays = parseDays(days);
+    if (validDays === null) {
+      setError("Valid for must be a whole number of days, at least 1.");
+      return;
+    }
+    const origin = {
+      projectId: state.project.id,
+      path: fileOfNode(projectFiles(state), connectionId),
+    };
     setBusy(true);
     setError(null);
     try {
-      const pair = await minter.mintSelfSigned({
-        commonName: commonName.trim(),
-        hosts: parseHosts(hosts),
-        days,
-      });
-      const existing = (await store.list()).map((r) => r.name);
-      const names = mintedNames(commonName.trim(), existing);
-      await store.create({ name: names.cert, kind: "template", content: pair.cert });
-      await store.create({ name: names.key, kind: "template", content: pair.key });
-      const now = latest.current;
-      const changes = declareAllInProject(now.files, [names.cert, names.key], "template");
+      const cn = commonName.trim();
+      const pair = await minter.mintSelfSigned({ commonName: cn, hosts: parseHosts(hosts), days: validDays });
+      const stored = await storeMintedPair(store, cn, pair, () => declaredNames(projectFiles(latest())));
+
+      const now = latest();
+      const files = projectFiles(now);
+      const connector =
+        now.project.id === origin.projectId && fileOfNode(files, connectionId) === origin.path
+          ? files
+              .find((f) => f.path === origin.path)
+              ?.document.connectors.find((c) => c.id === connectionId)
+          : undefined;
+      if (!connector) {
+        // The connection is gone, so the pair has nothing to serve: take it back out.
+        await Promise.allSettled([store.remove(stored.cert.id), store.remove(stored.key.id)]);
+        setError("The connection was removed before the certificate was ready.");
+        return;
+      }
+      const changes = declareAllInProject(files, [stored.names.cert, stored.names.key], "template");
       if (changes.length > 0) {
         dispatch({ type: EditorActionType.SET_RESOURCES, data: { changes } });
       }
-      onChange(withMintedPair(now.value, names));
+      dispatch({
+        type: EditorActionType.UPDATE_CONNECTION_SETTING,
+        data: {
+          id: connectionId,
+          field,
+          value: withMintedPair(connector.settings[field], stored.names),
+        },
+      });
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -139,7 +169,7 @@ function MintForm({
           type="number"
           min={1}
           value={days}
-          onChange={(e) => setDays(Number(e.target.value) || DEFAULT_DAYS)}
+          onChange={(e) => setDays(e.target.value)}
         />
       </label>
       {error && <p className="text-red-500">{error}</p>}

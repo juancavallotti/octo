@@ -172,10 +172,12 @@ export default function EditorRoot({
     tree = (
       <ResourceStoreProvider value={resources}>{tree}</ResourceStoreProvider>
     );
-  if (certificates)
-    tree = (
-      <CertificateProvider value={certificates}>{tree}</CertificateProvider>
-    );
+  // Mounted with or without a minter: a host can learn it has one after the project
+  // loads, and a provider appearing then would remount the loader and drop unsaved
+  // edits. A null value hides minting just the same.
+  tree = (
+    <CertificateProvider value={certificates ?? null}>{tree}</CertificateProvider>
+  );
   if (run) {
     // FlowRunProvider sits inside RunProvider and drives the console (it opens the tab
     // that answers what the user just asked), so the console provider wraps them both.

@@ -90,6 +90,7 @@ export default function ConnectionSettings({
             key={`${connection.id}:${field.name}`}
             field={field}
             value={connection.settings[field.name]}
+            connectionId={connection.id}
             onChange={(value) =>
               dispatch({
                 type: EditorActionType.UPDATE_CONNECTION_SETTING,
