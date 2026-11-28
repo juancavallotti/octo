@@ -45,9 +45,21 @@ one by type on demand, so a flow using them usually declares no connector entry.
       key: ${TLS_KEY}
 ```
 
-Set at most one certificate source. A deployment on the platform does not need a
-`tls` block for internal HTTPS: deploying with `internalTls` hands the connector its
-certificate and `HTTPS_PORT`.
+Set at most one certificate source. A `tls` block asks for HTTPS only when it sets
+`enabled: true`, a `port` or a certificate source; then a missing certificate fails
+startup. `tls: {}` asks for nothing.
+
+`HTTPS_PORT` moves the main listener to HTTPS on that port, with no plain port left,
+only for a connector on the injected port (`port` unset or `${HTTP_PORT}`) with no
+`tls.port`. A connector with any other `port` ignores it. Without a certificate,
+`HTTPS_PORT` leaves the connector on plain HTTP.
+
+A deployment on the platform needs no `tls` block for internal HTTPS: deploying with
+`internalTls` hands the connector on the injected port its certificate and
+`HTTPS_PORT`. With `internalTls`, do not set a certificate source (it would replace
+the cluster-issued certificate) or `tls.port` (the API rejects it). Without
+`internalTls`, the API rejects a connector on the injected port that serves TLS on
+its main port; set `tls.port` or deploy with `internalTls`.
 
 Its **source**:
 

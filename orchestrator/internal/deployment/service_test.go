@@ -14,6 +14,7 @@ import (
 	"github.com/juancavallotti/octo/orchestrator/internal/integration"
 	"github.com/juancavallotti/octo/orchestrator/internal/kube"
 	"github.com/juancavallotti/octo/orchestrator/internal/resource"
+	"github.com/juancavallotti/octo/orchestrator/internal/runtimeversion"
 	"github.com/juancavallotti/octo/orchestrator/internal/snapshot"
 )
 
@@ -150,7 +151,10 @@ func (f *fakeSnapshots) ListResources(_ context.Context, _ string) ([]snapshot.R
 type fakeKube struct {
 	// runtimeVersion overrides what the chart is pretending to have configured;
 	// empty means the default below.
-	runtimeVersion     string
+	runtimeVersion string
+	// unknownRelease has the installation say nothing about which runtime
+	// release it deploys, as a digest-pinned image with no version configured does.
+	unknownRelease     bool
 	applied            bool
 	applyErr           error
 	rolledOut          bool
@@ -295,6 +299,17 @@ func (f *fakeKube) RuntimeVersion() string {
 		return f.runtimeVersion
 	}
 	return "0.9.0"
+}
+
+// The release a deployment runs, resolved as the real client resolves it.
+func (f *fakeKube) RuntimeRelease(r kube.Runner, pin string) string {
+	if pin != "" {
+		return pin
+	}
+	if f.unknownRelease {
+		return ""
+	}
+	return runtimeversion.Current(f.RuntimeVersion(), f.RunnerImage(r, ""))
 }
 
 // The image a runner resolves to, named after the runner so a test can tell the

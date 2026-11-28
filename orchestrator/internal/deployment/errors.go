@@ -22,6 +22,10 @@ var (
 	// ErrInternalTLSRuntime is returned when internal TLS is requested on a runtime
 	// pinned to a release older than the first that serves it.
 	ErrInternalTLSRuntime = errors.New("internal TLS needs a newer runtime")
+	// ErrConnectorTLS is returned when the connector serving a deployment's HTTP
+	// port configures TLS in a way the deployment's Services cannot reach: a
+	// second HTTPS port under internal TLS, or HTTPS on the HTTP port without it.
+	ErrConnectorTLS = errors.New("the http connector's tls settings do not fit this deployment")
 	// ErrRunnerUnavailable is returned when a deployment asks for a runner this
 	// installation does not configure — in practice the agentic one, on a chart
 	// that names no image for it. Refusing is the point: falling back to the

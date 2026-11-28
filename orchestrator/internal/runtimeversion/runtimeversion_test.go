@@ -126,7 +126,7 @@ func TestPinnable(t *testing.T) {
 
 func TestSupportsInternalTLS(t *testing.T) {
 	cases := map[string]bool{
-		"":        true,
+		"":        false,
 		"dev":     true,
 		"0.11.18": true,
 		"0.12.0":  true,

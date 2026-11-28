@@ -53,10 +53,11 @@ func ImageTag(image string) string {
 const InternalTLSRelease = "0.11.18"
 
 // SupportsInternalTLS reports whether a runtime release serves in-cluster HTTPS.
-// An empty version follows the install, and anything that is not a dotted
-// release (a dev build) is taken to be current.
+// An empty version is a release nobody could name, which is not known to serve
+// it; anything else that is not a dotted release (a dev build) is taken to be
+// current.
 func SupportsInternalTLS(version string) bool {
-	return !Behind(version, InternalTLSRelease)
+	return version != "" && !Behind(version, InternalTLSRelease)
 }
 
 // Behind reports whether deployed is an OLDER release than current.

@@ -245,7 +245,8 @@ type deployOptionsResponse struct {
 	Slug            string           `json:"slug,omitempty"`
 	SlugValid       bool             `json:"slugValid"`
 	SlugAvailable   bool             `json:"slugAvailable"`
-	// InternalTLSAvailable reports whether a deploy may set internalTls.
+	// InternalTLSAvailable reports whether the installation can issue internal
+	// certificates. A deploy also needs runtime 0.11.18 or newer to set internalTls.
 	InternalTLSAvailable bool `json:"internalTlsAvailable"`
 }
 
@@ -549,7 +550,7 @@ func (h *Handler) writeError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, "external endpoints are not configured")
 	case errors.Is(err, ErrInternalTLSUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "internal TLS is not configured on this installation")
-	case errors.Is(err, ErrInternalTLSRuntime):
+	case errors.Is(err, ErrInternalTLSRuntime), errors.Is(err, ErrConnectorTLS):
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrRunnerUnavailable):
 		httpx.WriteError(w, http.StatusBadRequest, "the requested runner is not configured on this installation")

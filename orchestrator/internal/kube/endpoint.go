@@ -22,6 +22,10 @@ type endpoint struct {
 	// tls, when set, has the endpoint reach the deployment over HTTPS on its
 	// Service's https port and verify it, instead of plain HTTP on port.
 	tls *backendTLS
+	// owner is the deployment object the re-encrypt objects are owned by, so the
+	// garbage collector removes them with the deployment whatever this
+	// installation's ingress class or issuer has become since.
+	owner metav1.OwnerReference
 }
 
 // endpointPublisher publishes the external endpoint of one deployment — the
@@ -81,8 +85,13 @@ type ingressPublisher struct {
 
 func (p *ingressPublisher) publish(ctx context.Context, ep endpoint) error {
 	namespace := p.ns(ctx)
+	controller := ""
 	if ep.tls != nil {
-		switch ingressController(p.ingressClass) {
+		var err error
+		if controller, err = p.ingressController(ctx); err != nil {
+			return err
+		}
+		switch controller {
 		case controllerTraefik:
 			if err := p.publishTraefikTransport(ctx, namespace, ep); err != nil {
 				return err
@@ -91,23 +100,36 @@ func (p *ingressPublisher) publish(ctx context.Context, ep endpoint) error {
 		default:
 			// The pod answers HTTPS only, and this controller cannot be told to
 			// speak it: an Ingress would route to a port it cannot talk to.
-			return fmt.Errorf("ingress class %q cannot re-encrypt to a deployment serving internal TLS; "+
-				"expose it without internal TLS, or use Traefik, ingress-nginx or Gateway API", p.ingressClass)
+			return fmt.Errorf("%s cannot re-encrypt to a deployment serving internal TLS; "+
+				"expose it without internal TLS, or use Traefik, ingress-nginx or Gateway API", p.classLabel())
 		}
 	}
-	ing := p.ingress(namespace, ep)
+	ing := p.ingress(namespace, ep, controller)
 	if _, err := p.clientset.NetworkingV1().Ingresses(namespace).Create(ctx, ing, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("create ingress: %w", err)
 	}
 	return nil
 }
 
+// classLabel names the IngressClass in an error: the configured one, or the
+// cluster default that claims an Ingress naming none.
+func (p *ingressPublisher) classLabel() string {
+	if p.ingressClass == "" {
+		return "the cluster's default ingress class"
+	}
+	return fmt.Sprintf("ingress class %q", p.ingressClass)
+}
+
+// withdraw removes the Ingress and, on an installation that re-encrypts, the
+// ServersTransport a Traefik class was given. The transport is removed whatever
+// the class is now, since the class may have changed since it was created; a
+// missing one is not an error.
 func (p *ingressPublisher) withdraw(ctx context.Context, name string) error {
 	err := p.clientset.NetworkingV1().Ingresses(p.ns(ctx)).Delete(ctx, name, metav1.DeleteOptions{})
 	if err := ignoreNotFound(err); err != nil {
 		return fmt.Errorf("delete ingress: %w", err)
 	}
-	if p.reencrypt && ingressController(p.ingressClass) == controllerTraefik {
+	if p.reencrypt {
 		return p.withdrawTraefikTransport(ctx, name)
 	}
 	return nil
@@ -124,7 +146,8 @@ func (p *ingressPublisher) preflight(context.Context) error { return nil }
 // is configured; otherwise, if a ClusterIssuer is set, cert-manager issues a
 // per-host cert via its annotation; otherwise the Ingress carries no TLS at all
 // (the cluster terminates TLS elsewhere, or this endpoint is plain HTTP).
-func (p *ingressPublisher) ingress(namespace string, ep endpoint) *networkingv1.Ingress {
+// controller is the class's re-encrypt controller, which only matters with ep.tls.
+func (p *ingressPublisher) ingress(namespace string, ep endpoint, controller string) *networkingv1.Ingress {
 	pathType := networkingv1.PathTypePrefix
 
 	// Copy extraAnnotations rather than mutate the shared map, and let the
@@ -147,7 +170,7 @@ func (p *ingressPublisher) ingress(namespace string, ep endpoint) *networkingv1.
 	backendPort := networkingv1.ServiceBackendPort{Number: ep.port}
 	if ep.tls != nil {
 		backendPort = networkingv1.ServiceBackendPort{Name: httpsPortName}
-		if ingressController(p.ingressClass) == controllerNginx {
+		if controller == controllerNginx {
 			for k, v := range nginxReencryptAnnotations(namespace, ep.tls) {
 				annotations[k] = v
 			}

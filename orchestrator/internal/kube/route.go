@@ -30,6 +30,12 @@ type routePublisher struct {
 func (p *routePublisher) publish(ctx context.Context, ep endpoint) error {
 	namespace := p.ns(ctx)
 	if ep.tls != nil {
+		// HTTPRoute is in Gateway API v1.0 and BackendTLSPolicy only from v1.4, so a
+		// cluster preflight accepted can still lack the policy a TLS endpoint needs.
+		if err := p.requireKind(ctx, "BackendTLSPolicy",
+			"a TLS endpoint needs Gateway API v1.4 or newer, with a Gateway controller that implements it"); err != nil {
+			return err
+		}
 		policies := p.client.GatewayV1().BackendTLSPolicies(namespace)
 		if _, err := policies.Create(ctx, backendTLSPolicy(ep), metav1.CreateOptions{}); err != nil &&
 			!apierrors.IsAlreadyExists(err) {
@@ -67,7 +73,13 @@ func (p *routePublisher) withdraw(ctx context.Context, name string) error {
 // runs the ingress infrastructure, and coupling this startup to its lifetime would
 // mean failing to start for the duration of somebody else's Gateway migration. A
 // route that attaches to nothing reports it on its own status.
-func (p *routePublisher) preflight(context.Context) error {
+func (p *routePublisher) preflight(ctx context.Context) error {
+	return p.requireKind(ctx, "HTTPRoute", "install the full Gateway API CRD bundle")
+}
+
+// requireKind fails unless the cluster serves kind in the Gateway API group, with
+// remedy telling the operator what to install when it does not.
+func (p *routePublisher) requireKind(_ context.Context, kind, remedy string) error {
 	gv := gatewayv1.GroupVersion.String()
 	resources, err := p.client.Discovery().ServerResourcesForGroupVersion(gv)
 	if err != nil {
@@ -78,11 +90,11 @@ func (p *routePublisher) preflight(context.Context) error {
 		return fmt.Errorf("discover %s: %w", gv, err)
 	}
 	for _, r := range resources.APIResources {
-		if r.Kind == "HTTPRoute" {
+		if r.Kind == kind {
 			return nil
 		}
 	}
-	return fmt.Errorf("cluster serves %s but not HTTPRoute: install the full Gateway API CRD bundle", gv)
+	return fmt.Errorf("cluster serves %s but not %s: %s", gv, kind, remedy)
 }
 
 // route builds the per-deployment HTTPRoute: hostname {subdomain}.{baseDomain}

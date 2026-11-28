@@ -390,7 +390,7 @@
                         "type": "string"
                     },
                     "internalTls": {
-                        "description": "InternalTLS has a networked deployment serve HTTPS inside the cluster instead\nof plain HTTP, with a certificate from the installation's internal CA.\nIgnored for integrations with no HTTP source.",
+                        "description": "InternalTLS has a networked deployment serve HTTPS inside the cluster instead\nof plain HTTP, with a certificate from the installation's internal CA. It\nrequires an orchestrator-managed HTTP endpoint; a deployment without one\nignores it and stores false.",
                         "type": "boolean"
                     },
                     "replicas": {
@@ -441,7 +441,7 @@
                         "uniqueItems": false
                     },
                     "internalTlsAvailable": {
-                        "description": "InternalTLSAvailable reports whether a deploy may set internalTls.",
+                        "description": "InternalTLSAvailable reports whether the installation can issue internal\ncertificates. A deploy also needs runtime 0.11.18 or newer to set internalTls.",
                         "type": "boolean"
                     },
                     "networked": {

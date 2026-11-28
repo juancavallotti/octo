@@ -85,10 +85,12 @@ func internalDNSNames(spec Spec, namespace string) []string {
 	return names
 }
 
-// ensureCertificate asks cert-manager for spec's internal certificate. An
-// existing Certificate is left as it is: its names derive from the deployment's
-// id and slug, which never change.
-func (c *Client) ensureCertificate(ctx context.Context, spec Spec, labels map[string]string) error {
+// ensureCertificate asks cert-manager for spec's internal certificate, owned by
+// owner so it goes when the deployment does. An existing Certificate is left as
+// it is: its names derive from the deployment's id and slug, which never change.
+func (c *Client) ensureCertificate(
+	ctx context.Context, spec Spec, labels map[string]string, owner metav1.OwnerReference,
+) error {
 	namespace := c.ns(ctx)
 	cert := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "cert-manager.io/v1",
@@ -109,6 +111,7 @@ func (c *Client) ensureCertificate(ctx context.Context, spec Spec, labels map[st
 			},
 		},
 	}}
+	cert.SetOwnerReferences([]metav1.OwnerReference{owner})
 	_, err := c.dynamic.Resource(certificateGVR).Namespace(namespace).Create(ctx, cert, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("kube: create internal certificate: %w", err)
@@ -179,8 +182,10 @@ func (c *Client) tlsMounts(spec Spec) []corev1.VolumeMount {
 // tlsVolumes backs tlsMounts. Both are readable by everyone in the pod for the
 // same reason the token volume is: the runtime is not root, the files are.
 //
-// The CA bundle is optional: a namespace trust-manager has not reached yet starts
-// its pods without the extra root rather than holding them pending.
+// The CA bundle is required: Go reads its trusted roots once per process, so a
+// pod started before trust-manager projected the bundle would distrust the
+// internal CA until it restarted. A namespace trust-manager has not reached yet
+// holds its pods pending instead.
 func (c *Client) tlsVolumes(spec Spec) []corev1.Volume {
 	mode := int32(0o444)
 	var volumes []corev1.Volume
@@ -194,14 +199,12 @@ func (c *Client) tlsVolumes(spec Spec) []corev1.Volume {
 		})
 	}
 	if c.trustsInternalCA() {
-		optional := true
 		volumes = append(volumes, corev1.Volume{
 			Name: caVolume,
 			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{Name: c.internalCAConfigMap},
 				Items:                []corev1.KeyToPath{{Key: caKey, Path: caKey}},
 				DefaultMode:          &mode,
-				Optional:             &optional,
 			}},
 		})
 	}

@@ -3,7 +3,6 @@ package kube
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +15,13 @@ import (
 const (
 	controllerTraefik = "traefik"
 	controllerNginx   = "nginx"
+
+	// traefikControllerName and nginxControllerName are the spec.controller values
+	// the two controllers register their IngressClasses under.
+	traefikControllerName = "traefik.io/ingress-controller"
+	nginxControllerName   = "k8s.io/ingress-nginx"
+	// defaultIngressClass marks the IngressClass that claims an Ingress naming none.
+	defaultIngressClass = "ingressclass.kubernetes.io/is-default-class"
 
 	traefikServersScheme    = "traefik.ingress.kubernetes.io/service.serversscheme"
 	traefikServersTransport = "traefik.ingress.kubernetes.io/service.serverstransport"
@@ -57,16 +63,39 @@ func (c *Client) backendTLSFor(ctx context.Context, spec Spec) *backendTLS {
 	}
 }
 
-// ingressController names the controller an IngressClass belongs to, as far as
-// re-encrypting goes, or "" for one this orchestrator cannot configure.
-func ingressController(class string) string {
-	switch {
-	case strings.Contains(class, controllerTraefik):
-		return controllerTraefik
-	case strings.Contains(class, controllerNginx):
-		return controllerNginx
+// ingressController names the controller behind the IngressClass this
+// publisher's Ingresses are claimed by — the configured one, or the cluster's
+// default when none is configured — as far as re-encrypting goes, or "" for one
+// this orchestrator cannot configure. The class is read for its spec.controller
+// because its name is whatever the cluster owner chose to call it.
+func (p *ingressPublisher) ingressController(ctx context.Context) (string, error) {
+	classes := p.clientset.NetworkingV1().IngressClasses()
+	controller := ""
+	if p.ingressClass != "" {
+		class, err := classes.Get(ctx, p.ingressClass, metav1.GetOptions{})
+		if err != nil {
+			return "", fmt.Errorf("read ingress class %q: %w", p.ingressClass, err)
+		}
+		controller = class.Spec.Controller
+	} else {
+		list, err := classes.List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return "", fmt.Errorf("list ingress classes: %w", err)
+		}
+		for _, class := range list.Items {
+			if class.Annotations[defaultIngressClass] == "true" {
+				controller = class.Spec.Controller
+				break
+			}
+		}
 	}
-	return ""
+	switch controller {
+	case traefikControllerName:
+		return controllerTraefik, nil
+	case nginxControllerName:
+		return controllerNginx, nil
+	}
+	return "", nil
 }
 
 // nginxReencryptAnnotations tell ingress-nginx to reach the backend over HTTPS
@@ -94,6 +123,7 @@ func (p *ingressPublisher) publishTraefikTransport(ctx context.Context, namespac
 			"rootCAs":    []any{map[string]any{"secret": ep.tls.caSecret}},
 		},
 	}}
+	transport.SetOwnerReferences([]metav1.OwnerReference{ep.owner})
 	_, err := p.dynamic.Resource(serversTransportGVR).Namespace(namespace).Create(ctx, transport, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create serverstransport: %w", err)
@@ -121,7 +151,9 @@ func (p *ingressPublisher) withdrawTraefikTransport(ctx context.Context, name st
 func backendTLSPolicy(ep endpoint) *gatewayv1.BackendTLSPolicy {
 	section := gatewayv1.SectionName(httpsPortName)
 	return &gatewayv1.BackendTLSPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: ep.name, Labels: ep.labels},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: ep.name, Labels: ep.labels, OwnerReferences: []metav1.OwnerReference{ep.owner},
+		},
 		Spec: gatewayv1.BackendTLSPolicySpec{
 			TargetRefs: []gatewayv1.LocalPolicyTargetReferenceWithSectionName{{
 				LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{

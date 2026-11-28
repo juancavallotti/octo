@@ -71,3 +71,38 @@
       "root" $
       "component" "orchestrator"
       "rules" (include "octo.orchestrator.rules" .)) }}
+{{- /* Re-encrypting through an Ingress reads the IngressClass the Ingress is
+       claimed by — the configured one, or the cluster default — for the
+       controller behind it. IngressClasses are cluster-scoped, so the Role above
+       cannot grant them. */}}
+{{- $cfg := fromYaml (include "octo-common.componentConfig" (dict "root" . "component" "orchestrator")) -}}
+{{- $rbac := $cfg.rbac | default dict -}}
+{{- if and .Values.internalTLS.enabled (ne (include "octo.networking.mode" .) "gateway") (ne (toString $rbac.create) "false") }}
+{{- $name := include "octo.orchestrator.clusterScopedName" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-ingressclasses
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" . "component" "orchestrator") | nindent 4 }}
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-ingressclasses
+  labels:
+    {{- include "octo-common.componentLabels" (dict "root" . "component" "orchestrator") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "octo-common.serviceAccountName" (dict "root" . "component" "orchestrator") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $name }}-ingressclasses
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

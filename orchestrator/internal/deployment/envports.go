@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -128,7 +129,7 @@ func missingRequiredEnv(definition string, provided map[string]struct{}) []strin
 //
 // Exported for the dev-run service, which asks the same question of a live definition
 // to decide whether to publish a public host. It shares resolveRuntimeEnv rather than
-// re-parsing because the rules are subtler than they look — see wiresInjectedPort —
+// re-parsing because the rules are subtler than they look — see injectedConnector —
 // and a second copy would answer differently on exactly the definitions that matter.
 func Exposable(definition string) bool {
 	_, _, exposable := resolveRuntimeEnv(definition)
@@ -142,7 +143,7 @@ func Exposable(definition string) bool {
 //
 // Exposability is not "does it declare HTTP_PORT": the port is CHOSEN here — injected
 // as HTTP_PORT with a Service pointed at it — so what matters is whether the listener
-// takes that value (wiresInjectedPort). A declaration nothing reads leaves a pod
+// takes that value (injectedConnector). A declaration nothing reads leaves a pod
 // serving a port the Service does not target, while an HTTP source with no
 // declaration at all is wired perfectly well.
 //
@@ -154,11 +155,10 @@ func resolveRuntimeEnv(definition string) (port int, env map[string]string, expo
 	if err := yaml.Unmarshal([]byte(definition), &decl); err != nil {
 		return 0, nil, false
 	}
-	declared := map[string]bool{}
+	declared := declaredNames(decl)
 	port = defaultImplicitPort
 	for _, e := range decl.Env {
 		name := strings.TrimSpace(e.Name)
-		declared[name] = true
 		if name != envHTTPPort || e.Default == nil {
 			continue
 		}
@@ -166,7 +166,7 @@ func resolveRuntimeEnv(definition string) (port int, env map[string]string, expo
 			port = p
 		}
 	}
-	if !wiresInjectedPort(definition, declared) {
+	if _, wired := injectedConnector(definition, declared); !wired {
 		return 0, nil, false
 	}
 	// Both halves of the address are supplied, always: the port the listener is to
@@ -174,6 +174,43 @@ func resolveRuntimeEnv(definition string) (port int, env map[string]string, expo
 	// A definition that pins either of those to something else is not exposable in
 	// the first place, so there is nothing here to override that anyone chose.
 	return port, map[string]string{envHTTPPort: strconv.Itoa(port), envHTTPHost: bindAllHost}, true
+}
+
+// declaredNames is the set of env var names a definition declares.
+func declaredNames(decl envDecl) map[string]bool {
+	ret := make(map[string]bool, len(decl.Env))
+	for _, e := range decl.Env {
+		ret[strings.TrimSpace(e.Name)] = true
+	}
+	return ret
+}
+
+// checkEndpointTLS refuses a connector on the injected port whose TLS settings
+// leave the deployment's Services with nothing they can reach. With internal TLS
+// they target the injected HTTPS port, which a connector moving HTTPS to tls.port
+// leaves empty; without it they speak plain HTTP to the injected port, which a
+// connector serving TLS there cannot answer. A definition the injected address
+// does not reach has no Services to fit, and passes.
+func checkEndpointTLS(definition string, internalTLS bool) error {
+	var decl envDecl
+	if err := yaml.Unmarshal([]byte(definition), &decl); err != nil {
+		return nil
+	}
+	conn, wired := injectedConnector(definition, declaredNames(decl))
+	if !wired || conn == nil || conn.Settings.TLS == nil {
+		return nil
+	}
+	tls := conn.Settings.TLS
+	switch {
+	case internalTLS && tls.hasPort():
+		return fmt.Errorf("%w: connector %q sets tls.port, but internal TLS serves HTTPS on the deployment's "+
+			"own port; remove tls.port", ErrConnectorTLS, conn.Name)
+	case !internalTLS && !tls.hasPort() && tls.requested():
+		return fmt.Errorf("%w: connector %q serves TLS on the HTTP port, which the deployment's Services reach "+
+			"over plain HTTP; enable internalTls, or set tls.port to serve HTTPS on a port of its own",
+			ErrConnectorTLS, conn.Name)
+	}
+	return nil
 }
 
 // httpConnectorType is the runtime type of the connector that owns an HTTP
@@ -194,17 +231,8 @@ const defaultImplicitPort = 8080
 // declared and the sources flows bind to, enough to answer whether an injected
 // address reaches anything, without importing the runtime's full schema.
 type httpDecl struct {
-	Connectors []struct {
-		Name     string `yaml:"name"`
-		Type     string `yaml:"type"`
-		Settings struct {
-			// Host and Port are read untyped because a definition may write either
-			// as a literal, as a number, or as an unresolved `${VAR}` reference.
-			Host any `yaml:"host"`
-			Port any `yaml:"port"`
-		} `yaml:"settings"`
-	} `yaml:"connectors"`
-	Flows []struct {
+	Connectors []httpConnectorDecl `yaml:"connectors"`
+	Flows      []struct {
 		Source *struct {
 			Connector string `yaml:"connector"`
 			Type      string `yaml:"type"`
@@ -212,9 +240,67 @@ type httpDecl struct {
 	} `yaml:"flows"`
 }
 
-// wiresInjectedPort reports whether an injected HTTP_PORT/HTTP_HOST actually reaches
-// a listener that serves routes. Everything below is a way for that to fail, and each
-// one is a pod that comes up "networked" with a Service pointing at nothing:
+// httpConnectorDecl is one declared connector, as far as its listen address and
+// TLS go.
+type httpConnectorDecl struct {
+	Name     string `yaml:"name"`
+	Type     string `yaml:"type"`
+	Settings struct {
+		// Host and Port are read untyped because a definition may write either
+		// as a literal, as a number, or as an unresolved `${VAR}` reference.
+		Host any      `yaml:"host"`
+		Port any      `yaml:"port"`
+		TLS  *tlsDecl `yaml:"tls"`
+	} `yaml:"settings"`
+}
+
+// tlsDecl is an http connector's tls block. Every field is read untyped, for the
+// same reason Host and Port are: a `${VAR}` reference must not fail the parse of
+// a definition whose address is otherwise wired.
+type tlsDecl struct {
+	Enabled      any `yaml:"enabled"`
+	Port         any `yaml:"port"`
+	Cert         any `yaml:"cert"`
+	Key          any `yaml:"key"`
+	CertFile     any `yaml:"certFile"`
+	KeyFile      any `yaml:"keyFile"`
+	CertResource any `yaml:"certResource"`
+	KeyResource  any `yaml:"keyResource"`
+}
+
+// hasPort reports whether the block names a second, HTTPS-only port.
+func (t *tlsDecl) hasPort() bool { return setValue(t.Port) }
+
+// requested reports whether the block asks for TLS on its own: enabled, or a
+// certificate source named. A bare block, or one only tuning the TLS version,
+// asks for nothing.
+func (t *tlsDecl) requested() bool {
+	enabled := false
+	switch v := t.Enabled.(type) {
+	case bool:
+		enabled = v
+	case string:
+		enabled = strings.TrimSpace(v) == "true"
+	}
+	return enabled || setValue(t.Cert) || setValue(t.Key) || setValue(t.CertFile) ||
+		setValue(t.KeyFile) || setValue(t.CertResource) || setValue(t.KeyResource)
+}
+
+// setValue reports whether a setting carries a value: present and not blank.
+func setValue(raw any) bool {
+	if s, ok := raw.(string); ok {
+		return strings.TrimSpace(s) != ""
+	}
+	return raw != nil
+}
+
+// injectedConnector finds the connector an injected HTTP_PORT/HTTP_HOST reaches,
+// and reports whether it reaches one that serves routes. A nil connector with
+// wired true is the default instance a source creates off the environment, which
+// has no settings of its own.
+//
+// Everything below is a way for the wiring to fail, and each one is a pod that
+// comes up "networked" with a Service pointing at nothing:
 //
 //   - Nothing binds an HTTP source. A listener with no routes answers 404, and a
 //     definition with no HTTP source at all listens only because a configured
@@ -237,23 +323,26 @@ type httpDecl struct {
 //
 // What is left is the shape that can be wired: one HTTP source, reached through a
 // connector whose address is the environment's to decide.
-func wiresInjectedPort(definition string, declared map[string]bool) bool {
+func injectedConnector(definition string, declared map[string]bool) (conn *httpConnectorDecl, wired bool) {
 	var decl httpDecl
 	if err := yaml.Unmarshal([]byte(definition), &decl); err != nil {
-		return false
+		return nil, false
 	}
 
 	// The configured http instances, by name, each saying whether its address is the
 	// environment's to decide.
+	byName := map[string]*httpConnectorDecl{}
 	envBound := map[string]bool{}
 	var names []string
 	var envBoundCount int
-	for _, c := range decl.Connectors {
+	for i := range decl.Connectors {
+		c := &decl.Connectors[i]
 		if strings.TrimSpace(c.Type) != httpConnectorType {
 			continue
 		}
 		name := strings.TrimSpace(c.Name)
 		names = append(names, name)
+		byName[name] = c
 		envBound[name] = takesEnvPort(c.Settings.Port, declared) && takesEnvHost(c.Settings.Host, declared)
 		if envBound[name] {
 			envBoundCount++
@@ -262,7 +351,7 @@ func wiresInjectedPort(definition string, declared map[string]bool) bool {
 	// Two of them racing for the injected port is not a wiring question but a run
 	// that dies on startup, whichever one a source happens to bind.
 	if envBoundCount > 1 {
-		return false
+		return nil, false
 	}
 
 	for _, f := range decl.Flows {
@@ -273,7 +362,7 @@ func wiresInjectedPort(definition string, declared map[string]bool) bool {
 		// An explicit binding to a configured instance wins, whatever its type.
 		if bind != "" {
 			if bound, ok := envBound[bind]; ok {
-				return bound
+				return byName[bind], bound
 			}
 			// Not an instance name: it only resolves if it names the type itself.
 			if bind != httpConnectorType {
@@ -287,14 +376,14 @@ func wiresInjectedPort(definition string, declared map[string]bool) bool {
 		// refuses to start, none means a default instance off the environment.
 		switch len(names) {
 		case 0:
-			return true
+			return nil, true
 		case 1:
-			return envBound[names[0]]
+			return byName[names[0]], envBound[names[0]]
 		default:
-			return false
+			return nil, false
 		}
 	}
-	return false
+	return nil, false
 }
 
 // takesEnvPort reports whether a connector leaves its listen port to the environment:

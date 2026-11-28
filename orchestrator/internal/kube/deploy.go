@@ -170,12 +170,17 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	name := resourceName(spec.ID)
 	labels := c.labels(spec)
 	cms := c.clientset.CoreV1().ConfigMaps(c.ns(ctx))
-	if _, err := cms.Create(ctx, &corev1.ConfigMap{
+	cm, err := cms.Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
 		Data:       map[string]string{configFileName: spec.Definition},
-	}, metav1.CreateOptions{}); err != nil {
+	}, metav1.CreateOptions{})
+	if err != nil {
 		return fmt.Errorf("kube: create configmap: %w", err)
 	}
+	// The ConfigMap is the first object a deployment has and goes with it, so the
+	// objects only some installations create are owned by it and collected with it
+	// even after the setting that created them is gone.
+	owner := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: cm.Name, UID: cm.UID}
 
 	// Before the Deployment: a pod whose Secret does not exist yet stays pending
 	// on the mount, and there is no reason to make it wait.
@@ -185,7 +190,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 	// Also before the Deployment, for the same reason: the pod mounts the Secret
 	// cert-manager writes from this Certificate.
 	if c.servesTLS(spec) {
-		if err := c.ensureCertificate(ctx, spec, labels); err != nil {
+		if err := c.ensureCertificate(ctx, spec, labels, owner); err != nil {
 			return err
 		}
 	}
@@ -229,6 +234,7 @@ func (c *Client) Apply(ctx context.Context, spec Spec) error {
 			port:   spec.port(),
 			labels: labels,
 			tls:    c.backendTLSFor(ctx, spec),
+			owner:  owner,
 		}); err != nil {
 			return fmt.Errorf("kube: publish endpoint: %w", err)
 		}
@@ -417,7 +423,7 @@ func (c *Client) statsSidecarContainers(spec Spec) []corev1.Container {
 	// perfectly healthy integration. Collecting no statistics is the better
 	// half of that trade, and it is the half that can be diagnosed: the reason
 	// is logged once here rather than inferred from a restart count.
-	if port := c.statsSidecarPort(); port == spec.port() || port == adminPort {
+	if port := c.statsSidecarPort(); port == c.servingPort(spec).ContainerPort || port == adminPort {
 		slog.Warn("pod stats sidecar not injected: port already used by the runtime",
 			"deployment", spec.ID, "port", port)
 		return nil
@@ -836,7 +842,9 @@ func (c *Client) Delete(ctx context.Context, deploymentID string) error {
 		errs = append(errs, fmt.Errorf("delete token secret: %w", err))
 	}
 	// Only deployments serving internal TLS have one, and only an installation
-	// that issues them holds the RBAC to look; a missing one is ignored.
+	// that issues them holds the RBAC to look; a missing one is ignored. One left
+	// on an installation that has stopped issuing them is collected with the
+	// ConfigMap that owns it.
 	if c.InternalTLSEnabled() {
 		if err := c.deleteCertificate(ctx, deploymentID); err != nil {
 			errs = append(errs, err)
