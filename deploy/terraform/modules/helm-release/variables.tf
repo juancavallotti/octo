@@ -153,8 +153,8 @@ variable "wildcard_tls" {
 
 variable "internal_tls" {
   type        = bool
-  description = "Let deployments serve HTTPS inside the cluster (internalTLS in the chart). Requires cert-manager and trust-manager in the cluster."
-  default     = true
+  description = "Let deployments serve HTTPS inside the cluster (internalTLS in the chart). Requires cert-manager and trust-manager in the cluster. Null emits nothing, so the chart's own setting (or a profile in values_files) decides."
+  default     = null
 }
 
 variable "wildcard_cluster_issuer" {

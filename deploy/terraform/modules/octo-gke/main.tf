@@ -275,6 +275,9 @@ module "octo" {
   wildcard_tls            = var.apps_domain != ""
   wildcard_cluster_issuer = module.addons.dns01_cluster_issuer_name
 
+  # module.addons installs cert-manager and trust-manager before this release.
+  internal_tls = true
+
   postgres_existing_secret = try(module.secrets.postgres.name, "")
   external_database = var.external_database ? {
     host            = module.cloudsql[0].private_ip

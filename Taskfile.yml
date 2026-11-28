@@ -299,12 +299,12 @@ tasks:
         echo "✓ every chart image is published by release.yml"
 
   cluster:preflight:
-    desc: Verify docker, k3d and devspace are installed
+    desc: Verify docker, k3d, devspace and helm are installed
     silent: true
     cmds:
       - |
         missing=
-        for tool in docker k3d devspace; do
+        for tool in docker k3d devspace helm; do
           command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
         done
         if [ -n "$missing" ]; then
@@ -313,9 +313,10 @@ tasks:
           echo "    docker   — Docker Desktop (https://www.docker.com)" >&2
           echo "    k3d      — https://k3d.io  (brew install k3d)" >&2
           echo "    devspace — https://devspace.sh  (brew install devspace)" >&2
+          echo "    helm     — https://helm.sh  (brew install helm)" >&2
           exit 1
         fi
-        echo "✓ docker, k3d, devspace present"
+        echo "✓ docker, k3d, devspace, helm present"
 
   bins:linux:
     desc: 'Cross-compile every Linux binary the images copy, into dist/bin/linux_<arch> (optional GOARCH)'
@@ -610,15 +611,21 @@ tasks:
     cmds:
       # The chart's internalTLS templates are cert-manager and trust-manager
       # objects, so both controllers (and their CRDs) must exist before the
-      # release is installed. upgrade --install makes a re-run a no-op.
+      # release is installed. upgrade --install with pinned versions makes a
+      # re-run a no-op; the pair matches deploy/terraform/modules/cluster-addons.
+      # enableCertificateOwnerRef makes each certificate's Secret owned by its
+      # Certificate, so the private key goes when the Certificate does.
       - helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null
       - >-
         helm upgrade --install cert-manager jetstack/cert-manager
         --kube-context {{.KCTX}} --namespace cert-manager --create-namespace
-        --set crds.enabled=true --wait --timeout 5m
+        --version v1.21.3
+        --set crds.enabled=true --set enableCertificateOwnerRef=true
+        --wait --timeout 5m
       - >-
         helm upgrade --install trust-manager jetstack/trust-manager
         --kube-context {{.KCTX}} --namespace cert-manager
+        --version v0.26.0
         --set crds.enabled=true --wait --timeout 5m
 
   cluster:deploy:
@@ -1095,6 +1102,41 @@ tasks:
           IFS="$old_ifs"
           echo "present as expected"
         }
+        # The internal CA chain, object by object: both ClusterIssuers, the CA
+        # Certificate the self-signed one mints, the Bundle publishing it, and each
+        # platform leaf Certificate signed by the CA issuer. Names are the
+        # release-derived defaults for release octo in namespace octo. A string
+        # match cannot tell a missing issuer from a name mentioned elsewhere.
+        check_internal_ca() {
+          name="$1"; shift
+          printf '  %-22s ' "$name"
+          required="--set ingress.host=octo.example.com --set postgres.auth.password=rendertest --set orchestrator.devRuns.hashSecret=rendertest --set auth.oidc.issuer=https://id.example.com --set auth.oidc.clientId=octo --set auth.oidc.clientSecret=rendertest --set auth.secret=rendertest"
+          if ! render="$(helm template octo helm --namespace octo $required "$@" 2>/dev/null)"; then
+            echo "FAILED (did not render)"; return 1
+          fi
+          # One line per document: kind|metadata.name|spec.issuerRef.name.
+          objects="$(printf '%s\n' "$render" | awk '
+            function emit() { if (kind != "") print kind "|" name "|" ref; kind = ""; name = ""; ref = ""; meta = 0; inref = 0 }
+            /^---/ { emit(); next }
+            /^kind: / { kind = $2 }
+            /^metadata:/ { meta = 1; next }
+            meta && /^  name: / { name = $2; gsub(/"/, "", name); meta = 0 }
+            /^[^ ]/ { meta = 0 }
+            /^  issuerRef:/ { inref = 1; next }
+            inref && /^    name: / { ref = $2; gsub(/"/, "", ref); inref = 0 }
+            END { emit() }
+          ')"
+          ca=octo-octo-internal-ca
+          for want in "ClusterIssuer|$ca-selfsigned|" "ClusterIssuer|$ca|" \
+            "Certificate|$ca|$ca-selfsigned" "Bundle|$ca|" \
+            "Certificate|octo-orchestrator-tls|$ca" "Certificate|octo-iam-tls|$ca" \
+            "Certificate|octo-observability-tls|$ca"; do
+            if ! printf '%s\n' "$objects" | grep -qxF "$want"; then
+              echo "FAILED (missing kind|name|issuerRef: $want)"; return 1
+            fi
+          done
+          echo "chain as expected"
+        }
         # The profiles as shipped. "defaults" is values.yaml alone — what an
         # install straight from OCI gets with no -f at all.
         check defaults
@@ -1144,6 +1186,12 @@ tasks:
           --set ingress.className=traefik --set orchestrator.ingressClass=traefik
         check_contains internal-tls-gateway \
           "kind: Bundle" "name: INTERNAL_CA_CONFIGMAP" "backendtlspolicies" -- \
+          --set internalTLS.enabled=true \
+          --set networking.mode=gateway --set networking.gateway.name=shared-gw
+        check_internal_ca internal-ca-ingress \
+          --set internalTLS.enabled=true \
+          --set ingress.className=traefik --set orchestrator.ingressClass=traefik
+        check_internal_ca internal-ca-gateway \
           --set internalTLS.enabled=true \
           --set networking.mode=gateway --set networking.gateway.name=shared-gw
         check_absent internal-tls-off "kind: Bundle"
@@ -1265,6 +1313,10 @@ tasks:
           --set networking.mode=gateway --set networking.gateway.create=true \
           --set networking.gateway.className=kgateway --set ingress.tls.mode=acm \
           --set ingress.tls.certificateArn=arn:aws:acm:us-east-1:1:certificate/x
+        # Both platform listeners would bind the HTTPS port and the pod would
+        # crash-loop, so the chart names the value instead.
+        check_fails tls-port-clash "iam.service.port is 8443" \
+          --set internalTLS.enabled=true --set iam.service.port=8443
         # The orchestrator refuses to start without the hash secret, so rendering a
         # release that would CrashLoopBackOff is the failure this catches. Deliberately
         # not generated by the chart: see helm/templates/orchestrator/devrun-secret.yaml.

@@ -127,6 +127,13 @@ resource "helm_release" "cert_manager" {
     value = "true"
   }
 
+  # A Certificate's Secret is owned by the Certificate, so deleting the
+  # Certificate (or anything that owns it) deletes the private key too.
+  set {
+    name  = "enableCertificateOwnerRef"
+    value = "true"
+  }
+
   # GKE Autopilot denies writes to kube-system, where cert-manager takes its
   # leader-election Lease by default — the controller then crash-loops with a bare
   # "forbidden" that points nowhere near the actual cause. Harmless on Standard,

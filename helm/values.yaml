@@ -1180,10 +1180,11 @@ wildcardTLS:
   # does not own.
   clusterIssuer: letsencrypt-dns
 
-# In-cluster HTTPS for deployments. A deployment that asks for it gets a
-# certificate from issuerName for its internal Service names and serves HTTPS
-# next to plain HTTP; externally exposed ones are re-encrypted from the ingress
-# to the pod. Every runtime pod trusts the CA through caConfigMap.
+# In-cluster HTTPS for deployments. A deployment that asks for it, on a runtime
+# that supports it, gets a certificate from issuerName for its internal Service
+# names and serves HTTPS instead of plain HTTP; externally exposed ones are
+# re-encrypted from the ingress to the pod. Every runtime pod trusts the CA
+# through caConfigMap.
 #
 # Requires cert-manager and trust-manager in the cluster. The chart creates a
 # self-signed root, a CA ClusterIssuer from it, and a trust-manager Bundle that
@@ -1193,8 +1194,12 @@ internalTLS:
   # cert-manager's cluster resource namespace, which is also trust-manager's
   # trust namespace: the CA Secret lives here so both can read it.
   trustNamespace: cert-manager
-  issuerName: octo-internal-ca
-  caConfigMap: octo-internal-ca
+  # The CA ClusterIssuer (also the CA Certificate and its Secret in
+  # trustNamespace) and the trust-manager Bundle with the ConfigMap it
+  # publishes. Both are cluster-scoped, so empty derives each from the release
+  # and its namespace: <fullname>-<namespace>-internal-ca.
+  issuerName: ""
+  caConfigMap: ""
   # Lifetime of the CA certificate. cert-manager renews it before expiry and
   # trust-manager republishes it; leaf certificates use cert-manager's default.
   caDuration: 87600h

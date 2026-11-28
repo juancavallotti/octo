@@ -8,6 +8,16 @@
 
 {{- define "octo.platformTLS.httpsPort" -}}8443{{- end }}
 
+{{- /* Fails the render when a component's plain HTTP port is the HTTPS port: both listeners would bind it. Root context. */}}
+{{- define "octo.platformTLS.checkPorts" -}}
+{{- $https := include "octo.platformTLS.httpsPort" . | int }}
+{{- range $component := list "orchestrator" "iam" "observability" }}
+{{- if eq (int (index $.Values $component "service" "port")) $https }}
+{{- fail (printf "%s.service.port is %d, the port internalTLS.enabled serves HTTPS on; pick another port" $component $https) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "octo.platformTLS.secretName" -}}
 {{- printf "%s-tls" (include "octo-common.componentName" (dict "root" .root "component" .component)) }}
 {{- end }}
@@ -35,7 +45,7 @@ spec:
   usages:
     - server auth
   issuerRef:
-    name: {{ .root.Values.internalTLS.issuerName | quote }}
+    name: {{ include "octo.internalTLS.issuerName" .root | quote }}
     kind: ClusterIssuer
     group: cert-manager.io
 {{- end }}
