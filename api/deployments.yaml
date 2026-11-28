@@ -269,6 +269,7 @@ flows:
              ?"tracing": body.?tracing,
              ?"access": body.?access,
              ?"runner": body.?runner,
+             ?"internalTls": body.?internalTls,
              ?"runtimeVersion": body.?runtimeVersion}
           failOnError: false
       - ref: relay-status

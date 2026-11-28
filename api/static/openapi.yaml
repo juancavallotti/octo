@@ -1182,6 +1182,9 @@ components:
           description: What the deployment's own token is lent beyond its stores.
           items: { type: string, enum: [developer, operator] }
         runner: { type: string, enum: ["", standard, agentic] }
+        internalTls:
+          type: boolean
+          description: Serve HTTPS inside the cluster instead of plain HTTP. Needs an installation with an internal CA and runtime 0.11.18 or newer; a deployment with no HTTP endpoint ignores it.
         runtimeVersion:
           type: string
           description: A supported runtime release to pin the deployment to (see /v1/runtimes), or `latest` to follow the install.
@@ -1264,7 +1267,8 @@ components:
               phase: { type: string }
               ready: { type: boolean }
               restarts: { type: integer }
-        internalUrl: { type: string }
+        internalUrl: { type: string, description: "The in-cluster address: https://…:8443 when internalTls is on." }
+        internalTls: { type: boolean }
         externalUrl: { type: string }
         createdAt: { type: string, format: date-time }
         lastUpdated: { type: string, format: date-time }
