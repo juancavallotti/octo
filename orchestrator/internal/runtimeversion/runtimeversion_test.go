@@ -128,7 +128,7 @@ func TestSupportsInternalTLS(t *testing.T) {
 	cases := map[string]bool{
 		"":        false,
 		"dev":     true,
-		"0.11.18": true,
+		"0.11.18": false,
 		"0.12.0":  true,
 		"0.11.17": false,
 		"0.11.13": false,

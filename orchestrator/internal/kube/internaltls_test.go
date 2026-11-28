@@ -321,9 +321,9 @@ func TestPlatformURLsFollowRuntime(t *testing.T) {
 		name, image, version, pin string
 		want                      PlatformURLs
 	}{
-		{"pinned to a TLS release", "octo-runtime:dev", "", "0.11.18", secure},
-		{"pinned before TLS", "octo-runtime:0.11.18", "", "0.11.14", plain},
-		{"following a TLS install", "octo-runtime:0.11.17", "0.11.18", "", secure},
+		{"pinned to a TLS release", "octo-runtime:dev", "", "0.12.0", secure},
+		{"pinned before TLS", "octo-runtime:0.12.0", "", "0.11.14", plain},
+		{"following a TLS install", "octo-runtime:0.11.17", "0.12.0", "", secure},
 		{"following an older install", "octo-runtime:0.11.17", "", "", plain},
 		{"following an install of unknown release", "octo-runtime@sha256:abc", "", "", plain},
 	}
