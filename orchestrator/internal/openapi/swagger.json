@@ -441,7 +441,7 @@
                         "uniqueItems": false
                     },
                     "internalTlsAvailable": {
-                        "description": "InternalTLSAvailable reports whether the installation can issue internal\ncertificates. A deploy also needs runtime 0.11.18 or newer to set internalTls.",
+                        "description": "InternalTLSAvailable reports whether the installation can issue internal\ncertificates. A deploy also needs runtime 0.12.0 or newer to set internalTls.",
                         "type": "boolean"
                     },
                     "networked": {

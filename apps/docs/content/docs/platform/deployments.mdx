@@ -66,7 +66,7 @@ When the deployment is also exposed externally, the ingress re-encrypts to the p
 
 Other ingress controllers cannot reach a deployment serving internal HTTPS through an external endpoint.
 
-Internal HTTPS needs runtime **0.11.18** or newer. A deployment pinned to an older runtime ignores `HTTPS_PORT`, so the API refuses `internalTls` for it, on deploy and on rollout. A deployment that pins no runtime is checked against the installation's runtime release; when that release cannot be determined, the API refuses `internalTls`.
+Internal HTTPS needs runtime **0.12.0** or newer. A deployment pinned to an older runtime ignores `HTTPS_PORT`, so the API refuses `internalTls` for it, on deploy and on rollout. A deployment that pins no runtime is checked against the installation's runtime release; when that release cannot be determined, the API refuses `internalTls`.
 
 The option is available when the chart's `internalTLS.enabled` gives the orchestrator an internal CA issuer. Without one, the option is disabled in the deploy dialog, and the API rejects it on deploy and on rollout. The chart needs cert-manager and trust-manager in the cluster: cert-manager issues the certificates, and trust-manager publishes the CA that other pods trust. Every integration pod mounts that CA bundle, so a pod stays pending until trust-manager has published it in the pod's namespace. See [Deploying with Helm](/deploy/helm).
 

@@ -218,7 +218,7 @@ what a deploy of it needs.
 
 --internal-tls makes a networked deployment serve HTTPS inside the cluster
 instead of plain HTTP. It needs an installation with an internal CA and runtime
-0.11.18 or newer; see Internal HTTPS in the platform's Deployments guide.`,
+0.12.0 or newer; see Internal HTTPS in the platform's Deployments guide.`,
 		Example: `  octopaas deployments create billing
   octopaas deployments create billing --version v1.3.0
   octopaas deployments create billing --version v1.3.0 --replicas 2 \
@@ -292,7 +292,7 @@ instead of plain HTTP. It needs an installation with an internal CA and runtime
 	cmd.Flags().StringVar(&slug, "slug", "", "its internal address label (default: a free one)")
 	cmd.Flags().StringVar(&expose, "expose", "", "external to publish it outside the cluster")
 	cmd.Flags().StringVar(&subdomain, "subdomain", "", "the subdomain to publish it on, with --expose external")
-	cmd.Flags().BoolVar(&internalTLS, "internal-tls", false, "serve HTTPS inside the cluster instead of plain HTTP (needs an internal CA and runtime 0.11.18+)")
+	cmd.Flags().BoolVar(&internalTLS, "internal-tls", false, "serve HTTPS inside the cluster instead of plain HTTP (needs an internal CA and runtime 0.12.0+)")
 	cmd.Flags().StringSliceVar(&access, "access", nil, "what the deployment's own token may do besides its stores: developer, operator")
 	cmd.Flags().StringVar(&runner, "runner", "", "standard or agentic (default: picked from the integration)")
 	return cmd

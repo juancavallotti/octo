@@ -12,7 +12,7 @@ import (
 )
 
 // tlsRelease is an installation release that serves internal TLS.
-const tlsRelease = "0.11.18"
+const tlsRelease = "0.12.0"
 
 // bareDef has no HTTP source, so it deploys as a workload with no address.
 const bareDef = "flows:\n  - name: tick\n    source:\n      type: cron\n"
@@ -54,7 +54,7 @@ func TestDeployInternalTLSUnavailable(t *testing.T) {
 func TestDeployInternalTLSRefusesOldRuntime(t *testing.T) {
 	repo := &fakeRepo{created: Deployment{ID: "dep-1"}}
 	integrations := &fakeIntegrations{ret: integration.Integration{ID: "int-1", Name: "Orders", Definition: exposableDef}}
-	kc := &fakeKube{status: kube.StatusPending, internalTLSEnabled: true, runtimeVersion: "0.11.18"}
+	kc := &fakeKube{status: kube.StatusPending, internalTLSEnabled: true, runtimeVersion: "0.12.0"}
 	svc := NewService(repo, integrations, kc)
 
 	_, err := svc.Deploy(context.Background(), "int-1", Settings{InternalTLS: true, RuntimeVersion: "0.11.14"})

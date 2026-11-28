@@ -246,7 +246,7 @@ type deployOptionsResponse struct {
 	SlugValid       bool             `json:"slugValid"`
 	SlugAvailable   bool             `json:"slugAvailable"`
 	// InternalTLSAvailable reports whether the installation can issue internal
-	// certificates. A deploy also needs runtime 0.11.18 or newer to set internalTls.
+	// certificates. A deploy also needs runtime 0.12.0 or newer to set internalTls.
 	InternalTLSAvailable bool `json:"internalTlsAvailable"`
 }
 
