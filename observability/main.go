@@ -223,11 +223,7 @@ func run() error {
 		slog.Info("shutdown signal received, draining")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		err := httpServer.Shutdown(shutdownCtx)
-		if httpsServer != nil {
-			err = errors.Join(err, httpsServer.Shutdown(shutdownCtx))
-		}
-		return err
+		return shutdown(shutdownCtx, httpServer, httpsServer)
 	}
 }
 

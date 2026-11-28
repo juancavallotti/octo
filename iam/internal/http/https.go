@@ -1,9 +1,12 @@
 package httpx
 
 import (
+	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -16,9 +19,12 @@ const (
 	envHTTPSPort = "HTTPS_PORT"
 	envCertFile  = "OCTO_TLS_CERT_FILE"
 	envKeyFile   = "OCTO_TLS_KEY_FILE"
-	// certCheckInterval bounds how often the certificate files are stat'ed, so a
-	// busy listener does not stat on every handshake.
+	// certCheckInterval bounds how often the certificate files are read, so a
+	// busy listener does not read them on every handshake.
 	certCheckInterval = 10 * time.Second
+	// certWarnInterval bounds how often a failing reload is logged while the
+	// previous pair stays in service.
+	certWarnInterval = time.Minute
 )
 
 // HTTPSFromEnv returns a server that serves plain's handler over HTTPS on
@@ -46,60 +52,78 @@ func HTTPSFromEnv(plain *http.Server) (*http.Server, error) {
 	}, nil
 }
 
-// reloadingCert holds a certificate loaded from disk and reloads it when either
-// file's modification time changes. A pair caught mid-rotation fails to load and
-// the previous one stays in service until the next check.
+// Shutdown shuts every non-nil server down at once under ctx and joins their
+// errors, so no listener keeps accepting while another drains.
+func Shutdown(ctx context.Context, servers ...*http.Server) error {
+	errs := make([]error, len(servers))
+	var wg sync.WaitGroup
+	for i, srv := range servers {
+		if srv == nil {
+			continue
+		}
+		wg.Go(func() { errs[i] = srv.Shutdown(ctx) })
+	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+// reloadingCert holds a certificate pair loaded from disk. Every
+// certCheckInterval it reads both files again and, when their bytes differ from
+// the pair in service, parses those same bytes and swaps them in. A pair that
+// fails to parse — caught mid-rotation, or a certificate that does not match its
+// key — leaves the previous pair in service, logs a warning at most every
+// certWarnInterval, and is retried at the next check.
 type reloadingCert struct {
 	certFile, keyFile string
+	now               func() time.Time
 
 	mu        sync.Mutex
 	cert      *tls.Certificate
-	certMod   time.Time
-	keyMod    time.Time
+	certPEM   []byte
+	keyPEM    []byte
 	checkedAt time.Time
+	warnedAt  time.Time
 }
 
 func loadCert(certFile, keyFile string) (*reloadingCert, error) {
 	if certFile == "" || keyFile == "" {
 		return nil, fmt.Errorf("%s is set, so %s and %s must be too", envHTTPSPort, envCertFile, envKeyFile)
 	}
-	c := &reloadingCert{certFile: certFile, keyFile: keyFile}
-	if err := c.load(); err != nil {
+	c := &reloadingCert{certFile: certFile, keyFile: keyFile, now: time.Now}
+	if err := c.reload(); err != nil {
 		return nil, err
 	}
+	c.checkedAt = c.now()
 	return c, nil
 }
 
 func (c *reloadingCert) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if time.Since(c.checkedAt) >= certCheckInterval {
-		if certMod, keyMod, err := c.modTimes(); err == nil && (!certMod.Equal(c.certMod) || !keyMod.Equal(c.keyMod)) {
-			_ = c.load()
+	now := c.now()
+	if now.Sub(c.checkedAt) >= certCheckInterval {
+		c.checkedAt = now
+		if err := c.reload(); err != nil && now.Sub(c.warnedAt) >= certWarnInterval {
+			c.warnedAt = now
+			slog.Warn("could not reload the HTTPS certificate; serving the previous one", "error", err)
 		}
-		c.checkedAt = time.Now()
 	}
 	return c.cert, nil
 }
 
-func (c *reloadingCert) load() error {
-	certMod, keyMod, err := c.modTimes()
-	if err != nil {
-		return err
+func (c *reloadingCert) reload() error {
+	certPEM, certErr := os.ReadFile(c.certFile)
+	keyPEM, keyErr := os.ReadFile(c.keyFile)
+	if err := errors.Join(certErr, keyErr); err != nil {
+		return fmt.Errorf("read certificate files: %w", err)
 	}
-	pair, err := tls.LoadX509KeyPair(c.certFile, c.keyFile)
+	if c.cert != nil && bytes.Equal(certPEM, c.certPEM) && bytes.Equal(keyPEM, c.keyPEM) {
+		return nil
+	}
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		return fmt.Errorf("load certificate %s and key %s: %w", c.certFile, c.keyFile, err)
 	}
-	c.cert, c.certMod, c.keyMod, c.checkedAt = &pair, certMod, keyMod, time.Now()
+	c.cert, c.certPEM, c.keyPEM = &pair, certPEM, keyPEM
 	return nil
-}
-
-func (c *reloadingCert) modTimes() (time.Time, time.Time, error) {
-	certInfo, certErr := os.Stat(c.certFile)
-	keyInfo, keyErr := os.Stat(c.keyFile)
-	if err := errors.Join(certErr, keyErr); err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("stat certificate files: %w", err)
-	}
-	return certInfo.ModTime(), keyInfo.ModTime(), nil
 }
